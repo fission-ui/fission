@@ -31,6 +31,21 @@ pub struct Dropzone {
     pub on_drag_leave: Option<ActionEnvelope>,
 }
 
+impl Default for Dropzone {
+    fn default() -> Self {
+        Self {
+            id: None,
+            semantics_identifier: None,
+            child: fission_core::ui::widgets::Spacer::default().into(),
+            active_child: None,
+            hover_child: None,
+            on_drop: None,
+            on_drag_enter: None,
+            on_drag_leave: None,
+        }
+    }
+}
+
 impl Dropzone {
     /// Assigns the stable accessibility and LiveTest identifier used to locate
     /// this drop target when no explicit widget ID is available.

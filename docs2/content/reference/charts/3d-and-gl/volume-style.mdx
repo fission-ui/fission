@@ -1,0 +1,53 @@
+---
+title: Volume-style point field
+sidebar_label: Volume-style point field
+description: Use a point field as a bounded sample preview, not as an implicit reconstruction of a continuous volume.
+---
+
+# Volume-style point field
+
+![Volume-style point field screenshot](/img/charts/volume-style.png)
+
+A dense field of points can suggest the shape of a volume. That resemblance does not establish what lies between the observations or whether interior structures are visible. Keep the acquisition and sampling meaning explicit.
+
+This page uses the sphere-per-point interface from [Point cloud](./point-cloud). It does not provide a general volume renderer, a transfer-function API or automatically inferred density.
+
+## Compose the bounded observation field
+
+Put `PointCloudScene` in `widgets/point_cloud.rs`. Select the display region or sampling policy in the data layer and retain the complete measurements separately.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::point_cloud::PointCloudScene;
+
+fission_component! {
+    pub SpatialSampleField<()> {
+        props {
+            title: TextContent,
+            display_samples: Vec<Point3D>,
+            marker_radius: f32,
+            marker_color: Color,
+        }
+    }
+    view(field, _state, _cx) => PointCloudScene {
+        title: field.title.clone(),
+        positions: field.display_samples.clone(),
+        point_radius: field.marker_radius,
+        point_color: field.marker_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. The parent supplies translated text, theme colour, finite coordinates and a finite positive radius in the documented scene unit.
+
+## Checks
+
+Do not hide sampling or threshold choices behind an apparently complete object. Explain which observations are displayed and which are omitted, with accessible counts and important source values.
+
+Test filtering independently, then inspect occlusion and resource cost at representative sizes. This legacy scene has no camera builders or automatic per-point chart events. The screenshot is gallery sample geometry rather than evidence of reconstructed volume accuracy.
+
+Tags: `3d`, `volume`.
+
+[3D and GL family overview](./overview)

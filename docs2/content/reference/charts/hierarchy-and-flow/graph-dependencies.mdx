@@ -1,0 +1,113 @@
+---
+title: Dependency graph
+sidebar_label: Dependency graph
+description: Fission Charts reference for Dependency graph.
+---
+
+# Dependency graph
+
+![Dependency graph screenshot](/img/charts/graph-dependencies.png)
+
+A dependency graph shows which parts of a project rely on which others. Unlike a tree, it can represent a shared dependency without making a separate copy for every consumer. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, an edge's source depends on its target: the application depends on shared widgets and the domain core. State that convention explicitly; reversing it produces a graph that still looks plausible but answers the opposite question.
+
+## Data model
+
+Use durable IDs for build targets and readable names for labels. GraphEdge stores a source and target ID. Node values affect marker size, so the example keeps them equal rather than using an unexplained weight.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `GraphSeries::nodes` | `Vec<GraphNode>` | Supplies identified and named nodes. |
+| `GraphSeries::edges` | `Vec<GraphEdge>` | Connects source IDs to target IDs. |
+| `Chart::series` | `Vec<Series>` | Adds the relationship series without Cartesian axes. |
+
+`GraphEdge` is imported from `fission::charts::series::graph`.
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+let relationships = GraphSeries::new("Dependencies")
+    .nodes(vec![
+        GraphNode {
+            id: "app".into(),
+            name: "Application".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "widgets".into(),
+            name: "Shared widgets".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "core".into(),
+            name: "Domain core".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "app".into(),
+            target: "widgets".into(),
+        },
+        GraphEdge {
+            source: "app".into(),
+            target: "core".into(),
+        },
+        GraphEdge {
+            source: "widgets".into(),
+            target: "core".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Build target dependencies")
+    .series(vec![relationships.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records outside the build, then pass them as props. The component does not discover services or run network requests while constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DependencyGraphChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![GraphSeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test endpoint resolution and shared dependencies. A graph can contain a cycle, but drawing it does not validate that the build system accepts it; keep dependency validation in the domain layer.
+
+Give users a readable list of connections as well as the visual. If selecting a node opens details, dispatch that selection through a reducer and resolve it against the current records.
+
+Tags: `graph`, `network`.
+
+[Hierarchy and flow family overview](./overview)

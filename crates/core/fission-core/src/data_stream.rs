@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll};
 
 /// Unique identifier for a runtime-owned binary stream.
@@ -26,7 +26,7 @@ pub struct DataStreamId(pub u64);
 pub enum FissionDataStreamErrorKind {
     /// The stream id is unknown.
     NotFound,
-    /// The stream was already opened by a previous consumer.
+    /// The stream is already open and its previous consumer is still active.
     AlreadyConsumed,
     /// The host or user cancelled the stream.
     Cancelled,
@@ -72,7 +72,7 @@ impl FissionDataStreamError {
     pub fn already_consumed(id: DataStreamId) -> Self {
         Self::new(
             FissionDataStreamErrorKind::AlreadyConsumed,
-            format!("data stream {} was already consumed", id.0),
+            format!("data stream {} is already being consumed", id.0),
         )
     }
 }
@@ -153,30 +153,72 @@ impl DataStreamRegistry {
 
     /// Opens the stream for consumption.
     ///
-    /// Streams are single-consumer by default. Opening removes the stream from
-    /// the registry slot so subsequent opens fail deterministically.
+    /// Streams are single-consumer by default. While the returned stream is
+    /// alive, another open returns [`FissionDataStreamErrorKind::AlreadyConsumed`].
+    /// Dropping the returned stream releases its consumed registry entry, so
+    /// later attempts with the stale id return [`FissionDataStreamErrorKind::NotFound`].
     pub fn open(&self, id: DataStreamId) -> Result<BoxFissionDataStream, FissionDataStreamError> {
-        let mut streams = self.inner.streams.lock().map_err(|_| {
-            FissionDataStreamError::new(
-                FissionDataStreamErrorKind::Other,
-                "data stream registry lock was poisoned",
-            )
-        })?;
-        match streams.get_mut(&id) {
-            Some(slot) => slot
-                .take()
-                .ok_or_else(|| FissionDataStreamError::already_consumed(id)),
-            None => Err(FissionDataStreamError::not_found(id)),
-        }
+        let stream = {
+            let mut streams = self.inner.streams.lock().map_err(|_| {
+                FissionDataStreamError::new(
+                    FissionDataStreamErrorKind::Other,
+                    "data stream registry lock was poisoned",
+                )
+            })?;
+            match streams.get_mut(&id) {
+                Some(slot) => slot
+                    .take()
+                    .ok_or_else(|| FissionDataStreamError::already_consumed(id))?,
+                None => return Err(FissionDataStreamError::not_found(id)),
+            }
+        };
+
+        Ok(Box::pin(OpenedDataStream {
+            id,
+            registry: Arc::downgrade(&self.inner),
+            stream,
+        }))
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases an unopened stream from the registry.
+    ///
+    /// An opened stream releases its consumed registry entry when the returned
+    /// stream is dropped.
     pub fn release(&self, id: DataStreamId) -> bool {
         self.inner
             .streams
             .lock()
             .map(|mut streams| streams.remove(&id).is_some())
             .unwrap_or(false)
+    }
+}
+
+struct OpenedDataStream {
+    id: DataStreamId,
+    registry: Weak<DataStreamRegistryInner>,
+    stream: BoxFissionDataStream,
+}
+
+impl Stream for OpenedDataStream {
+    type Item = Result<Bytes, FissionDataStreamError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.stream.as_mut().poll_next(cx)
+    }
+}
+
+impl Drop for OpenedDataStream {
+    fn drop(&mut self) {
+        let Some(registry) = self.registry.upgrade() else {
+            return;
+        };
+        let Ok(mut streams) = registry.streams.lock() else {
+            return;
+        };
+
+        if matches!(streams.get(&self.id), Some(None)) {
+            streams.remove(&self.id);
+        }
     }
 }
 
@@ -252,13 +294,44 @@ mod tests {
         let registry = DataStreamRegistry::new();
         let id = registry.register(single_chunk_data_stream(Bytes::from_static(b"abc")));
 
-        let bytes = block_on_ready(collect_data_stream(registry.open(id).unwrap())).unwrap();
+        let stream = registry.open(id).unwrap();
+        match registry.open(id) {
+            Ok(_) => panic!("stream should not be opened twice"),
+            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::AlreadyConsumed),
+        }
+
+        let bytes = block_on_ready(collect_data_stream(stream)).unwrap();
         assert_eq!(bytes.as_ref(), b"abc");
 
         match registry.open(id) {
-            Ok(_) => panic!("stream should be consumed"),
-            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::AlreadyConsumed),
+            Ok(_) => panic!("dropped stream should be removed"),
+            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::NotFound),
         }
+    }
+
+    #[test]
+    fn registry_releases_abandoned_streams_when_dropped() {
+        let registry = DataStreamRegistry::new();
+        let id = registry.register(empty_data_stream());
+
+        drop(registry.open(id).unwrap());
+
+        match registry.open(id) {
+            Ok(_) => panic!("dropped stream should be removed"),
+            Err(error) => assert_eq!(error.kind, FissionDataStreamErrorKind::NotFound),
+        }
+    }
+
+    #[test]
+    fn registry_does_not_grow_after_consumed_streams_are_dropped() {
+        let registry = DataStreamRegistry::new();
+
+        for _ in 0..256 {
+            let id = registry.register(empty_data_stream());
+            drop(registry.open(id).unwrap());
+        }
+
+        assert!(registry.inner.streams.lock().unwrap().is_empty());
     }
 
     #[test]

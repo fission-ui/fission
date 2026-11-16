@@ -1,0 +1,183 @@
+---
+title: Fission for Leptos developers
+description: Compare Leptos components, signals, resources, routing and SSR with Fission Compose and its multi-target runtime.
+---
+
+# Fission for Leptos developers
+
+Using Rust for UI does not require the same rendering model. Leptos work often
+starts from browser documents and reactive values. Fission starts from retained
+widgets which a shell lowers to native graphics, Web, Terminal, Static site or
+SSR output.
+
+That difference matters before translating `view!` syntax. A DOM property, a
+layout constraint and a host permission do not become interchangeable merely
+because their inputs are Rust types.
+
+For a complete app with shared state, pages and reusable widgets, follow
+[Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
+The snippets here isolate the ownership differences.
+
+## The state ownership rule
+
+Keep a local disclosure local; keep shared task records in app state. A
+reactive value's readers and lifetime are more useful guides than the
+convenience of its setter.
+
+- `props` declares parent-supplied inputs.
+- Component `state` declares retained UI memory.
+- `GlobalState` owns shared product facts.
+- Reducers change state synchronously.
+- Effects, jobs, services, resources and capabilities handle outside work.
+
+Compose generates local-state wiring. Lower-level `#[with_local_state]` and
+`#[local_state]` components still compose with it.
+
+## 1. Static UI
+
+A component accepts data without deciding where that data was loaded:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProjectTitle<()> {
+        props { title: String }
+    }
+    view(project, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(project.title.clone()).size(tokens.typography.heading1_size)
+}
+```
+
+`view(project, state, cx)` defines Compose scopes, not a Rust closure. The
+component builds the current widget description; it does not start a resource
+fetch simply by being converted.
+
+## 2. Product state and interaction
+
+For an editable app-owned name, bind the value and its update action directly:
+
+```rust
+fission_component! {
+    pub ProjectName<AppState>
+    view(_field, state, cx) =>
+    TextInput(
+        label: Some(cx.tr("project.name").into()),
+        bind: state.project.name,
+        required: true,
+        semantics_identifier: Some("project.name".into()),
+    )
+}
+```
+
+This contextual component assumes `AppState` implements `GlobalState` and owns
+`project`. The edit changes in-memory state. A submission reducer still decides
+when to validate and persist it.
+
+If the name must remain isolated until confirmation, put a draft in component
+`state` instead. Copy the validated draft into the app model on confirmation;
+do not keep two independently mutable “current” project names.
+
+## 3. Outside work
+
+A resource's loading/data/error distinction remains useful. What changes is
+where it starts and which lifetime owns it.
+
+Initial app hydration uses a startup action and registered app-owned work.
+User-requested component work can use an `effect` and a `#[fission_effect]`
+async function. Pass owned inputs, provide both `on_ok` and `on_err`, and show
+`Spinner` or an appropriate pending state while it runs.
+
+Do not put a network call, Store read or file operation in the view setup
+block. That block is ordinary Rust, but it still runs during component
+conversion. The absence of special syntax is not permission to do I/O there.
+
+Component-owned completions are ignored after unmount. An account load or save
+which must survive a route change belongs in an app-owned job/resource.
+See [Compose effects](/compose/) and
+[Resources and async](/docs/guides/resources-and-async/) for those contracts.
+
+## 4. Styling and theme
+
+Read active tokens from `cx.view.env().theme.tokens` and let built-in widgets
+own their recipes. `FormControl` relates a field label and validation message;
+`Modal` owns dialog semantics and focus. A manually styled container does not
+inherit those behaviours.
+
+Static site output is generated at build time. SSR renders for a request.
+Web is an interactive browser app. None should be chosen merely because a
+previous project called its frontend “the website”. Use the output whose
+data and interaction lifetime matches the task.
+
+For Static site/SSR, a native HTML form can still submit without running the
+interactive app. Server actions must validate and authorize the request
+independently of what the rendered UI allowed.
+
+## 5. Routing
+
+Use Fission's native `Router` over the path maintained by the shell's route
+handler:
+
+```rust
+fission_component! {
+    pub ProjectRoutes<AppState>
+    view(_routes, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/projects", ProjectList)
+        .route_component("/projects/:id", ProjectRoute)
+}
+```
+
+The named components belong to the app. `ProjectRoute` reads `RouteParams` and
+validates the raw segment before opening a record. Rendering a route is not
+authorization for its server operations. Use
+[ProtectedRoute](/reference/widgets/protected-route/) when the component itself
+must wait for an access decision.
+
+## 6. Testing
+
+Browser assertions remain useful for HTML output, but they do not qualify a
+native shell. Choose the test boundary deliberately:
+
+| What needs proof | Fission surface |
+| --- | --- |
+| Domain/state rule | Ordinary Rust or reducer test |
+| Widget tree, text and semantics | `TestHarness` |
+| Real input, focus and screenshot | `LiveTestClient` and `/cmd` |
+| SSR status, form/action security | Request-level tests against the server |
+| Native capability behaviour | The relevant host/device |
+
+Use semantic identifiers for interaction selectors. Follow
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for launch,
+readiness and cleanup rather than leave undefined `page` helpers in a copied
+Rust test.
+
+## Vocabulary map
+
+| Leptos concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| Signal | Component `state`, `GlobalState` or a selected view | Choose ownership before storage. |
+| Resource | Resource/job/service/effect | Request lifetime is explicit. |
+| Component function | `fission_component!` with `view(...)` | Generates retained widget construction. |
+| Leptos Router | Native `Router` | Shells adapt the route history. |
+| DOM hydration | Target-specific shell/enhancement | Native, Web, Terminal and document targets have different hosts. |
+
+## Common instincts to adjust
+
+Do not replace every signal with a global field or every resource with a
+render-time future. Preserve the data's owner and choose the request lifetime.
+That is the part which keeps larger apps understandable.
+
+Keep the useful SSR instincts around request-derived data, authorization and
+HTML semantics. A shared widget model does not erase those server boundaries.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

@@ -1,0 +1,81 @@
+---
+title: Positioned
+description: Absolutely position one child inside a stacked parent.
+slug: /widgets/positioned
+---
+# Positioned
+
+`Positioned` places a child at an edge, corner, or offset inside a layered
+parent such as [`ZStack`](/reference/widgets/z-stack). Use it for badges,
+floating buttons, or corner actions.
+
+For ordinary spacing in a row or column, use layout gaps instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub UnreadMessageCard<()> {
+        props {
+            content: Widget,
+            unread: bool,
+        }
+    }
+
+    view(card, _state, cx) {
+        let inset = cx.view.env().theme.tokens.spacing.s;
+    } =>
+        ZStack(
+            children: [
+                card.content.clone(),
+                if card.unread {
+                    Positioned(
+                        top: inset,
+                        right: inset,
+                        child: Tag(label: cx.tr("message.unread")),
+                    )
+                },
+            ],
+        )
+}
+```
+
+The owned message content is still in the ordinary stack. The tag is an
+independent child with theme-derived inset; it is not used as the message's only
+accessible unread state. Physical `right` is deliberate here; choose the
+appropriate side explicitly when the design should mirror with reading direction.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `left` | `Option<f32>` | Distance from the parent's left edge. | Defaults to `None`. |
+| `top` | `Option<f32>` | Distance from the parent's top edge. | Defaults to `None`. |
+| `right` | `Option<f32>` | Distance from the parent's right edge. | Defaults to `None`. |
+| `bottom` | `Option<f32>` | Distance from the parent's bottom edge. | Defaults to `None`. |
+| `width` | `Option<f32>` | Explicit width for the child region. | Defaults to `None`. |
+| `height` | `Option<f32>` | Explicit height for the child region. | Defaults to `None`. |
+| `child` | `Option<Widget>` | The positioned child. | Defaults to `None`. |
+
+## Placement behavior
+
+If you provide both `left` and `right`, the available width is derived from the remaining horizontal space. Likewise, if you provide both `top` and `bottom`, the available height is derived from the remaining vertical space. Explicit `width` and `height` tighten the child constraints further.
+
+If only one edge is provided on an axis, the child keeps its natural size on that axis and is placed from that edge.
+
+## Specific advice
+
+`Positioned` reads best when the placement is part of the design, not a last-minute correction. If you find yourself using it repeatedly just to fix normal layout problems, step back and reconsider whether the parent should really be a row, column, or container instead.
+
+## Production checklist
+
+- Test the positioned child in its real bounded stack at narrow widths.
+- Check overlap with long content and physical versus logical edge placement.
+- Keep meaningful unread/validation state available without relying on location or colour.
+
+## Related
+
+[`ZStack`](/reference/widgets/z-stack), [`Overlay`](/reference/widgets/overlay), and [`absolute_fill(...)`](/reference/widgets/absolute-fill).

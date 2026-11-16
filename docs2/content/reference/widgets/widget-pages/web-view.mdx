@@ -1,0 +1,117 @@
+---
+title: WebView
+description: Declare an embedded browser surface and register the desired web address with the runtime.
+slug: /widgets/web-view
+---
+# WebView
+
+`WebView` reserves space in your layout for a host-provided browser surface.
+Use it when the product needs to embed web content, such as documentation or an
+account portal. Build the rest of the screen with ordinary Fission widgets,
+state, reducers, and effects.
+
+## What `WebView` actually does
+
+`WebView` declares a rectangle in your app's layout and tells the runtime which web address should appear there.
+
+Your app owns the surrounding layout, controls, and navigation intent. The
+embedded browser owns page rendering, in-page navigation, and browser behavior.
+
+## When to use it
+
+Use `WebView` when all of these are true:
+
+- the content really is web content rather than native app user interface
+- embedding it inside the app is part of the product experience
+- you accept that browser-engine behavior is host-specific and not fully owned by the shared widget tree
+
+Do not use it just because a team already has some HTML lying around. If the screen is a core part of the product and should participate fully in Fission layout, semantics, testing, and state flow, building it directly in Fission is usually the better long-term choice.
+
+## Example
+
+This example shows a help panel that opens product documentation inside the app while keeping the chosen page in app state.
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub HelpDocument<()> {
+        props {
+            url: String,
+            width: f32,
+            height: f32,
+        }
+    }
+
+    view(help, _state, cx) =>
+        WebView(
+            id: WidgetId::explicit("help.document"),
+            label: Some(cx.tr("help.documentation")),
+            url: help.url.clone(),
+            width: help.width,
+            height: help.height,
+        )
+}
+```
+
+The parent owns a validated help URL and real panel bounds. This does not turn
+untrusted HTML into native UI or prove a target has a real browser backend.
+Keep an explicit `Open in browser` action available when embedding is unsupported.
+
+The requested URL comes from parent state, so navigation intent stays explicit.
+On a supported host the embedded browser loads it; registration alone does not
+create a browser engine on other targets.
+
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the embedded browser node. | Required. The runtime uses it as the key in `runtime web state store`. |
+| `url` | `String` | The page the embedded surface should load. | Required. When the runtime sees this value change, it updates the registered web state and marks it as loading. |
+| `label` | `Option<String>` | Accessible document name. | Prefer a translated purpose over an opaque URL. |
+| `user_agent` | `Option<String>` | Optional custom user-agent string for the embedded surface. | Defaults to `None`. The runtime stores the requested value with the registration. |
+| `width` | `Option<f32>` | Requested layout width for the embedded surface. | Use `Some(...)` for a fixed-size panel. Use `None` when the parent layout should decide the width. |
+| `height` | `Option<f32>` | Requested layout height for the embedded surface. | Use `Some(...)` for a fixed-height panel. Use `None` when the parent layout should decide the height. |
+
+## State ownership and trade-offs
+
+A good mental model is to separate three kinds of state.
+
+Your app state should own product intent: which web address to show, whether the web panel is visible, whether the user is allowed to open external links, and what surrounding controls should do.
+
+The runtime owns the registration and per-surface state slot keyed by the widget id. That state shape includes fields such as `url`, `loading`, `can_go_back`, `can_go_forward`, and `title`.
+
+The host shell ultimately owns the actual embedded browser implementation. That includes the browser engine, page loading, page-internal navigation, and any platform-specific browser-surface behavior.
+
+Those boundaries bring trade-offs. `WebView` is useful when embedding web content is the right product call, but it also means you are stepping into a more host-specific surface than ordinary Fission widgets. Browser security rules, cookies, auth flows, focus behavior, clipboard behavior, and page navigation conventions can differ by host implementation.
+
+## Current support status
+
+`WebView` has a runtime registration and state contract, but embedded browser
+support is partial in the current shells. The conversion path registers the
+surface through `BuildCtxHandle::register_web_view(...)`; the runtime tracks
+the requested URL and related metadata. The native winit path has a macOS WKWebView backend; its non-macOS fallback
+is a no-op mock, not an embedded browser. Browser navigation metadata and
+control integration are not implemented across all targets. Check the target you
+plan to ship before making embedded browsing a required part of the product.
+
+## Specific guidance
+
+Keep the desired web address in app state. That makes navigation intent explicit and testable.
+
+Treat surrounding controls such as "Open in browser," "Back," or "Reload" as ordinary app user interface with explicit actions and reducers, even if the embedded browser implementation is host-managed underneath.
+
+Check the target implementation before relying on browser controls or metadata
+being populated end to end. The runtime state fields exist, but the current
+shells do not yet provide the complete browser-control path.
+
+## Production checklist
+
+- Verify a real host browser surface, not only the registration state, on the shipped target.
+- Restrict untrusted URL/navigation origins according to the product's security policy.
+- Test focus and authentication/cookie behaviour in the actual embedded engine.
+- Offer a normal external-browser path when embedding is unavailable.
+
+## Related
+
+[`Video`](/reference/widgets/video), [`Platform runtime`](/reference/core/platform-runtime), [`Modal`](/reference/widgets/modal), and [`Media, animation, portals, and 3D`](/docs/guides/media-animation-portals-and-3d).

@@ -1,0 +1,89 @@
+---
+title: SelectItem
+description: Describe one selectable option inside a Select dropdown.
+slug: /widgets/select-item
+---
+# SelectItem
+
+`SelectItem` describes one option in a [`Select`](/reference/widgets/select).
+It carries the label, optional icon, and action for that row; it does not
+render on its own.
+
+`Select` adapts it to the shared `MenuActionItem::option` anatomy, so option
+rows use the same retained menu recipe as other command and list-box surfaces.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view setup, bind the app's density reducer instead of serialising an
+// ActionEnvelope by hand. Both actions also close the controlled dropdown.
+let compact = cx.bind(SetDensity(Density::Compact), reduce!(set_density));
+let comfortable = cx.bind(SetDensity(Density::Comfortable), reduce!(set_density));
+let items = vec![
+    SelectItem {
+        label: cx.tr("density.compact"),
+        icon: None,
+        on_select: compact,
+        semantics_identifier: Some("density.compact".into()),
+        form_value: Some("compact".into()),
+    },
+    SelectItem {
+        label: cx.tr("density.comfortable"),
+        icon: None,
+        on_select: comfortable,
+        semantics_identifier: Some("density.comfortable".into()),
+        form_value: Some("comfortable".into()),
+    },
+];
+```
+
+Each item contains the final action for that option, so `Select` does not have to guess how your state model works.
+
+`Density`, `SetDensity`, and `set_density` are app-owned here. The reducer
+stores the selected enum and clears the app's open flag. This is configuration
+inside a component, not a complete settings app or a second dispatch protocol.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Visible text for the option row. | Required. |
+| `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. |
+| `on_select` | `ActionEnvelope` | Action dispatched when this option is chosen. | Required. Usually updates the selected value and closes the menu. |
+| `semantics_identifier` | `Option<String>` | Stable identifier exposed on the generated option semantic node. | Use it when visible labels may be duplicated or localized. |
+| `form_value` | `Option<String>` | Stable machine value used by native Static site and SSR options. | Set it on every item when the surrounding `Select` belongs to a server form. |
+
+## How to think about it
+
+Because `SelectItem` stores a ready-made `ActionEnvelope`, it works best when every item can prepare its own payload during build. That is exactly what you want for enums, ids, and other small typed choices.
+
+A good reducer usually stores the real selected value in state and derives `selected_label` separately. Do not let the label string become your only source of truth unless the label is the product value.
+
+The parent renders each record as a semantic `Option`. The first item whose
+`label` exactly equals `Select::selected_label` is marked selected and receives
+the selected visual treatment. Its stable id also becomes the open trigger's
+active descendant and the flyout's selected-row alignment target. When items
+can be reordered or translated, give each one a stable
+`semantics_identifier`; otherwise its retained popup identity is derived from
+its current index.
+
+## Specific advice
+
+Make the `on_select` action do both pieces of work the user expects: set the new value and close the select by updating `is_open` in state. The widget itself will not close unless your state says so.
+
+`SelectItem` has no disabled or description fields. When those states are part
+of the product model, use `SelectLayout`, `SelectContent`, and `SelectOption`
+for the richer built-in anatomy rather than making
+an option look unavailable while leaving it actionable.
+
+## Production checklist
+
+Test selection after translating or reordering the options. Verify the chosen
+machine value, the active label, and closure of the popup; a changed highlight
+alone does not prove the reducer selected the right enum.
+
+## Related
+
+[`Select`](/reference/widgets/select), [`MenuItem`](/reference/widgets/menu-item), [`Menu`](/reference/widgets/menu), and [`Combobox`](/reference/widgets/combobox).

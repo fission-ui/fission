@@ -1017,6 +1017,18 @@ const fn default_sequential_focusable() -> bool {
     true
 }
 
+/// One machine-valued option in a server-rendered HTML select control.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct FormSelectOption {
+    /// User-facing option label after localisation has been resolved.
+    pub label: String,
+    /// Stable machine value submitted by the surrounding form.
+    pub value: String,
+    /// Whether the option remains visible but cannot be selected.
+    #[serde(default)]
+    pub disabled: bool,
+}
+
 /// Accessibility and interaction metadata for a node.
 ///
 /// `Semantics` is the IR's way of describing *what a node means* rather than how it
@@ -1051,6 +1063,12 @@ pub struct Semantics {
     pub label: Option<String>,
     /// Stable semantic identifier for tooling and automation.
     pub identifier: Option<String>,
+    /// Widget regions that should receive pointer input through this overlay.
+    ///
+    /// This is used by dismissal surfaces that cover the screen while keeping
+    /// selected anchors interactive. It affects hit testing, not accessibility.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointer_passthrough: Vec<WidgetId>,
     /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
     /// Optional hyperlink destination for this semantic region.
@@ -1182,6 +1200,10 @@ pub struct Semantics {
     pub max_value: Option<f32>,
     /// Current numeric value for range inputs (sliders).
     pub current_value: Option<f32>,
+    /// Positive increment used by discrete numeric controls. `None` means the
+    /// control accepts any value within its range.
+    #[serde(default)]
+    pub step_value: Option<f32>,
     /// When `true`, this node creates a new focus scope (like a dialog or panel).
     pub is_focus_scope: bool,
     /// When `true`, Tab traversal does not leave this subtree.
@@ -1211,6 +1233,17 @@ pub struct Semantics {
     /// Logical form membership for coordinated validation/submission.
     #[serde(default)]
     pub text_form_id: Option<String>,
+    /// Explicit value submitted by a successful server-rendered form control.
+    ///
+    /// Checkable controls without this value retain the HTML default of `on`.
+    /// Composite controls such as a retained select use it as the selected
+    /// machine value of their native or hidden successful control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
+    /// Native choices exposed when a retained select is rendered as an HTML
+    /// successful control.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_select_options: Vec<FormSelectOption>,
     /// Autofill session/group shared by related fields.
     #[serde(default)]
     pub autofill_group: Option<String>,
@@ -1295,6 +1328,7 @@ impl std::hash::Hash for Semantics {
         self.min_value.map(|f| f.to_bits()).hash(state);
         self.max_value.map(|f| f.to_bits()).hash(state);
         self.current_value.map(|f| f.to_bits()).hash(state);
+        self.step_value.map(|f| f.to_bits()).hash(state);
         self.is_focus_scope.hash(state);
         self.is_focus_barrier.hash(state);
         self.drag_payload.hash(state);
@@ -1308,6 +1342,8 @@ impl std::hash::Hash for Semantics {
         self.input_formatters.hash(state);
         self.text_field_name.hash(state);
         self.text_form_id.hash(state);
+        self.form_value.hash(state);
+        self.form_select_options.hash(state);
         self.autofill_group.hash(state);
         self.required.hash(state);
         self.min_length.hash(state);
@@ -1334,6 +1370,7 @@ impl Default for Semantics {
             role: Role::Generic,
             label: None,
             identifier: None,
+            pointer_passthrough: Vec::new(),
             value: None,
             hyperlink: None,
             popover_target: None,
@@ -1377,6 +1414,7 @@ impl Default for Semantics {
             min_value: None,
             max_value: None,
             current_value: None,
+            step_value: None,
             is_focus_scope: false,
             is_focus_barrier: false,
             drag_payload: None,
@@ -1390,6 +1428,8 @@ impl Default for Semantics {
             input_formatters: Vec::new(),
             text_field_name: None,
             text_form_id: None,
+            form_value: None,
+            form_select_options: Vec::new(),
             autofill_group: None,
             required: false,
             min_length: None,

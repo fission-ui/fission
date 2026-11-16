@@ -1,0 +1,29 @@
+---
+title: Coverage score map
+sidebar_label: Coverage score map
+description: Define coverage as a ratio with a measured eligible population.
+---
+
+# Coverage score map
+
+![Coverage score map screenshot](/img/charts/map-coverage-score.png)
+
+Coverage should say what has been covered. Counting active customers alone can make a populous region look better served even when most eligible premises remain unconnected.
+
+Use [PremisesCoverageMap](../dataset/dataset-map-coverage) for the actual Compose chart and GeoJSON join. The input records contain covered and total premises, preserving the denominator instead of retaining only an unexplained score.
+
+```rust
+pub fn measured_coverage(covered: u32, eligible: u32) -> Option<f32> {
+    match eligible {
+        0 => None,
+        _ if covered > eligible => None,
+        _ => Some(100.0 * covered as f32 / eligible as f32),
+    }
+}
+```
+
+Validate this relationship before constructing the report. A missing denominator is not 0% coverage; an inconsistent numerator is a data error, not 100%. The linked component accepts translated title, measure caption and explanatory text, together with a fixed percentage colour scale.
+
+The geometry must contain the same durable region IDs as the records. Keep exact covered/eligible totals nearby, and state the survey date so stale information is not mistaken for current rollout. Test no eligible premises, partial coverage and missing polygons. The gallery data is separate, and this map is not a continuous signal-strength surface.
+
+[Geo family overview](./overview)

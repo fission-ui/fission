@@ -47,7 +47,7 @@ fn screenshot_dir() -> String {
 
 fn chart_doc_slugs() -> Vec<String> {
     let docs_root = format!(
-        "{}/../../documentation/content/reference/charts",
+        "{}/../../docs2/content/reference/charts",
         env!("CARGO_MANIFEST_DIR")
     );
     let mut slugs = Vec::new();
@@ -136,7 +136,7 @@ fn generate_real_chart_doc_screenshots() {
     }
 
     let output_dir = format!(
-        "{}/../../documentation/static/img/charts",
+        "{}/../../docs2/site/assets/img/charts",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::create_dir_all(&output_dir).expect("create documentation chart screenshot dir");

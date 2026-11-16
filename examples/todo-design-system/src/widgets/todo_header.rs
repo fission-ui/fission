@@ -6,67 +6,58 @@ use fission::prelude::*;
 /// Below this width the theme switch moves under the title.
 const STACKED_MAX_WIDTH: f32 = 520.0;
 
-pub(super) struct TodoHeader;
-
-impl From<TodoHeader> for Widget {
-    fn from(_header: TodoHeader) -> Self {
-        Responsive::new(HeaderLayout { stacked: false })
-            .case(ResponsiveCase::max_width(
-                STACKED_MAX_WIDTH,
-                HeaderLayout { stacked: true },
-            ))
-            .into()
-    }
+fission_component! {
+    pub(super) TodoHeader<TodoState> |_header, _state, _cx| {} =>
+        Responsive::new(HeaderLayout::new(false)).case(ResponsiveCase::max_width(
+            STACKED_MAX_WIDTH,
+            HeaderLayout::new(true),
+        ))
 }
 
-struct HeaderLayout {
-    stacked: bool,
+fission_component! {
+    HeaderLayout<TodoState> { stacked: bool } |layout, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        if layout.stacked {
+            Column(
+                gap: tokens.spacing.m,
+                children: [
+                    HeaderTitle(),
+                    if !state.embedded { ThemeSwitch() },
+                ],
+            )
+        } else {
+            Row(
+                gap: tokens.spacing.m,
+                align_items: AlignItems::Start,
+                children: [
+                    HeaderTitle(),
+                    if !state.embedded { ThemeSwitch() },
+                ],
+            )
+        }
 }
 
-impl From<HeaderLayout> for Widget {
-    fn from(layout: HeaderLayout) -> Self {
-        let (_, view) = fission::build::current::<TodoState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    HeaderTitle<TodoState> |_title, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-        let title = Column {
-            gap: Some(tokens.spacing.xs),
-            flex_grow: 1.0,
-            children: widgets![
-                Text::new(view.tr("todo.title"))
+    } =>
+        Column(
+            gap: tokens.spacing.xs,
+            flex_grow: 1.0_f32,
+            children: [
+                Text(cx.view.tr("todo.title"))
                     .size(typography.heading1_size)
                     .line_height(typography.heading1_size * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
                     .color(tokens.colors.heading),
-                Text::new(view.tr("todo.subtitle"))
+                Text(cx.view.tr("todo.subtitle"))
                     .size(typography.body_medium_size)
-                    .line_height(typography.body_medium_size * typography.line_height_normal)
+                    .line_height(
+                        typography.body_medium_size * typography.line_height_normal,
+                    )
                     .color(tokens.colors.text_secondary),
             ],
-            ..Default::default()
-        };
-
-        // An embedding host sets light or dark itself, so its switch is the only one.
-        let children = if view.state().embedded {
-            widgets![title]
-        } else {
-            widgets![title, ThemeSwitch]
-        };
-
-        if layout.stacked {
-            Column {
-                gap: Some(tokens.spacing.m),
-                children,
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Row {
-                gap: Some(tokens.spacing.m),
-                align_items: AlignItems::Start,
-                children,
-                ..Default::default()
-            }
-            .into()
-        }
-    }
+        )
 }

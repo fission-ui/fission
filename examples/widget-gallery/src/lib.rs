@@ -29,7 +29,7 @@ pub fn embedded_state() -> GalleryState {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 fn web_app() -> fission::prelude::WebApp<GalleryState, QualityGalleryApp> {
     fission::prelude::WebApp::<GalleryState, _>::new(QualityGalleryApp)
         .with_title("Fission UI Quality Gallery")
@@ -74,7 +74,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
         .run()
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();

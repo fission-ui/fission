@@ -37,6 +37,18 @@ pub struct Skeleton {
     pub motion: Option<SkeletonMotion>,
 }
 
+impl Default for Skeleton {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            width: None,
+            height: None,
+            circle: false,
+            motion: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Skeleton`].
 ///

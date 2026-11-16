@@ -1,0 +1,158 @@
+---
+title: NFC
+description: Read, write, emulate, and cancel NFC sessions through a host provider.
+---
+
+# NFC
+
+Near field communication is short-range hardware interaction. The app should describe what it wants to do, then let the host open the platform NFC session, display the platform prompt, read or write the tag, and return typed records.
+
+This example reads an NDEF tag and shows how many records it contains. It retains the typed tag for a later product-specific decoder. An NDEF text or URI record has its own byte format; treating its complete payload as UTF-8 would include metadata bytes or corrupt the result.
+
+Do not put NFC SDK calls in reducers. NFC sessions are host-owned because permissions, hardware support, background behavior, and entitlements differ by target.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct NfcState {
+    tag: Option<NfcTag>,
+    nfc_error: Option<String>,
+    scanning_nfc: bool,
+}
+
+impl GlobalState for NfcState {}
+```
+
+Keep the status, tag, and error separate. A tag with no records is still a successful scan, not an unsupported-device error. Only decode record types the app understands, and do not treat a URL on a physical tag as trusted navigation.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability nfc --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android NFC permission and optional hardware feature metadata. iOS needs an NFC usage description and reader-session entitlement. Desktop targets usually need a product-specific hardware provider for the reader you ship or support.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed NFC request your reducer makes; the scan call is shown below.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The NFC session completes after its starting reducer returns. Handle the tag and error in completion reducers.
+
+```rust
+#[fission_reducer(TagScanned)]
+fn on_tag_scanned(state: &mut NfcState, ctx: &mut ReducerContext<NfcState>) {
+    state.scanning_nfc = false;
+    match ctx.input.capability_ok(SCAN_NFC_TAG) {
+        Some(tag) => {
+            state.tag = Some(tag);
+            state.nfc_error = None;
+        }
+        None => state.nfc_error = Some("The host returned no tag".into()),
+    }
+}
+
+#[fission_reducer(TagScanFailed)]
+fn on_tag_scan_failed(state: &mut NfcState, ctx: &mut ReducerContext<NfcState>) {
+    state.scanning_nfc = false;
+    state.nfc_error = Some(
+        ctx.input.capability_error(SCAN_NFC_TAG)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not read the NFC tag".into()),
+    );
+}
+```
+
+The registered actions only select a reducer. The actual tag and error arrive through `ctx.input`; a default `NfcTag` passed in an action would not become the scanned tag. Cancellation clears the busy state through the error path when the provider reports it as an error.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(ScanNfcTag)]
+fn on_scan_nfc_tag(
+    state: &mut NfcState,
+    request: NfcScanRequest,
+    ctx: &mut ReducerContext<NfcState>,
+) {
+    if state.scanning_nfc { return; }
+    state.scanning_nfc = true;
+    state.tag = None;
+    state.nfc_error = None;
+    let scanned = ctx.effects.bind(TagScanned, reduce_with!(on_tag_scanned));
+    let failed = ctx.effects.bind(TagScanFailed, reduce_with!(on_tag_scan_failed));
+    ctx.effects.nfc().scan_tag(request).on_ok(scanned).on_err(failed);
+}
+```
+
+The call records a typed host request; the provider handles the platform NFC session.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts the NFC session:
+
+```rust
+fission_component! {
+    pub ScanNfcTagButton<NfcState> {}
+    view(_button, state, cx) {
+        let request = NfcScanRequest {
+            technologies: vec![NfcTechnology::Ndef],
+            message: Some(cx.tr("nfc.hold_tag_near_device")),
+            timeout_ms: Some(15_000),
+            read_multiple_records: true,
+        };
+        let run = cx.bind(ScanNfcTag(request), reduce!(on_scan_nfc_tag));
+    }
+    => Column(children: [
+        Button(child: Text(cx.tr("nfc.scan")), disabled: state.scanning_nfc, on_press: run),
+        if state.scanning_nfc { Spinner(motion: SpinnerMotion::Default, label: cx.tr("nfc.scanning")) },
+        if let Some(tag) = &state.tag {
+            Text(format!("{}: {}", cx.tr("nfc.record_count"), tag.records.len()))
+        },
+        if let Some(error) = &state.nfc_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Add the `nfc.*` labels to the translation bundles. The bounded request lets the host own the session and its platform prompt; the screen remains ordinary Compose. If this becomes an asset lookup, decode and validate the application record first, then request the lookup separately.
+
+## 6. Provide and test the host behavior
+
+Register an `NfcHost` with `.with_nfc_host(...)`. Use `MemoryNfcHost` in tests. Real providers should report availability before scanning and return `NfcError::unsupported(...)` for operations the device cannot perform.
+
+Test availability, successful scans, empty tags, text and URI record payloads, timeout, cancellation, unsupported write or emulation paths, and host errors. In a larger onboarding flow, call `nfc().availability()` before offering NFC setup and provide an alternative when hardware is absent. The control above demonstrates the one-shot read and handles unsupported hosts explicitly.
+
+## Platform expectations
+
+Android and iOS are the primary targets. Web NFC is limited to specific browsers and devices. Windows, macOS, and Linux normally require external readers or smart-card stacks rather than one standard app-level NFC API.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [NFC reference](/reference/capabilities/nfc/).
+
+## Finished capability flow
+
+A complete `NFC` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

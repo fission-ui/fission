@@ -1,0 +1,107 @@
+---
+title: Alert correlation graph
+sidebar_label: Alert correlation graph
+description: Fission Charts reference for Alert correlation graph.
+---
+
+# Alert correlation graph
+
+![Alert correlation graph screenshot](/img/charts/graph-alert-correlation.png)
+
+An alert-correlation graph groups alerts that share evidence, such as a service dependency or an observation window. The connection is a reason to investigate together, not proof that one alert caused another. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Keep the relation explicit. This example links two symptoms to a database-timeout alert identified during investigation. A graph cannot establish a root cause simply by drawing the suspected relationship.
+
+## Data model
+
+Use stable alert IDs as GraphNode IDs and human-readable summaries as names. GraphEdge links those IDs. Equal node values avoid implying that marker size encodes severity; use a separately documented measure if it should.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `GraphSeries::nodes` | `Vec<GraphNode>` | Supplies stable IDs and readable labels. |
+| `GraphSeries::edges` | `Vec<GraphEdge>` | Connects source and target IDs. |
+| `Chart::series` | `Vec<Series>` | Presents the relationship series without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+let routes = GraphSeries::new("Alert relationships")
+    .nodes(vec![
+        GraphNode {
+            id: "latency".into(),
+            name: "High API latency".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "queue".into(),
+            name: "Worker backlog".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "database".into(),
+            name: "Database timeout".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "latency".into(),
+            target: "database".into(),
+        },
+        GraphEdge {
+            source: "queue".into(),
+            target: "database".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Related alerts in an incident")
+    .series(vec![routes.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records before building the chart, then pass them into a presentation component. Loading and failure states belong to the parent workflow rather than an implicit request made during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AlertCorrelationGraphChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![GraphSeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check repeated alert summaries with different IDs and stale links to resolved alerts. Keep the correlation rule and supporting evidence available in a detail view so investigators can assess it.
+
+Provide a readable connection list as an alternative to tracing lines. If a selection opens details, dispatch it through a reducer and identify the record by its current stable ID.
+
+Tags: `graph`, `alert`.
+
+[Hierarchy family overview](./overview)

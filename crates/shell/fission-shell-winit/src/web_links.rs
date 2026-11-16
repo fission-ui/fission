@@ -156,7 +156,7 @@ impl WebLinkOverlay {
                 }
                 event.prevent_default();
                 activations.borrow_mut().push_back(target);
-                let _ = proxy.send_event(TestEvent::Wake);
+                crate::send_wake_event(&proxy);
             }) as Box<dyn FnMut(_)>);
             anchor
                 .add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())

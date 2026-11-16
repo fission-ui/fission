@@ -1,0 +1,43 @@
+---
+title: Kbd
+description: Render a visual keyboard keycap for shortcuts and input instructions.
+slug: /widgets/kbd
+---
+# Kbd
+
+`Kbd` gives a keyboard shortcut a keycap treatment. Use it for shortcuts such
+as `Ctrl+C`, `Cmd+K`, or `g` then `i` when the keys themselves matter to
+the instruction.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view: copy_modifier is derived from the actual bound host shortcut.
+Row(gap: cx.view.env().theme.tokens.spacing.xs, children: [
+    Kbd(text: copy_modifier.clone()),
+    Kbd(text: "C"),
+])
+```
+
+Building each key separately usually reads better than putting the whole chord in one box.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Key label shown inside the keycap. | Required. |
+
+## user experience intent
+
+`Kbd` is purely visual guidance. It does not listen for key events and does not prove that the shortcut is actually wired elsewhere in your app. Make sure the documented shortcut matches the real behavior.
+
+## Specific advice
+
+For multi-step shortcuts, show each keycap separately and add plain text between them when needed, such as `then`. That is easier to scan than a long combined string.
+
+
+## Related
+
+[`Code`](/reference/widgets/code), [`Text`](/reference/widgets/text), [`Link`](/reference/widgets/link), and [`Alert`](/reference/widgets/alert).

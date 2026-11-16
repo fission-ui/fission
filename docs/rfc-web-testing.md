@@ -90,10 +90,17 @@ then available on the same client type.
 Web shell installs `globalThis.__FISSION_TEST__` only in that build. Normal
 `fission build` and `fission run` Web output do not install the bridge.
 
-The bridge has two small operations:
+The bridge exchanges JSON strings so payload data does not allocate
+wasm-bindgen externref handles:
 
-- submit a serialized `TestCommand` and return a request identifier;
-- poll a request identifier for a serialized `TestResponse`.
+- `submit(json)` accepts a JSON command string and returns a request identifier;
+- `poll(id)` returns a JSON response string, or the text `null` while the
+  event-loop response is pending;
+- `frame` returns the submitted-frame snapshot as a JSON string.
+
+Completed responses are removed when polled. The bridge caps uncollected
+requests at 1,024; further submissions return an id that polls as an
+actionable error until earlier requests are collected.
 
 Submitting a command enqueues the corresponding `TestEvent` through the
 existing Winit `EventLoopProxy`. Query events retain their existing per-command

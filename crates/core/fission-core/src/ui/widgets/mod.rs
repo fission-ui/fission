@@ -8,6 +8,7 @@ pub mod column;
 pub mod composite;
 pub mod container;
 pub mod context_menu;
+pub mod env_scope;
 pub mod grid;
 pub mod icon;
 pub mod ignore_pointer;
@@ -53,6 +54,7 @@ pub use context_menu::{
     ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, TextContextMenuAction,
     TextContextMenuConfig,
 };
+pub use env_scope::EnvScope;
 pub use fission_ir::op::ResponsiveQuery;
 pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};
@@ -68,7 +70,7 @@ pub use interactive_viewer::{
     ViewportTransform, ViewportZoomPolicy, DEFAULT_MAX_VIEWPORT_SCALE, DEFAULT_MIN_VIEWPORT_SCALE,
     DEFAULT_VIEWPORT_FRICTION,
 };
-pub use lazy_column::LazyColumn;
+pub use lazy_column::{LazyColumn, LazyColumnBuilder};
 pub use overlay::Overlay;
 pub use positioned::Positioned;
 pub use pressable::{Pressable, PressableRole, PressableStyle};

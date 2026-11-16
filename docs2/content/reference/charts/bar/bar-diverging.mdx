@@ -1,0 +1,67 @@
+---
+title: Diverging bar
+sidebar_label: Diverging bar
+description: Compare signed inventory changes on opposite sides of a common zero.
+---
+
+# Diverging bar
+
+![Diverging bar screenshot](/img/charts/bar-diverging.png)
+
+A diverging bar shows both magnitude and direction relative to zero. For inventory reconciliation, a positive difference can mean more units were counted than recorded, whilst a negative difference means fewer were found. The sign has a concrete meaning; state it rather than asking the reader to infer it from colour.
+
+This is not the same as a comparison of absolute stock levels. A location with no discrepancy may still hold a large quantity of stock.
+
+## Compose example
+
+Calculate the signed difference in the data layer and supply finite display values. The component keeps a symmetric horizontal range so equal distances on either side of zero represent equal discrepancies.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct InventoryDifference {
+    pub location: String,
+    pub counted_minus_recorded: f32,
+}
+
+fission_component! {
+    pub InventoryDifferencesChart<()> {
+        props {
+            title: String,
+            difference_label: String,
+            rows: Vec<InventoryDifference>,
+        }
+    }
+    view(inventory, _state, _cx) {
+        let labels = inventory.rows.iter().map(|row| row.location.as_str()).collect();
+        let differences: Vec<f32> = inventory.rows.iter()
+            .map(|row| row.counted_minus_recorded)
+            .collect();
+        let bound = differences.iter()
+            .fold(1.0_f32, |bound, value| bound.max(value.abs()));
+    } => Chart(
+        title: Some(inventory.title.clone()),
+        x_axis: Some(Axis::value().min(-bound).max(bound)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![
+            Series::Bar(BarSeries::new(&inventory.difference_label)
+                .horizontal()
+                .data(differences)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. The numeric X axis and category Y axis accompany `BarSeries::horizontal()`; all three choices are needed for this presentation. The one-unit minimum bound avoids a zero-width range when every difference is zero.
+
+## Interpretation and checks
+
+Position already distinguishes positive from negative, so a red/green distinction is unnecessary. Provide the location, recorded count, counted quantity and difference in accessible text or a table.
+
+Test negative, zero and positive differences and verify their signs against the reconciliation model. Do not treat an unavailable stock count as zero discrepancy. Inspect the rendered baseline and long location labels; the screenshot above uses gallery fixtures.
+
+Tags: `bar`, `diverging`.
+
+[Bar family overview](./overview)

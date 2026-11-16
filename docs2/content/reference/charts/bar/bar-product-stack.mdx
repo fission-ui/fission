@@ -1,0 +1,69 @@
+---
+title: Product stack bars
+sidebar_label: Product stack bars
+description: Show product contributions to a shared revenue total without mixing units or double-counting sales.
+---
+
+# Product stack bars
+
+![Product stack bars screenshot](/img/charts/bar-product-stack.png)
+
+A portfolio total can increase even whilst one product is declining. A product stack keeps that composition visible: each segment contributes to the period's combined revenue, and the overall height shows the total.
+
+That interpretation depends on the values being additive. Use the same currency and accounting period, and decide how bundles or shared charges are attributed before building the chart. Otherwise the apparent portfolio total may double-count the same sale.
+
+## Compose example
+
+Keep product contributions together with their reporting period. The values below are display projections; authoritative money calculations belong in the financial model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct ProductRevenuePeriod {
+    pub period: String,
+    pub subscriptions: f32,
+    pub services: f32,
+}
+
+fission_component! {
+    pub ProductRevenueChart<()> {
+        props {
+            title: String,
+            subscriptions_label: String,
+            services_label: String,
+            unit_label: String,
+            rows: Vec<ProductRevenuePeriod>,
+        }
+    }
+    view(products, _state, _cx) {
+        let labels = products.rows.iter().map(|row| row.period.as_str()).collect();
+        let subscriptions = products.rows.iter().map(|row| row.subscriptions).collect();
+        let services = products.rows.iter().map(|row| row.services).collect();
+    } => Chart(
+        title: Some(products.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).name(products.unit_label.clone())),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&products.subscriptions_label)
+                .stack("product-revenue").data(subscriptions)),
+            Series::Bar(BarSeries::new(&products.services_label)
+                .stack("product-revenue").data(services)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. Both `BarSeries` use the same internal `stack` key. Their names remain translated props; changing the language must not change which series belong to the same stack.
+
+## Read the result in context
+
+This example is for non-negative contributions. If returns or corrections make revenue negative, choose a presentation which explains that treatment explicitly rather than assuming the stack remains an ordinary part-to-whole comparison.
+
+Provide the period breakdown and total in an accessible table. Test their agreement with the source accounting report and inspect long product names in the legend. If the main task is comparing one product over time, a separate line or grouped bar can be clearer than estimating upper stack segments. The screenshot is the gallery fixture.
+
+Tags: `bar`, `product`.
+
+[Bar family overview](./overview)

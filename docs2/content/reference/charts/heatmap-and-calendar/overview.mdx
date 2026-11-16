@@ -1,0 +1,81 @@
+---
+title: Heatmap and calendar
+sidebar_label: Overview
+description: Fission Charts reference for the Heatmap and calendar family.
+---
+
+# Heatmap and calendar
+
+Heatmaps place a measure at the intersection of two categories. Calendar heatmaps place it on a date. Both use colour to expose patterns, but the placement answers a different question: a matrix compares combinations, whilst a calendar preserves the order and gaps between days.
+
+Charts are regular Fission widgets, so use the same layout, theme, and state APIs as anywhere else in your app. Load the data before building the chart; reducers, resources, jobs, or services can update it.
+
+![Availability heatmap screenshot](/img/charts/heatmap-availability.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Availability heatmap](./heatmap-availability) | Matrix value triples. | Use it for SRE and operations dashboards. |
+| [Build calendar](./calendar-builds) | Date/value pairs. | Use it for engineering operations. |
+| [Correlation heatmap](./heatmap-correlation) | Matrix value triples. | Use it for relationship strength matrices. |
+| [Incident calendar](./calendar-incidents) | Date/value pairs. | Use it for reliability and support reporting. |
+| [Large matrix heatmap](./heatmap-large-matrix) | Dense matrix value triples. | Use it for activity grids with many columns. |
+| [Quarter calendar heatmap](./calendar-quarter) | Date/value pairs. | Use it for contribution and activity patterns. |
+| [Resource load heatmap](./heatmap-resource-load) | Matrix value triples. | Use it for capacity and utilization panels. |
+| [Retention calendar](./calendar-retention) | Date/value pairs. | Use it for habit and retention surfaces. |
+| [Risk grid heatmap](./heatmap-risk-grid) | Matrix value triples. | Use it for risk and priority matrices. |
+| [Small matrix heatmap](./heatmap-small-matrix) | Matrix value triples. | Use it for dashboards with limited space. |
+| [Visual map density](./visual-map-density) | HeatmapSeries plus VisualMap. | Use it when color needs a visible numeric range. |
+| [Weekday hour heatmap](./heatmap-weekday-hour) | x index, y index, value triples. | Use it for operational intensity matrices. |
+
+## Choosing within this family
+
+Start with the question the user is trying to answer. For load by shift and weekday, use a matrix. For days with failed builds, use a calendar. In either case, choose a numeric range deliberately; independently rescaling two charts can make different workloads look equivalent. Provide exact values in text or a table when those values drive a decision.
+
+## Authoring from a Fission component
+
+Add the chart to any Fission layout, including a `Card`, `Grid`, `Scroll`, or responsive section.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub HeatmapAndCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            queued_jobs: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.queued_jobs.clone())
+                .into()],
+        )
+}
+```
+Load the data before building the chart. Put the request or other async work in a reducer, job, service, or server route, then read the result from state in the component.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to check it |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series shown above. | Test that mapping separately from chart rendering. |
+| Options | Pick axes, legends, labels, motion, and interaction to answer the screen's question. | Add a screenshot test when the chart's appearance changes. |
+| Accessibility | Give the chart a clear title and explain important values in nearby text. Do not rely on color alone. | Inspect its semantics and check that the chart still makes sense without color. |
+| Failure handling | Show a loading, empty, or error state when the data is not ready. | Test empty data, partial data, and a failed fetch. |
+| Performance | Summarize or window very large datasets; keep the full history in your data layer. | Profile frame time and interaction latency with representative data. |

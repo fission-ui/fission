@@ -1,0 +1,57 @@
+---
+title: Seasonality polar bars
+sidebar_label: Seasonality polar bars
+description: Fission Charts reference for Seasonality polar bars.
+---
+
+# Seasonality polar bars
+
+![Seasonality polar bars screenshot](/img/charts/polar-seasonality-bars.png)
+
+Monthly demand has a natural cycle, but the shape of one year does not establish a repeating seasonal effect. It records that year's observations and their reporting conditions. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use ordered monthly heating-energy totals to show where demand was concentrated. Differences in month length, weather and building use remain relevant when interpreting the pattern.
+
+## Data model
+
+`PolarBarSeries` uses equal angular slots and scales to the current maximum. Supply all intended months in calendar order with consistent kWh units. Do not convert an unfinished month into an apparently comparable full-month total.
+
+## Authoring from a Fission component
+
+The parent prepares the energy report and localized month names before building the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarBarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MonthlyHeatingCycle<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            heating_kwh_by_month: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.heating_kwh_by_month.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PolarBarSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a partial year, a missing meter reading and changed meter units. Show exact monthly values and coverage alongside the chart; independent automatic scaling cannot prove that one year's demand is lower than another's.
+
+Tags: `polar`, `seasonal`.
+
+[Radial family overview](./overview)

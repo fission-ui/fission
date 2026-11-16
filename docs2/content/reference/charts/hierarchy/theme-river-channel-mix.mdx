@@ -1,0 +1,84 @@
+---
+title: Channel mix river
+sidebar_label: Channel mix river
+description: Fission Charts reference for Channel mix river.
+---
+
+# Channel mix river
+
+![Channel mix river screenshot](/img/charts/theme-river-channel-mix.png)
+
+A channel-mix river preserves both the changing total and each channel's contribution. That is useful when a campaign changes the balance of traffic rather than simply increasing every source. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example counts visits attributed to search and email. It does not show conversion or customer value. Keep the attribution rule stable across dates; changing the rule can move a band even when customer behaviour has not changed.
+
+## Data model
+
+Supply one date/value/channel triple for each daily aggregate. The renderer sorts date strings lexically and spaces them evenly, so use regular buckets and sortable ISO dates rather than expecting it to scale arbitrary time gaps.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ThemeRiverSeries::data` | `Vec<(&str, f32, &str)>` | Takes time, value and category. |
+| `ThemeRiverSeries::data` field | `Vec<(String, f32, String)>` | Stores the samples with owned labels. |
+| `Chart::series` | `Vec<Series>` | Adds the river without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, ThemeRiverSeries};
+
+let chart = Chart::new()
+    .title("Daily visits by acquisition channel")
+    .series(vec![ThemeRiverSeries::new("Visits")
+        .data(vec![
+        ("2026-10-01", 320.0, "Search"),
+        ("2026-10-01", 140.0, "Email"),
+        ("2026-10-02", 410.0, "Search"),
+        ("2026-10-02", 160.0, "Email"),
+        ("2026-10-03", 370.0, "Search"),
+        ("2026-10-03", 210.0, "Email"),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Keep the aggregate in the parent workflow and pass its completed samples into this component. A build presents those samples; it does not start another request.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, ThemeRiverSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ChannelMixRiverChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            samples: Vec<(String, f32, String)>,
+        }
+    }
+    view(river, _state, _cx) =>
+        Chart(
+            title: Some(river.chart_title.clone()),
+            series: vec![Series::ThemeRiver(ThemeRiverSeries {
+                name: river.series_label.clone(),
+                data: river.samples.clone(),
+            })],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test duplicate date/channel rows before rendering; the chart does not combine duplicates by summing them. Keep untracked visits separate from known zero visits and provide exact daily totals when comparing campaign performance.
+
+Provide a readable breakdown alongside the bands. Their colour and changing baseline should not be the only way a user can identify a category or compare its values.
+
+Tags: `themeRiver`, `channel`.
+
+[Hierarchy family overview](./overview)

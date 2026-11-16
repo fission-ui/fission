@@ -1,0 +1,57 @@
+---
+title: Recruiting funnel
+sidebar_label: Recruiting funnel
+description: Fission Charts reference for Recruiting funnel.
+---
+
+# Recruiting funnel
+
+![Recruiting funnel screenshot](/img/charts/funnel-recruiting.png)
+
+A recruiting funnel follows candidates through a particular hiring process. Mixing applications for several roles can hide different requirements and stages behind one apparently consistent shape. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one role or a deliberately comparable role group and one application cohort. A candidate who has not yet reached an interview is not necessarily a rejection, particularly while the hiring process remains open.
+
+## Data model
+
+Supply ordered non-negative counts of candidates who reached each stage. `FunnelSeries` preserves input order; it does not model candidate status, calculate time-to-hire or infer reasons for drop-off.
+
+## Authoring from a Fission component
+
+The parent aggregates application records with privacy-appropriate reporting and localized stage labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, FunnelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RoleCandidateFunnel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            candidates_by_stage: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.candidates_by_stage.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![FunnelSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test withdrawn candidates, repeated applications and pending decisions. State the cohort date and provide exact counts; avoid publishing small groups or labels which identify individual candidates.
+
+Tags: `funnel`, `pipeline`.
+
+[Scatter and statistical family overview](./overview)

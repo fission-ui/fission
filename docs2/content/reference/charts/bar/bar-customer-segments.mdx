@@ -1,0 +1,68 @@
+---
+title: Customer segment bars
+sidebar_label: Customer segment bars
+description: Compare customer segments across the same reporting periods with grouped bars.
+---
+
+# Customer segment bars
+
+![Customer segment bars screenshot](/img/charts/bar-customer-segments.png)
+
+A change in total customers can conceal a change in who the customers are. Grouping personal and business counts within each reporting period lets the reader compare the two segments without switching between charts.
+
+Define the measure first. These rows count active customer accounts, not revenue or sessions. The activity window and segment rules must stay the same across periods or the apparent change may come from the query rather than the product.
+
+## Compose example
+
+Keep each period's segment counts together, then derive both series from those rows.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct SegmentPeriod {
+    pub period: String,
+    pub personal_accounts: f32,
+    pub business_accounts: f32,
+}
+
+fission_component! {
+    pub CustomerSegmentsChart<()> {
+        props {
+            title: String,
+            personal_label: String,
+            business_label: String,
+            rows: Vec<SegmentPeriod>,
+        }
+    }
+    view(segments, _state, _cx) {
+        let labels = segments.rows.iter().map(|row| row.period.as_str()).collect();
+        let personal = segments.rows.iter().map(|row| row.personal_accounts).collect();
+        let business = segments.rows.iter().map(|row| row.business_accounts).collect();
+    } => Chart(
+        title: Some(segments.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&segments.personal_label).data(personal)),
+            Series::Bar(BarSeries::new(&segments.business_label).data(business)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. Neither `BarSeries` sets a stack key, so each has its own zero baseline within the category. Stacking would answer a different question: how the segments contribute to a combined total.
+
+The reusable component receives its title, translated segment names and period labels from its parent. Counts are validated display values; retain the original account records and classification rules in the data layer.
+
+## Check the comparison
+
+Test that sorting periods preserves both segments' alignment. Check the query with accounts which change segment and decide which period's classification applies; the chart cannot resolve that ambiguity for you.
+
+Provide counts in an accessible table and retain a legend so segment identity is not colour-only. Inspect long translated names and narrow layouts in a rendered target. The gallery screenshot uses sample data rather than these input rows.
+
+Tags: `bar`, `segment`.
+
+[Bar family overview](./overview)

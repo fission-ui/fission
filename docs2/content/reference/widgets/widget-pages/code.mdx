@@ -1,0 +1,53 @@
+---
+title: Code
+description: Present a short inline code-like token without building a full code editor.
+slug: /widgets/code
+---
+# Code
+
+`Code` marks a short technical value inside prose, such as a command name,
+snippet, or key. It is not a syntax highlighter or code editor.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub RunCommand<()>
+    view(_command, _state, _cx) => Code(text: "fission run")
+}
+```
+
+This works well inside help panels, alerts, and setup instructions.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Inline code-like text to display. | Required. |
+
+## What it is and what it is not
+
+`Code` is a styled text chip. Its recipe supplies compact padding, a subtle
+surface and code typography. The font family comes from the component recipe
+or the active monospace token. It does not provide syntax colouring, line
+numbering or editing.
+
+If you need editable source text, use [`TextInput`](/reference/widgets/text-input) or a dedicated editor surface. If you need multi-style or annotated code display, [`RichText`](/reference/widgets/rich-text) gives you more control.
+
+## Specific advice
+
+Keep `Code` short. Once the content becomes multi-line or structurally significant, a dedicated block layout is clearer than an inline chip.
+
+## Production checklist
+
+- Verify the configured monospace family and text contrast in both theme modes.
+- Test the longest command token at narrow widths; use a proper block layout
+  when the content is no longer an inline fragment.
+- Keep executable command text literal; translate the surrounding explanation
+  rather than change the command with the locale.
+
+## Related
+
+[`Kbd`](/reference/widgets/kbd), [`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), and [`Card`](/reference/widgets/card).

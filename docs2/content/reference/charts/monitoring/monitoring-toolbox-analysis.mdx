@@ -1,0 +1,73 @@
+---
+title: Monitoring toolbox
+sidebar_label: Monitoring toolbox
+description: Fission Charts reference for Monitoring toolbox.
+---
+
+# Monitoring toolbox
+
+![Monitoring toolbox screenshot](/img/charts/monitoring-toolbox-analysis.png)
+
+An investigation needs controls which do something observable: change the reporting range, clear a filter or return to the live view. Painting tool names inside a chart does not provide those actions. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The current `ChartInteraction::toolbox_actions` API draws tool labels but does not wire their activation to application reducers. Use normal Fission buttons for working monitoring controls. Keep the range and live/frozen state in the parent workflow which owns the report.
+
+## Data model
+
+This component takes prepared response times plus two bound `ActionEnvelope` values. The parent registers the reusable reducers or effects. A request for another range should update loading state and return through success or failure handling; do not fetch data during component conversion.
+
+## Authoring from a Fission component
+
+The actions remain normal Fission actions rather than chart-specific callback machinery. The parent controls what “Latest hour” and “Resume live monitoring” mean.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MonitoringAnalysisControls<()> {
+        props {
+            chart_title: String,
+            dimension_description: String,
+            scale_description: String,
+            intervals: Vec<String>,
+            response_ms: Vec<f32>,
+            show_latest_hour: ActionEnvelope,
+            resume_live: ActionEnvelope,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.intervals.iter().map(String::as_str).collect();
+    } => Column(children: [
+        Row(children: [
+            Button(
+                child: Text(report.dimension_description.clone()),
+                on_press: report.show_latest_hour.clone(),
+            ),
+            Button(
+                child: Text(report.scale_description.clone()),
+                on_press: report.resume_live.clone(),
+            ),
+        ]),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![LineSeries::new(&report.chart_title)
+                .data(report.response_ms.clone())
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Activate each control through the real action flow and verify the visible range or live state changes. Exercise loading, a failed refresh and a late completion from an older range request. The semantic buttons support keyboard interaction; painted toolbox labels are not an accessible substitute.
+
+Tags: `monitoring`, `toolbox`.
+
+[Monitoring family overview](./overview)

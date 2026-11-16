@@ -1,0 +1,86 @@
+---
+title: Skeleton
+description: Reserve layout space with a loading placeholder while real content is still on the way.
+slug: /widgets/skeleton
+---
+# Skeleton
+
+`Skeleton` reserves space for content that has not loaded yet.
+
+Use it when you already know the layout and want to show where text or images
+will appear while the data is on its way.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProfilePlaceholder<()> {
+        props {
+            avatar_size: f32,
+            name_width: f32,
+            line_height: f32,
+        }
+    }
+
+    view(profile, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Column(
+            gap: spacing.m,
+            children: [
+                Skeleton(
+                    id: WidgetId::explicit("profile.avatar-loading"),
+                    width: profile.avatar_size,
+                    height: profile.avatar_size,
+                    circle: true,
+                    motion: SkeletonMotion::Default,
+                ),
+                Skeleton(
+                    id: WidgetId::explicit("profile.name-loading"),
+                    width: profile.name_width,
+                    height: profile.line_height,
+                    motion: SkeletonMotion::Default,
+                ),
+            ],
+        )
+}
+```
+
+The parent supplies measurements from the eventual profile layout. This does
+not fabricate a user name or count; it reserves space while a real request is
+pending. Put a named loading status around the region when the placeholder
+alone would not explain the wait.
+
+This keeps the loading state close to the final layout instead of replacing everything with a generic spinner.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity used for animation state. | Required. Give each skeleton a unique id. |
+| `width` | `Option<f32>` | Placeholder width. | Defaults to `100.0`. |
+| `height` | `Option<f32>` | Placeholder height. | Defaults to `20.0`. |
+| `circle` | `bool` | Whether to render the placeholder as a fully rounded shape. | Defaults to `false`. Useful for avatar placeholders. |
+| `motion` | `Option<SkeletonMotion>` | Optional pulse or custom transition. | `None` is static; `Default` or `Pulse` opts into motion. |
+
+## User experience guidance
+
+A skeleton is best when you know the final shape of the content. If you have no idea what will load or when, a more generic loading treatment may be more honest.
+
+Pulse motion animates opacity when `motion` is set and the environment permits
+it, so stable ids matter. If the id changes every build, the animation state cannot behave predictably.
+
+## Specific advice
+
+Match the skeleton shape to the eventual content as closely as is practical. A loading state feels more polished when the placeholder predicts the final layout instead of using random bars everywhere.
+
+## Check the placeholder in context
+
+- Match the final content's size and placement so the page does not jump when loading ends.
+- Give every skeleton its own required stable id; the id drives its animation state.
+
+## Related
+
+[`Spinner`](/reference/widgets/spinner), [`CircularProgress`](/reference/widgets/circular-progress), [`Card`](/reference/widgets/card), and [`Avatar`](/reference/widgets/avatar).

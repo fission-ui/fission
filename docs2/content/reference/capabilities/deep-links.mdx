@@ -1,0 +1,57 @@
+---
+title: Deep links
+description: Reference for the deep links capability API, provider contract, operations, and platform configuration.
+---
+
+# Deep links
+
+Fission separates ordinary route navigation from external deep-link activation. Web pathname/hash changes enter the route contract as `ShellRouteChanged`; installed applications receive operating-system launches, notification URLs, and custom schemes as `DeepLinkReceived`. Both can update the same app route state without making `Router` mandatory.
+
+Start with the [Deep links guide](/docs/capabilities/deep-links/) to add the feature to your app. Return here for operation names, request and result types, provider contracts, and target configuration.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | Inbound `DeepLinkReceived` action |
+| Provider trait or host contract | `DeepLinkConfig / shell startup` |
+| Test provider or test entrypoint | `startup deep-link tests` |
+| Primary request types | `DeepLinkConfig / DeepLink` |
+| Primary success types | `DeepLinkReceived` |
+| Error type | `route reducer errors` |
+| CLI value | `shell setup` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `DeepLinkConfig::scheme` | Accept URLs with a custom scheme. | `scheme string` | `DeepLinkConfig` |
+| `DeepLinkConfig::domain` | Accept HTTPS/app-link domains owned by the product. | `domain string` | `DeepLinkConfig` |
+| `DeepLinkConfig::path_prefix` | Limit accepted URLs to the route prefix the app understands. | `path prefix` | `DeepLinkConfig` |
+| `on_deep_link` | Register the reducer that handles accepted incoming links. | `DeepLinkReceived` | `state update` |
+| `with_startup_deep_link` | Inject a launch link from host startup or tests. | `DeepLink` | `startup action` |
+| `with_route_handler` | Observe the initial logical route and later history changes. | `ShellRouteChanged` | `state update` |
+| `ctx.effects.navigate` / `replace_route` | Push or replace a logical route. | `path` | shell navigation |
+| `Link::to` | Render and activate a genuine route hyperlink. | label and href | navigation |
+
+## Provider contract
+
+Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start native route. Do not use it to mirror browser history: Web automatically provides the initial pathname/hash and subsequent back/forward changes through `ShellRouteChanged`.
+
+The shell's filter decides which external links become actions. The app's reducer must still validate the accepted path and identifier, then select its logical route. For example, `fission:///documents/42` has path `/documents/42`, whereas `fission://documents/42` has host `documents` and path `/42`; a `/documents` prefix rule distinguishes them.
+
+## Platform configuration
+
+Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in [`fission.toml`](/reference/config/fission-toml/), but you still review the generated native files because route names and domains are product-owned.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Startup and runtime links enter the registered deep-link handler through the normal reducer path. This is not a capability call with `on_ok`/`on_err` callbacks. Reject an invalid link without changing the current route, and use the native Router and any protected-route policy for accepted destinations. Handle browser history through `with_route_handler` rather than reflecting it back into another navigation effect.
+
+## Related pages
+
+- [Deep links guide](/docs/capabilities/deep-links/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

@@ -1,0 +1,64 @@
+---
+title: VStack
+description: Convenience wrapper for a vertical column with optional spacing.
+slug: /widgets/v-stack
+---
+# VStack
+
+`VStack` is the convenience version of [`Column`](/reference/widgets/column).
+
+It is useful when the defaults of `Column` already match the layout you want and all you need is a short way to provide `children` and `spacing`.
+
+Use `VStack` for simple grouped sections. Do not use it when you need richer `Column` features such as custom alignment, wrapping, flex tuning, or semantics.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DocumentSummary<()> {
+        props {
+            title: String,
+            excerpt: String,
+        }
+    }
+
+    view(document, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        VStack(
+            spacing: spacing.m,
+            children: [
+                Text(document.title.clone()),
+                Text(document.excerpt.clone()),
+            ],
+        )
+}
+```
+
+The title and excerpt are document content from the parent, not hard-coded
+placeholder copy. The component chooses vertical grouping and theme spacing;
+it does not need another card boundary just to place two paragraphs.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `children` | `Vec<Widget>` | Child widgets laid out vertically. | Defaults to an empty list. |
+| `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Column.gap`. |
+
+## Behavior and advice
+
+`VStack` simply builds a `Column` with the provided children and spacing. It is intentionally small. That is its strength.
+
+If you need to change the cross-axis alignment, justify content, wrapping behavior, or semantics, switch to `Column` rather than trying to stretch the meaning of `VStack`.
+
+## Check the layout in context
+
+- Use `VStack` when a vertical `Column` with default alignment and simple spacing is enough; switch to `Column` when you need more control.
+- Check the widest and narrowest parent sizes with the actual child content, especially translated or user-supplied text.
+
+## Related
+
+[`Column`](/reference/widgets/column), [`HStack`](/reference/widgets/h-stack), and [`Scroll`](/reference/widgets/scroll).

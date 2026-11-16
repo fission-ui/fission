@@ -1,0 +1,102 @@
+---
+title: Brush region
+sidebar_label: Brush region
+description: Fission Charts reference for Brush region.
+---
+
+# Brush region
+
+![Brush region screenshot](/img/charts/interaction-brush-region.png)
+
+A region brush selects several observations in one action. This is useful when a user wants to inspect orders in a value and item-count range, rather than repeatedly opening individual points. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, x is basket value in GBP and y is item count. The chart stores the brush gesture, whilst the component records the number of selected samples when the drag ends. A selection is not a new filter on the source records until the application chooses to apply it.
+
+## Data model
+
+`ScatterSeries::data` takes numeric `(x, y)` pairs. `ChartBrush::rect()` enables the gesture; a preview rectangle, when supplied, uses fractions of the plot rather than data coordinates. It shows an initial region, not the result of an analysis.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartInteraction::brush` | `ChartBrush` | Enables a rectangular, horizontal or vertical brush. |
+| `ChartBrush::preview_rect` | Four `f32` values | Sets an initial x, y, width and height in plot fractions. |
+| `Chart::on_brush` | `ActionEnvelope` | Handles the completed brush through the reducer flow. |
+| `ChartBrushSelection::from_action_input` | Decoder | Reads the brush region and matching items from reducer input. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, ChartBrush, ChartInteraction, ScatterSeries};
+
+let chart = Chart::new()
+    .title("Orders by basket value and item count")
+    .x_axis(Axis::value())
+    .y_axis(Axis::value())
+    .interaction(ChartInteraction::new().brush(ChartBrush::rect()))
+    .series(vec![ScatterSeries::new("Orders")
+        .data(vec![(24.0, 2.0), (58.0, 4.0), (91.0, 6.0), (146.0, 8.0)])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The chart owns the gesture. The component uses retained local state only for the selection summary, and reads the typed completion input in a generated reducer.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartBrush, ChartBrushSelection, ChartInteraction, ScatterSeries,
+};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BrushRegionChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            summary_pattern: String, // Contains the {value} placeholder.
+            samples: Vec<(f32, f32)>,
+        }
+        state { selected_count: usize = 0 }
+    }
+    view(selection, _state, cx) =>
+        Column(
+            children: [
+                Chart(
+                    key: "sample-brush",
+                    title: Some(selection.chart_title.clone()),
+                    x_axis: Some(Axis::value()),
+                    y_axis: Some(Axis::value()),
+                    interaction: ChartInteraction::new().brush(ChartBrush::rect()),
+                    series: vec![ScatterSeries::new(&selection.series_label)
+                        .data(selection.samples.clone())
+                        .into()],
+                    on_brush: reduce {
+                        if let Some((_source, brushed)) =
+                            ChartBrushSelection::from_action_input(&cx.input)
+                        {
+                            selection.selected_count = brushed.items.len();
+                        }
+                    },
+                ),
+                Text(
+                    selection.summary_pattern.replace("{value}", &format!("{}", selection.selected_count)),
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test selection at plot boundaries, no matching points and a cleared selection. If the source changes during a drag, resolve the returned item indices against the correct current snapshot before applying a domain action.
+
+Provide an equivalent list or numeric filters when users cannot drag a region. A pointer-only selection must not be the only route to the records being investigated.
+
+Tags: `brush`, `selection`.
+
+[Interaction family overview](./overview)

@@ -1,0 +1,87 @@
+---
+title: CustomWidget
+description: The low-level escape hatch for custom lowering and optional custom render behavior.
+slug: /widgets/custom-widget
+---
+# CustomWidget
+
+`CustomWidget` is the escape hatch when the built-in widgets cannot emit the
+structure you need. Its lowerer produces an intermediate-representation (IR)
+subtree, including the layout, drawing operations and semantics that the targets
+consume. This is a different responsibility from composing ordinary widgets.
+
+For ordinary app UI, use the built-in widgets. For lightweight custom drawing,
+use [`canvas(...)`](/reference/widgets/canvas). Reach for `CustomWidget` when
+you need a new kind of node behavior.
+
+## Example
+
+```rust
+use std::sync::Arc;
+use fission::prelude::*;
+use fission::authoring::LowerWidget;
+
+fn custom_surface(lowerer: Arc<dyn LowerWidget>) -> CustomWidget {
+    CustomWidget {
+        debug_tag: "CustomSurface".into(),
+        lowerer: Some(lowerer),
+        render_object: None,
+    }
+}
+```
+
+The helper requires a real lowerer rather than returning a node that will panic.
+It deliberately returns the low-level configuration type. Implement that lowerer
+with the public `LowerWidget` trait; the [CanvasLowerer example](/reference/widgets/canvas-lowerer)
+shows a concrete implementation for deterministic IR emission. Product components
+should still use Compose around this boundary.
+
+A lowerer is a public extension point, but it operates below normal widget
+composition. Its output must satisfy Fission's layout and IR invariants.
+
+The optional `render_object` field is a separate runtime integration boundary.
+Its trait, `CustomRenderObject`, is currently exposed through
+`fission_core::internal`, not through `fission::authoring`. That internal module
+is explicitly outside the stable widget-authoring contract. The example leaves
+it unset rather than making an application depend on that framework boundary.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `debug_tag` | `String` | Human-readable label for the custom node. | Useful when inspecting output or debugging. |
+| `lowerer` | `Option<Arc<dyn LowerWidget>>` | Object-safe lowering implementation that emits the intermediate representation subtree. | Required in practice. Lowering panics if no lowerer is set. |
+| `render_object` | `Option<Arc<dyn CustomRenderObject>>` | Optional runtime object for hit-testing, events, input method editor positioning and blur actions. | `None` means the node is lowering-only. The trait is an internal framework integration API, not a `fission::authoring` export. |
+
+## What problems it solves
+
+`CustomWidget` exists for the cases where app or library authors need capabilities the normal widget catalog does not expose directly. Examples include advanced text surfaces, bespoke chart primitives, or domain-specific interactive canvases.
+
+The split between `lowerer` and `render_object` matters. The lowerer describes
+the nodes and drawing operations. A render object adds runtime behaviour such
+as custom hit-testing or input handling; it does not provide a separate painting
+method. Ordinary custom drawing therefore does not require a render object.
+
+## When not to use it
+
+Do not use `CustomWidget` just to avoid writing a normal widget. A named widget that returns ordinary `Row`, `Column`, `Container`, `Text`, and related nodes will usually be easier to maintain, easier to teach, and easier to test.
+
+Also do not use `CustomWidget` when [`CanvasLowerer`](/reference/widgets/canvas-lowerer) or [`canvas(...)`](/reference/widgets/canvas) already fits the problem. Those helpers are narrower, which is usually a good thing.
+
+## Specific advice
+
+Keep the custom surface boundary small. The more of your app that depends on `CustomWidget`, the harder it becomes for teammates to reason about ordinary layout, semantics, and test behavior.
+
+If you maintain a framework integration that supplies a `render_object`, document
+its semantics and event model, and validate it against the exact Fission revision
+you use. Do not present that internal integration as a portable application API.
+
+## Production checklist
+
+- Test emitted IR identities and constraints independently of pixels.
+- Add explicit accessible roles, labels, and keyboard behaviour for custom interaction.
+- Keep effects and mutation out of lowering and painting.
+
+## Related
+
+[`canvas(...)`](/reference/widgets/canvas), [`CanvasLowerer`](/reference/widgets/canvas-lowerer), and [`Composite`](/reference/widgets/composite).

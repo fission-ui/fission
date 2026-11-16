@@ -572,12 +572,19 @@ where
     ) {
         return scroll;
     }
-    let pump = query_event(injector, |response_tx| TestEvent::Pump { response_tx });
-    if matches!(
-        pump,
-        TestResponse::Error { .. } | TestResponse::SelectorError { .. }
-    ) {
-        return pump;
+    let needs_scroll_frame = matches!(
+        &scroll,
+        TestResponse::SelectorResolved { node }
+            if node.visibility != fission_test_driver::VisibilityState::FullyVisible
+    );
+    if needs_scroll_frame {
+        let pump = query_event(injector, |response_tx| TestEvent::Pump { response_tx });
+        if matches!(
+            pump,
+            TestResponse::Error { .. } | TestResponse::SelectorError { .. }
+        ) {
+            return pump;
+        }
     }
     query_event(injector, |response_tx| make_event(query, response_tx))
 }
@@ -712,7 +719,7 @@ fn inject_event(injector: &EventInjector, event: TestEvent) {
                 if debug_android_events {
                     eprintln!("[android-debug] wake_send");
                 }
-                let _ = proxy.send_event(TestEvent::Wake);
+                crate::send_wake_event(proxy);
             }
         }
     }

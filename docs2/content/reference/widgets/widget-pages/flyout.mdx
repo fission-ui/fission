@@ -1,0 +1,71 @@
+---
+title: flyout
+description: Position custom popup content relative to an anchor node.
+slug: /widgets/flyout
+---
+# flyout
+
+`flyout(...)` places a popup next to an anchor `WidgetId`. The popup prefers
+to open below the anchor, flips above it when space is tight, and stays inside
+the viewport.
+
+Use it when the higher-level overlay widgets do not fit your case. For common
+menus, choices, and hints, start with
+[`Popover`](/reference/widgets/popover), [`Menu`](/reference/widgets/menu),
+[`Select`](/reference/widgets/select), or
+[`Tooltip`](/reference/widgets/tooltip).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// Inside a custom composite's build scope. The parent owns open/dismiss state
+// and supplies these already-built, independently retained child widgets.
+let anchor = WidgetId::explicit("editor.shortcut-trigger");
+let trigger = trigger.id(anchor);
+
+if show_help {
+    cx.build.register_portal_with_layer(
+        PortalLayer::Flyout,
+        Some(WidgetId::explicit("editor.shortcut-help")),
+        flyout(anchor, help_content),
+    );
+}
+
+// Return trigger in the composite's normal tree, not only in the portal.
+```
+
+This is the low-level geometry portion of a composite, not a complete help
+popover. `cx.build` is the current Compose component's build context; neither it nor the
+view handle may escape into an event handler. The anchor is its actual widget
+id, not another id produced by hashing or deriving it again.
+
+The open state still belongs to your app model. `flyout(...)` only handles the geometry.
+
+## Argument table
+
+| Argument | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `anchor` | `WidgetId` | The already-laid-out node to position the popup against. | The anchor must exist in the normal layout tree for the current frame. |
+| `content` | `Widget` | The popup subtree to place near the anchor. | `flyout(...)` does not add a backdrop, border, or dismissal logic. Those stay under your control. |
+
+## Layout behavior
+
+The helper lowers to a special `LayoutOp::Flyout` marker. During layout, Fission measures the popup content, looks up the anchor's visual rectangle, and computes a viewport-safe placement. This matters for tests and cross-platform parity because the same geometry rules apply regardless of whether the popup is a menu, a tooltip, or a custom panel.
+
+## Specific advice
+
+Prefer higher-level widgets when they fit. `flyout(...)` is easy to misuse if you forget one of the surrounding responsibilities: open state, dismissal behavior, portal layering, and accessibility. In many products, the correct implementation is not just "show a box near a button." It is "show a labeled, dismissible, keyboard-reachable overlay near a button." `Popover` and menu widgets already cover more of that work.
+
+If you do use `flyout(...)` directly, give the anchor a stable id, register the popup in the flyout portal layer, and test edge placement near the corners of the viewport.
+
+## Production checklist
+
+- Verify the anchor exists in the normal tree while the portal is visible.
+- Test all viewport edges, nested portals, dismissal, and keyboard focus.
+- Add the popup's required role/relationships; positioning alone supplies none.
+
+## Related
+
+[`Popover`](/reference/widgets/popover), [`Tooltip`](/reference/widgets/tooltip), [`Menu`](/reference/widgets/menu), [`Select`](/reference/widgets/select), and [`Portal`](/reference/widgets/portal).

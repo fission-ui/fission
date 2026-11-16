@@ -1,0 +1,378 @@
+---
+title: Fission for React developers
+description: Compare React components, state, effects, styling, routing and tests with Fission's Compose authoring API.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Fission for React developers
+
+React and Fission both describe an interface from state. That similarity is
+useful, but it does not make a Fission view a hook body. The important difference
+is where changes happen: a view describes the current interface; reducers
+change state; effects request work outside that transition.
+
+The comparisons below use a task checklist. They are focused excerpts, not
+files to concatenate into a complete project. For the complete app, including
+its module structure and browser preview, follow
+[Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
+
+## The state ownership rule
+
+A value's owner follows its purpose, not the number of lines in the example.
+A draft belongs to one composer; tasks belong to the app because lists, detail
+screens and progress summaries need the same records.
+
+- Declare parent-supplied inputs in `props { ... }`.
+- Declare retained interface memory in `state { ... }`.
+- Keep shared product facts in a type implementing `GlobalState`.
+- Change either kind of state through `reduce` or an existing typed reducer.
+- Request I/O through effects, jobs, services, resources or capabilities.
+
+`#[with_local_state]` and `#[local_state]` remain available for lower-level Rust
+components. Compose generates that wiring from its `state` block.
+
+## 1. Static UI
+
+A list receives records rather than inventing them during rendering. Its
+parent chooses whether they come from app state, a request or a test fixture.
+
+<Tabs>
+<TabItem value="react" label="React">
+
+```tsx
+function TaskList({ tasks }: { tasks: Task[] }) {
+  return <ul>{tasks.map(task =>
+    <li key={task.id}>{task.title}</li>
+  )}</ul>;
+}
+```
+
+</TabItem>
+<TabItem value="fission" label="Fission">
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Task {
+    pub id: u64,
+    pub title: String,
+    pub done: bool,
+}
+
+fission_component! {
+    pub TaskList<()> {
+        props { tasks: Vec<Task> }
+    }
+    view(list, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            for task in &list.tasks {
+                Text(task.title.clone(), key: task.id)
+            },
+        ],
+    )
+}
+```
+
+</TabItem>
+</Tabs>
+
+A durable record key matters when the list is filtered or reordered. A list
+position describes where a task happens to be, not which task it is.
+
+## 2. Local draft state
+
+React's `useState` and a Compose `state` field can both represent an unsent
+draft. In Fission the value is retained by the component's widget identity,
+and changes run through generated reducers.
+
+<Tabs>
+<TabItem value="react" label="React">
+
+```tsx
+function DraftField() {
+  const [draft, setDraft] = useState("");
+  return <>
+    <label htmlFor="task-title">New task</label>
+    <input id="task-title" value={draft}
+      onChange={event => setDraft(event.currentTarget.value)} />
+    <button onClick={() => setDraft("")}>Clear draft</button>
+  </>;
+}
+```
+
+</TabItem>
+<TabItem value="fission" label="Fission">
+
+```rust
+fission_component! {
+    pub DraftField<()> {
+        state { draft: String = String::new() }
+    }
+    view(field, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            TextInput(
+                label: Some(cx.tr("tasks.new").into()),
+                bind: field.draft,
+                semantics_identifier: Some("tasks.title".into()),
+            ),
+            Button(
+                child: Text(cx.tr("tasks.clear")),
+                key: "clear-draft",
+                disabled: field.draft.is_empty(),
+                on_press: reduce { field.draft.clear(); },
+            ),
+        ],
+    )
+}
+```
+
+</TabItem>
+</Tabs>
+
+`bind` supplies the current text and its update action. The translation bundle
+provides labels such as “New task” and “Clear draft”; the
+[i18n guide](/docs/guides/theming-and-i18n/) covers setup. Clearing a local draft
+does not delete a saved task.
+
+## 3. Product todo state
+
+Moving data into `GlobalState` makes its ownership explicit within the running
+app. It does not save that data across launches. Persistence requires a
+separate Store or server operation.
+
+```rust
+#[derive(Debug)]
+pub struct TaskState {
+    pub tasks: Vec<Task>,
+    pub current_path: String,
+}
+
+impl GlobalState for TaskState {}
+
+impl Default for TaskState {
+    fn default() -> Self {
+        Self { tasks: Vec::new(), current_path: "/".into() }
+    }
+}
+
+fission_component! {
+    pub TaskRow<TaskState> {
+        props { task: Task }
+    }
+    view(row, state, _cx) =>
+    Checkbox(
+        label: Some(row.task.title.clone()),
+        checked: row.task.done,
+        key: "toggle-task",
+        on_toggle: reduce {
+            if let Some(task) = state.tasks.iter_mut().find(|task| task.id == row.task.id) {
+                task.done = !task.done;
+            }
+        },
+    )
+}
+```
+
+The event resolves the task from current app state using its ID. It does not
+mutate the earlier prop snapshot or capture a borrowed iterator row. When the
+record has been removed, the event does nothing. Give each repeated `TaskRow`
+a `key: task.id` at its call site.
+
+## 4. Effects instead of useEffect
+
+Do not translate a fetch in `useEffect` into a fetch during component
+conversion. Conversion can run many times. For initial app data, dispatch one
+startup action and register a job or resource. For a user-requested operation,
+Compose's `effect` syntax keeps its lifecycle beside the control.
+
+```rust
+#[derive(Deserialize)]
+struct TaskCountResponse {
+    total: usize,
+}
+
+#[fission_effect]
+async fn fetch_task_count(endpoint: String) -> Result<usize, String> {
+    reqwest::Client::new()
+        .get(endpoint)
+        .send().await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<TaskCountResponse>().await
+        .map(|summary| summary.total)
+        .map_err(|error| error.to_string())
+}
+
+fission_component! {
+    pub RemoteTaskCount<()> {
+        props { endpoint: String }
+        state {
+            count: Option<usize> = None,
+            loading: bool = false,
+            error: Option<String> = None,
+        }
+    }
+    view(remote, _state, cx) =>
+    Column(children: [
+        Button(
+            child: Text(cx.tr("tasks.check_remote")),
+            key: "check-remote",
+            disabled: remote.loading,
+            on_press: effect fetch_task_count(remote.endpoint.clone()) {
+                on_start {
+                    remote.loading = true;
+                    remote.error = None;
+                }
+                on_ok(count) {
+                    remote.count = Some(count);
+                    remote.loading = false;
+                }
+                on_err(error) {
+                    remote.error = Some(error);
+                    remote.loading = false;
+                }
+            },
+        ),
+        if remote.loading {
+            Spinner(motion: SpinnerMotion::Default, label: cx.tr("tasks.checking_remote"))
+        },
+        if let Some(count) = remote.count {
+            Text(count.to_string())
+        },
+        if let Some(error) = &remote.error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
+}
+```
+
+This native HTTP excerpt needs `reqwest` with its JSON feature and a summary endpoint
+returning an object such as `{ "total": 24 }`. It reports the remote count without replacing the local
+list. The async function receives an owned URL, not live state or a build
+context. Both completion paths are required.
+
+Do not copy that HTTP implementation unchanged into Web: app-effect futures
+currently require `Send`, while browser `reqwest` fetch futures are non-`Send`.
+The ownership model still applies, but browser requests need a supported host
+or service adapter rather than claiming an unsupported async boundary works.
+
+Component-owned completion is ignored after the component unmounts. A load
+which must outlive that component belongs in an app-owned job or resource.
+[Resources and async](/docs/guides/resources-and-async/) explains that boundary.
+
+## 5. Styling from the theme
+
+CSS classes describe browser styling. Fission's active theme is runtime data
+which native and browser targets can both consume. Read tokens while building
+the view rather than create a second set of per-screen colours and sizes.
+
+```rust
+fission_component! {
+    pub TaskSummary<()> {
+        props { title: String }
+    }
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Text(summary.title.clone()))
+        .bg(tokens.colors.surface)
+        .padding_all(tokens.spacing.m)
+        .border_radius(tokens.radii.medium)
+}
+```
+
+This does not remove target differences. A terminal cell, browser document and
+native window have different constraints; their shells lower the same declared
+intent where supported.
+
+## 6. Routing
+
+Use Fission's native `Router`, not a pathname switch in every screen. The shell
+reports navigation through `ShellRouteChanged`; an app route handler stores its
+current path. The route table matches it and constructs the selected screen.
+
+```rust
+fission_component! {
+    pub TaskRoutes<TaskState>
+    view(_routes, state, _cx) =>
+    Router::<TaskState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", TaskScreen)
+        .route_component("/tasks/:id", TaskDetailRoute)
+}
+```
+
+`TaskScreen` and `TaskDetailRoute` are app components. The detail route reads
+`RouteParams`, validates `id` and checks whether the task exists. Do not turn a
+malformed parameter into task zero with `unwrap_or(0)`. See the
+[Router reference](/reference/widgets/router/) and
+[RouteParams](/reference/widgets/route-params/) for that integration.
+
+Install the shell's route handler in the running app. The state type above
+shows ownership; a route table alone does not replace that startup wiring.
+
+## 7. Testing
+
+A pure transition or reducer test proves a business rule. It does not prove
+that the text field, button or keyboard works. Use a headless harness for
+widget output and LiveTest for the real shell interaction.
+
+| Requirement | Best first Fission test |
+| --- | --- |
+| Business rule | Reducer or pure transition test |
+| Effect request | Reducer plus `Effects` inspection |
+| Rendered text or display operation | `TestHarness` |
+| Focus, pointer, text input, screenshot, target behavior | `LiveTestClient` |
+| Platform-specific shell behavior | Target-specific live test |
+
+Drive the app using semantic identifiers such as `tasks.title`. These can stay
+stable when a label is translated. Use
+[Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for the complete
+launch-and-cleanup pattern rather than copy guessed process helpers.
+
+## Vocabulary map
+
+| React concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| Function component | `fission_component!` and `view(...)` | The view describes widgets; it is not a hook body. |
+| Props | `props { ... }` | Typed parent inputs, read again on rebuild. |
+| `useState` for local interaction | `state { ... }` | Retained by widget identity and updated by reducers. |
+| `useState` for product data | `GlobalState` | App ownership is explicit; persistence is separate. |
+| `useReducer` | `reduce` or a typed reducer | Fission reducers are synchronous. |
+| Callback prop | A typed bound action | Event payloads and app context retain the runtime contract. |
+| Context | Providers, app state and `Env` | Use `Env` for environment, not arbitrary domain data. |
+| `useEffect` | Effects, jobs, services, resources and capabilities | Rendering itself does not start I/O. |
+| CSS/classes | Theme tokens and widget fields | Styling must lower for the selected target. |
+| React Router | Native `Router` and app route state | The shell adapts browser or platform history. |
+| React Testing Library | `TestHarness` and `LiveTestClient` | Choose the boundary the assertion actually needs. |
+
+## Common React instincts to adjust
+
+Local state is not a problem to eliminate. Hidden ownership is. Keep a draft
+local when one component owns it, and tasks in app state when other screens
+need them. Do not use `Env` as a catch-all replacement for React context.
+
+Neither concise syntax nor successful compilation proves a usable app. Check
+empty, loading and error states, translated labels, keyboard access, and the
+actual target shell.
+
+## What to read next
+
+- [The complete single-page task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose syntax, bindings and effects](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

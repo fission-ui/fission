@@ -8,8 +8,8 @@ use crate::document::{
 };
 use crate::front_matter::split_front_matter;
 use crate::html::{
-    render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions, CssVariableMap,
-    HtmlRenderOptions, StyleRegistry,
+    packaged_font_asset_href, packaged_font_css, render_ir_to_html_with_styles,
+    theme_variables_css, CodeHighlightingOptions, CssVariableMap, HtmlRenderOptions, StyleRegistry,
 };
 use crate::search::{write_search_index, SiteSearchOptions};
 use crate::site::{
@@ -67,6 +67,8 @@ pub struct SiteBuildOptions {
     pub site_nav: Vec<SiteNavLink>,
     /// App CSS blocks appended after Fission's base stylesheet.
     pub user_css: Vec<String>,
+    /// Optional `[web].font_delivery` override for packaged-font delivery.
+    pub font_delivery: Option<crate::WebFontDelivery>,
     /// Trusted document-level elements inserted into matching pages.
     pub page_elements: Vec<SitePageElement>,
     /// Filesystem content mounts converted into site routes.
@@ -115,6 +117,7 @@ impl SiteBuildOptions {
             default_locale: "en".to_string(),
             site_nav: Vec::new(),
             user_css: Vec::new(),
+            font_delivery: None,
             page_elements: Vec::new(),
             content_routes: vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
@@ -133,6 +136,8 @@ impl SiteBuildOptions {
 
     /// Loads `[site]` configuration from `project_dir/fission.toml`, resolving
     /// all relative paths against the project root.
+    /// Omitted `site.routes` mounts `content/`; an explicit empty list disables
+    /// content discovery for sites composed entirely of programmatic routes.
     pub fn from_project_dir(
         project_dir: impl Into<PathBuf>,
         fallback_title: impl Into<String>,
@@ -144,6 +149,7 @@ impl SiteBuildOptions {
         let manifest: ProjectManifest =
             toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
         let app_name = manifest.app.as_ref().map(|app| app.name.clone());
+        let font_delivery = manifest.web.and_then(|web| web.font_delivery);
         let site = manifest.site.unwrap_or_default();
         let site_title = site
             .title
@@ -176,15 +182,14 @@ impl SiteBuildOptions {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("target/fission/site")),
         );
-        let content_routes = if site.routes.is_empty() {
-            vec![SiteContentRouteConfig {
+        let content_routes = match site.routes {
+            None => vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
                 source: project_dir.join("content"),
                 template: None,
                 sidebar: None,
-            }]
-        } else {
-            site.routes
+            }],
+            Some(routes) => routes
                 .into_iter()
                 .filter(|route| route.kind.as_deref().unwrap_or("content") == "content")
                 .map(|route| SiteContentRouteConfig {
@@ -195,7 +200,7 @@ impl SiteBuildOptions {
                         .sidebar
                         .map(|path| resolve_project_path(&project_dir, PathBuf::from(path))),
                 })
-                .collect()
+                .collect(),
         };
         let asset_dirs = site
             .asset_dirs
@@ -220,6 +225,7 @@ impl SiteBuildOptions {
             default_locale,
             site_nav,
             user_css,
+            font_delivery,
             page_elements,
             content_routes,
             asset_dirs,
@@ -286,6 +292,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     }
     prepare_output_dir(options)?;
     copy_asset_dirs(options)?;
+    write_packaged_font_assets(options, site)?;
 
     let mut rendered_routes = Vec::new();
     for (index, route) in routes.iter().enumerate() {
@@ -447,6 +454,12 @@ fn write_site_css(
     css.push('\n');
     css.push_str(&site_theme_css(site));
     css.push('\n');
+    for font in site.document.font_faces() {
+        if let Some(font_css) = packaged_font_css(font, effective_font_delivery(options, site)) {
+            css.push_str(&font_css);
+            css.push('\n');
+        }
+    }
     css.push_str(&styles.to_css());
     for user_css in options
         .user_css
@@ -463,6 +476,46 @@ fn write_site_css(
             options.output_dir.join("site.css").display()
         )
     })
+}
+
+fn write_packaged_font_assets(options: &SiteBuildOptions, site: &FissionSite) -> Result<()> {
+    if effective_font_delivery(options, site) != crate::WebFontDelivery::External {
+        return Ok(());
+    }
+    let root = options.output_dir.join("__fission/fonts");
+    for font in site.document.font_faces() {
+        let relative = packaged_font_asset_href(font);
+        let file_name = relative
+            .rsplit_once('/')
+            .map(|(_, file_name)| file_name)
+            .unwrap_or(relative.as_str());
+        fs::create_dir_all(&root)
+            .with_context(|| format!("failed to create {}", root.display()))?;
+        let path = root.join(file_name);
+        if path.is_file() {
+            let existing =
+                fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+            if existing != font.data {
+                bail!(
+                    "packaged font asset hash collision at {}; generated assets must be unique",
+                    path.display()
+                );
+            }
+            continue;
+        }
+        fs::write(&path, font.data)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn effective_font_delivery(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+) -> crate::WebFontDelivery {
+    options
+        .font_delivery
+        .unwrap_or_else(|| site.document.font_delivery())
 }
 
 fn write_site_enhancement_js(options: &SiteBuildOptions) -> Result<()> {
@@ -1156,7 +1209,7 @@ fn write_root_index_if_needed(options: &SiteBuildOptions, routes: &[ContentRoute
         return Ok(());
     }
     let first = &routes[0];
-    let href = first.path.clone();
+    let href = format!("./{}", first.path.trim_start_matches('/'));
     let html = format!(
         "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <meta http-equiv=\"refresh\" content=\"0; url={}\">\n    <title>{}</title>\n  </head>\n  <body><a href=\"{}\">{}</a></body>\n</html>\n",
         escape_attr(&href),
@@ -1375,6 +1428,12 @@ fn normalize_project_site_nav_link(link: ProjectSiteNavLink) -> SiteNavLink {
 struct ProjectManifest {
     app: Option<ProjectApp>,
     site: Option<ProjectSite>,
+    web: Option<ProjectWeb>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ProjectWeb {
+    font_delivery: Option<crate::WebFontDelivery>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1394,7 +1453,7 @@ struct ProjectSite {
     #[serde(default)]
     nav: Vec<ProjectSiteNavLink>,
     #[serde(default)]
-    routes: Vec<ProjectSiteRoute>,
+    routes: Option<Vec<ProjectSiteRoute>>,
     #[serde(default)]
     asset_dirs: Vec<String>,
     #[serde(default)]
@@ -1502,6 +1561,7 @@ mod tests {
     use fission_core::ui::{Text, TextContent, Video};
     use fission_core::{GlobalState, WidgetId};
     use fission_i18n::TranslationBundle;
+    use fission_theme::{PackagedFont, PackagedFontStyle};
     use fission_widgets::ProtectedRoute;
     use std::collections::HashMap;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1509,6 +1569,15 @@ mod tests {
     #[derive(Debug, Default)]
     struct TestState;
     impl GlobalState for TestState {}
+
+    static TEST_FONT: [PackagedFont; 1] = [PackagedFont {
+        family: "Static Test Sans",
+        weight: 400,
+        style: PackagedFontStyle::Normal,
+        format: "woff2",
+        data: b"static-font-bytes",
+        axes: &[],
+    }];
 
     #[derive(Debug)]
     struct RouteState(String);
@@ -1624,6 +1693,9 @@ mod tests {
         assert!(css.contains(".fission-site-route-link {\n  cursor: pointer;"));
         assert!(css.contains(".fission-site-route-link > .fission-site-node"));
         assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains(".fission-site-svg {\n  display: block;"));
+        assert!(css.contains(".fission-site-svg svg {\n  display: block;"));
+        assert!(css.contains("width: 100%;\n  height: 100%;"));
         assert!(css.contains(".fission-site-svg-colored svg *"));
         assert!(css.contains("fill: currentColor;"));
         assert!(css.contains(".fission-site-svg-colored svg [fill=\"none\"]"));
@@ -1731,6 +1803,103 @@ mod tests {
     }
 
     #[test]
+    fn omitted_and_nonempty_content_routes_keep_existing_mounts() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-route-defaults-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        fs::write(temp.join("content/start.md"), "# Start\n").unwrap();
+        fs::write(temp.join("fission.toml"), "[site]\n").unwrap();
+        let defaults = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(defaults.content_routes.len(), 1);
+        assert_eq!(defaults.content_routes[0].path, "/content");
+        assert_eq!(defaults.content_routes[0].source, temp.join("content"));
+        let site = FissionSite::new();
+        assert_eq!(check_site(&defaults, &site).unwrap().routes.len(), 1);
+
+        fs::write(
+            temp.join("fission.toml"),
+            "[site]\n[[site.routes]]\npath = \"/docs\"\nsource = \"content\"\n",
+        )
+        .unwrap();
+        let explicit = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(explicit.content_routes.len(), 1);
+        assert_eq!(explicit.content_routes[0].path, "/docs/");
+        assert_eq!(explicit.content_routes[0].source, temp.join("content"));
+        assert_eq!(build_site(&explicit, &site).unwrap().routes.len(), 1);
+        assert!(explicit.output_dir.join("docs/start/index.html").exists());
+        assert!(!explicit.output_dir.join("content").exists());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn web_font_delivery_is_loaded_from_project_configuration() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-font-config-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(
+            temp.join("fission.toml"),
+            "[web]\nfont_delivery = \"external\"\n[site]\nroutes = []\n",
+        )
+        .unwrap();
+
+        let options = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(
+            options.font_delivery,
+            Some(crate::WebFontDelivery::External)
+        );
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn explicit_empty_content_routes_build_custom_pages_without_content_directory() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-custom-only-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(
+            temp.join("fission.toml"),
+            "[app]\nname = \"test-site\"\n[site]\nroutes = []\n",
+        )
+        .unwrap();
+        let options = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        let site = FissionSite::new()
+            .route_widget::<TestState, _>("/", "Home", None, Text::new("Home page"))
+            .route_widget::<TestState, _>("/about/", "About", None, Text::new("About page"));
+        assert_eq!(list_site_routes(&options, &site).unwrap().len(), 2);
+        assert_eq!(check_site(&options, &site).unwrap().routes.len(), 2);
+        assert_eq!(build_site(&options, &site).unwrap().routes.len(), 2);
+        assert!(
+            fs::read_to_string(options.output_dir.join("about/index.html"))
+                .unwrap()
+                .contains("About page")
+        );
+        assert!(!temp.join("content").exists());
+        fs::write(
+            temp.join("fission.toml"),
+            "[app]\nname = \"test-site\"\n[site]\n",
+        )
+        .unwrap();
+        let defaults = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(defaults.content_routes.len(), 1);
+        assert!(check_site(&defaults, &site).is_err());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn custom_site_routes_resolve_keyed_text_from_seeded_env() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-i18n-test-{}",
@@ -1755,6 +1924,87 @@ mod tests {
         assert!(html.contains("Bonjour static"));
         assert!(html.contains("lang=\"fr\""));
         assert!(!html.contains("MISSING:page.title"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn static_site_omits_packaged_fonts_by_default() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-font-none-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new()
+            .with_fonts(&TEST_FONT)
+            .route_widget::<TestState, _>("/", "Home", None, Text::new("Home"));
+
+        build_site(&options, &site).unwrap();
+
+        let output = temp.join("target/fission/site");
+        let css = fs::read_to_string(output.join("site.css")).unwrap();
+        let relative = packaged_font_asset_href(&TEST_FONT[0]);
+        assert!(!css.contains("@font-face"));
+        assert!(!output.join(relative).exists());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn static_site_writes_external_font_assets_when_enabled() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-font-assets-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new()
+            .with_fonts(&TEST_FONT)
+            .with_font_delivery(crate::WebFontDelivery::External)
+            .route_widget::<TestState, _>("/", "Home", None, Text::new("Home"));
+
+        build_site(&options, &site).unwrap();
+
+        let output = temp.join("target/fission/site");
+        let css = fs::read_to_string(output.join("site.css")).unwrap();
+        let relative = packaged_font_asset_href(&TEST_FONT[0]);
+        assert!(css.contains(&format!("src:url('{relative}')")));
+        assert!(!css.contains("data:font/"));
+        assert_eq!(fs::read(output.join(relative)).unwrap(), TEST_FONT[0].data);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn static_site_embeds_fonts_only_when_inline_is_enabled() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-font-inline-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new()
+            .with_fonts(&TEST_FONT)
+            .with_font_delivery(crate::WebFontDelivery::Inline)
+            .route_widget::<TestState, _>("/", "Home", None, Text::new("Home"));
+
+        build_site(&options, &site).unwrap();
+
+        let output = temp.join("target/fission/site");
+        let css = fs::read_to_string(output.join("site.css")).unwrap();
+        let relative = packaged_font_asset_href(&TEST_FONT[0]);
+        assert!(css.contains("src:url('data:font/woff2;base64,"));
+        assert!(!output.join(relative).exists());
         let _ = fs::remove_dir_all(temp);
     }
 

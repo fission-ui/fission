@@ -64,6 +64,12 @@ pub(crate) fn text_input_toolbar_button_id(
     WidgetId::derived(input_id.as_u128(), &[901, suffix])
 }
 
+fn text_input_text_node_id(input_id: WidgetId) -> WidgetId {
+    // Keep paragraph identity independent of focus-dependent decoration nodes;
+    // the layout engine caches resolved text by this ID and its width.
+    WidgetId::derived(input_id.as_u128(), &[902])
+}
+
 /// An editable text field with support for single-line and multiline input,
 /// syntax highlighting, password masking, and IME composition.
 ///
@@ -983,6 +989,7 @@ impl Lower for TextInput {
         let visited = session.is_some() && !is_focused;
         let only_missing_required = missing_required
             && self.error_text.is_none()
+            && effective_validation_message.is_none()
             && declared_validation_state != TextFieldValidationState::Invalid
             && !self
                 .min_length
@@ -1451,7 +1458,7 @@ impl Lower for TextInput {
         });
 
         let text_id = IrBuilder::new(
-            cx.next_node_id(),
+            text_input_text_node_id(input_id),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 wrap: self.multiline && self.wrap_mode != TextWrapMode::NoWrap,
@@ -1897,7 +1904,14 @@ impl Lower for TextInput {
         semantics.required = effective_required;
         semantics.min_length = self.min_length;
         semantics.validation_pattern = self.validation_pattern.clone();
-        semantics.validation_state = effective_validation_state;
+        // Required fields participate in validation immediately, but an untouched empty field is
+        // not yet presented as an error. Keep the semantic state aligned with that presentation so
+        // assistive technology and native HTML do not announce a new form as already invalid.
+        semantics.validation_state = if is_invalid && !show_invalid {
+            TextFieldValidationState::Unvalidated
+        } else {
+            effective_validation_state
+        };
         semantics.validation_message = effective_validation_message;
         semantics.autocorrect = self.autocorrect;
         semantics.enable_suggestions = suggestions_enabled;

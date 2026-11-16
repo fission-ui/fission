@@ -2,8 +2,7 @@ use super::common::*;
 use super::toast_preview::ToastPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/toast";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Success,
 };
 
-pub struct ToastPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ToastPage<'_>> for Widget {
-    fn from(page: ToastPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: ToastPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub ToastPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), ToastPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -52,10 +32,9 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Toast {
+const SOURCE: &str = r#"Toast(
     id: WidgetId::explicit("saved_toast"),
     kind: ToastKind::Success,
     message: "Saved".into(),
-    motion: Some(ToastMotion::SlideFromTop + ToastMotion::Fade),
-    ..toast
-}.into()"#;
+    motion: ToastMotion::SlideFromTop + ToastMotion::Fade,
+)"#;

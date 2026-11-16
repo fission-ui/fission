@@ -1,0 +1,370 @@
+---
+layout: goal
+title: Compose an Android app from reusable Fission widgets
+description: "Build a tree-inspection queue from a focused entry form, reusable cards and shared records. Assign a user-selected crew without duplicating counts."
+goal: "Enter actual tree inspections and assign a selected crew while keeping each card and the queue summary consistent."
+path: /blog/compose-an-android-app-from-reusable-fission-widgets/
+order: 27
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-compose-an-android-app-from-reusable-fission-widgets
+outcomes:
+  - "Separate the inspection model, entry form, card and screen into focused modules"
+  - "Pass record data and the selected crew into reusable Compose components"
+  - "Derive the unassigned count from the same records the cards display"
+  - "Use stable record IDs for repeated components and assignment actions"
+---
+
+## Start with the inspection, not the card shape
+
+An urban tree-care queue needs to keep a finding, its location and its assignment together. If the card stores one copy of that assignment whilst the summary stores another, the interface can disagree with itself after a single action.
+
+Here, the inspection records are the authority. The user adds the actual tree, location and finding, then supplies the crew chosen by dispatch. A reducer changes one identified record; the card and unassigned count both read that record. There are no preset customers, crews or completed jobs disguised as app data.
+
+## Create the Android project
+
+Use [Android development setup](/blog/set-up-rust-android-gui-development-with-fission/) for the SDK/NDK requirements, then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a physical phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+cargo install cargo-fission
+fission init urban-tree-rounds
+cd urban-tree-rounds
+fission add-target android --project-dir .
+cargo add serde_yaml
+cargo add serde --features derive
+```
+
+Keep the generated `src/main.rs`. The files below replace the starter library and separate the model, entry form, reusable card and screen from the outset; there is no later instruction to turn a large example into the architecture developers should have started with.
+
+<!-- fission:step id="main-flow" -->
+## Give components one clear responsibility
+
+`NewInspection` owns an unfinished draft. On success it transfers trimmed values into shared state and clears only its own fields. `TreeInspectionCard` receives a record and the selected crew as props; it does not invent either. `TreeRoundsDashboard` composes those boundaries and derives the count.
+
+The IDs are allocated once when a record is created, not every time the view builds. In a service-backed app use the service's durable ID instead. The list key and explicit widget identity then follow that record, rather than its current position.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TreeInspection {
+    pub id: u64,
+    pub species: String,
+    pub location: String,
+    pub finding: String,
+    pub crew: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct TreeRoundsState {
+    pub inspections: Vec<TreeInspection>,
+    next_id: u64,
+}
+impl GlobalState for TreeRoundsState {}
+
+impl TreeRoundsState {
+    pub fn add(&mut self, species: String, location: String, finding: String) -> bool {
+        if [species.as_str(), location.as_str(), finding.as_str()]
+            .iter().any(|value| value.trim().is_empty()) { return false; }
+        let Some(id) = self.next_id.checked_add(1) else { return false; };
+        self.next_id = id;
+        self.inspections.push(TreeInspection {
+            id, species: species.trim().to_owned(), location: location.trim().to_owned(),
+            finding: finding.trim().to_owned(), crew: None,
+        });
+        true
+    }
+
+    pub fn assign(&mut self, id: u64, crew: String) {
+        let crew = crew.trim();
+        if crew.is_empty() { return; }
+        if let Some(inspection) = self.inspections.iter_mut().find(|value| value.id == id) {
+            if inspection.crew.is_none() { inspection.crew = Some(crew.to_owned()); }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn assignment_targets_one_record_and_does_not_invent_completion() {
+        let mut state = TreeRoundsState::default();
+        assert!(!state.add("".into(), "Shelter".into(), "Split limb".into()));
+        assert!(state.add("Plane".into(), "Shelter".into(), "Split limb".into()));
+        assert!(state.add("Birch".into(), "Gate".into(), "Raised root".into()));
+        let id = state.inspections[0].id;
+        state.inspections.reverse();
+        state.assign(id, "Tree crew".into());
+        assert_eq!(state.inspections.iter().filter(|value| value.crew.is_some()).count(), 1);
+        assert_eq!(state.inspections.iter().find(|value| value.id == id).unwrap().crew.as_deref(), Some("Tree crew"));
+        state.assign(id, "Another crew".into());
+        assert_eq!(state.inspections.iter().find(|value| value.id == id).unwrap().crew.as_deref(), Some("Tree crew"));
+    }
+}
+```
+</TabItem>
+<TabItem label="src/form.rs">
+<!-- fission:file path="src/form.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::TreeRoundsState;
+
+fission_component! {
+    pub NewInspection<TreeRoundsState> {
+        state {
+            species: String = String::new(),
+            location: String = String::new(),
+            finding: String = String::new(),
+        }
+    }
+    view(form, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("tree.new")).weight(tokens.typography.font_weight_bold),
+        TextInput(label: Some(cx.tr("tree.species").into()), bind: form.species,
+            semantics_identifier: "inspection.species".to_owned()),
+        TextInput(label: Some(cx.tr("tree.location").into()), bind: form.location,
+            semantics_identifier: "inspection.location".to_owned()),
+        TextInput(label: Some(cx.tr("tree.finding").into()), bind: form.finding,
+            multiline: true, semantics_identifier: "inspection.finding".to_owned()),
+        Button(
+            child: Text(cx.tr("tree.add")), key: "inspection.add",
+            disabled: form.species.trim().is_empty() || form.location.trim().is_empty()
+                || form.finding.trim().is_empty(),
+            on_press: reduce {
+                if state.add(form.species.clone(), form.location.clone(), form.finding.clone()) {
+                    form.species.clear();
+                    form.location.clear();
+                    form.finding.clear();
+                }
+            },
+        ),
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/card.rs">
+<!-- fission:file path="src/card.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{TreeInspection, TreeRoundsState};
+
+fission_component! {
+    pub TreeInspectionCard<TreeRoundsState> {
+        props { inspection: TreeInspection, selected_crew: String }
+    }
+    view(card, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
+    SemanticsRegion(
+        identifier: Some(format!("tree.inspection.{}", card.inspection.id)),
+        label: Some(format!("{}: {}", cx.tr("tree.inspection"), card.inspection.location)),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Text(card.inspection.species.clone()).weight(tokens.typography.font_weight_bold),
+                Text(card.inspection.location.clone()).color(tokens.colors.text_secondary),
+                Text(card.inspection.finding.clone()),
+                if let Some(crew) = &card.inspection.crew {
+                    Text(format!("{}: {crew}", cx.tr("tree.assigned")))
+                } else {
+                    Button(
+                        child: Text(cx.tr("tree.assign")), key: "inspection.assign",
+                        disabled: card.selected_crew.trim().is_empty(),
+                        on_press: reduce {
+                            state.assign(card.inspection.id, card.selected_crew.clone());
+                        },
+                    )
+                },
+            ])
+        ).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{card::TreeInspectionCard, form::NewInspection, state::TreeRoundsState};
+
+fission_component! {
+    pub TreeRoundsDashboard<TreeRoundsState> {
+        state { crew: String = String::new() }
+    }
+    view(dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let unassigned = state.inspections.iter().filter(|value| value.crew.is_none()).count();
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.l, children: [
+            Text(cx.tr("tree.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("tree.scope")),
+            NewInspection(),
+            Divider(),
+            TextInput(label: Some(cx.tr("tree.crew").into()), bind: dashboard.crew,
+                helper_text: Some(cx.tr("tree.crew_help").into()),
+                semantics_identifier: "inspection.crew".to_owned()),
+            Text(format!("{}: {unassigned}", cx.tr("tree.unassigned"))),
+            if state.inspections.is_empty() {
+                Text(cx.tr("tree.empty"))
+            } else {
+                Column(gap: tokens.spacing.m, children: [
+                    for inspection in &state.inspections {
+                        TreeInspectionCard(
+                            inspection.clone(), dashboard.crew.clone(), key: inspection.id,
+                        ).id(WidgetId::explicit(&format!("tree-card.{}", inspection.id)))
+                    },
+                ])
+            },
+        ])
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+tree.title: "Tree inspection queue"
+tree.new: "Add an inspection"
+tree.species: "Tree species"
+tree.location: "Location or landmark"
+tree.finding: "What needs attention?"
+tree.add: "Add inspection"
+tree.crew: "Crew to assign"
+tree.crew_help: "Enter the crew agreed by dispatch. This app does not verify a roster or notify a crew."
+tree.inspection: "Inspection"
+tree.assigned: "Assigned crew"
+tree.assign: "Assign the selected crew"
+tree.unassigned: "Inspections needing a crew"
+tree.empty: "No inspections yet. Enter a tree, location and finding above."
+tree.scope: "Records and assignments stay in this session only. Assignment is not proof the inspection or work is complete."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+tree.title: "Cola de inspecciones de árboles"
+tree.new: "Añadir una inspección"
+tree.species: "Especie del árbol"
+tree.location: "Ubicación o punto de referencia"
+tree.finding: "¿Qué necesita atención?"
+tree.add: "Añadir inspección"
+tree.crew: "Equipo que se asignará"
+tree.crew_help: "Introduce el equipo acordado. Esta aplicación no verifica equipos ni les envía avisos."
+tree.inspection: "Inspección"
+tree.assigned: "Equipo asignado"
+tree.assign: "Asignar el equipo elegido"
+tree.unassigned: "Inspecciones sin equipo"
+tree.empty: "Aún no hay inspecciones. Introduce árbol, ubicación y observación."
+tree.scope: "Los registros y las asignaciones solo duran esta sesión. Asignar no significa completar la inspección o el trabajo."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+pub mod state;
+mod form;
+mod card;
+mod translations;
+
+use app::TreeRoundsDashboard;
+use state::TreeRoundsState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TreeRoundsState, TreeRoundsDashboard> {
+    let app = MobileApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Create two different inspections, enter a crew and assign one card. Its details must remain intact, the other card must remain unassigned and the count must fall by exactly one. The button assigns the crew named in the field; it does not claim to schedule a route, notify people or complete the work.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Run the same composition on Android
+
+```sh
+cargo test
+fission doctor android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+The unit test reverses the record order before assignment, so it checks the action targets the record rather than its index. It also checks that a second assignment cannot silently overwrite the first. The user interface still needs device checks: enter longer species and location names, use the soft keyboard and increased system font size, then verify the queue scrolls without hiding its actions.
+
+Both targets start empty and run the same code. Reloading the app loses this session's records; a production queue needs an explicit loading and persistence effect before claiming otherwise. That does not require replacing the component boundaries. It changes where the records come from and where their transitions are committed.
+
+A reusable component need not be state-agnostic when its action changes domain state. The card uses `TreeRoundsState` deliberately. Its text labels come from checked-in translations, whilst species, findings and crew names are user data and must not be treated as translation keys.
+
+### References
+
+- [Layout and widgets](/docs/guides/layout-and-widgets/)
+- [Fission state, handles, and providers](/docs/guides/state-handles-and-providers/)
+- [Fission components and widget catalog](/reference/widgets/catalog/)
+- [Android development setup](/blog/set-up-rust-android-gui-development-with-fission/)
+<!-- /fission:step -->

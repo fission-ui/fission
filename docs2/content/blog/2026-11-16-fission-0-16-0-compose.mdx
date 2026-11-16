@@ -1,0 +1,304 @@
+---
+title: "Fission 0.16.0: less ceremony, the same Rust UI"
+description: Build the same interactive component with Fission's struct-based API and Compose, and see what the macro generates rather than learning another runtime.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - compose
+  - tutorial
+slug: fission-0-16-0-compose
+---
+
+A button that increments a number is not a complicated application. Yet by the
+time you've defined the component, given it retained state, declared an action,
+registered its reducer and connected that action to the button, you've written
+quite a bit that says very little about what the button actually does.
+
+Each of those pieces has a purpose. The problem is having to spell out their
+relationship every time, including when that relationship is entirely
+predictable. Once a screen has several components, the behaviour you're trying
+to understand can end up scattered amongst the code needed to connect it.
+
+That is the problem Compose addresses in Fission 0.16.0. It is a more direct way
+to write Fission components, not a replacement for Fission's state model or a
+second UI runtime. To see what that means, let's build the same component both
+ways.
+
+## Start with something small enough to understand
+
+Say you're making a check-in screen for an event. For now, all we need is a
+number and a button to record another arrival. The count belongs to this
+component instance and should survive the UI being rebuilt.
+
+This is deliberately a session-only tally. It doesn't store attendee records,
+survive restarting the app or synchronise several desks. Those are application
+data concerns; when we add them, that truth belongs in shared application state
+and persistence rather than being hidden inside this widget.
+
+We'll keep the component in `src/counter.rs`, the shell in `src/main.rs`, and
+the button's translations in `i18n/`. Both implementations below use the same
+shell and translations. Choose either version of `counter.rs`, not both.
+
+Create a small Cargo application and give it these dependencies:
+
+```console
+cargo new check-in
+cd check-in
+```
+
+```toml
+[dependencies]
+anyhow = "1"
+fission = { version = "=0.16.0", default-features = false, features = ["desktop"] }
+serde_json = "1"
+```
+
+## The existing API makes the machinery explicit
+
+Here is `src/counter.rs` using the struct-based API:
+
+```rust
+use fission::prelude::*;
+
+#[with_local_state]
+pub struct CheckInCounter {
+    pub label: TextContent,
+    #[local_state(default = 0)]
+    count: usize,
+}
+
+#[fission_reducer(RecordArrival)]
+fn record_arrival(count: &mut usize) {
+    *count += 1;
+}
+
+impl From<CheckInCounter> for Widget {
+    fn from(counter: CheckInCounter) -> Widget {
+        let (cx, view) = fission::build::current::<()>();
+        let tokens = &view.env().theme.tokens;
+        let count = counter.count();
+        let record = cx.bind_local(RecordArrival, count.clone(), reduce!(record_arrival));
+
+        Column {
+            gap: Some(tokens.spacing.m),
+            children: widgets![
+                Text::new(count.get().to_string()),
+                Button {
+                    child: Some(Text::new(counter.label).into()),
+                    on_press: Some(record),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+There are three important things happening here. `label` is supplied by the
+parent. `count` is retained local state, not an ordinary field that resets each
+time the parent constructs a component. `record_arrival` changes that state
+when the button dispatches its action.
+
+The conversion builds a normal Fission widget tree. `bind_local` connects the
+action to this particular component's state handle, so two instances don't
+accidentally increment each other's counts. Spacing comes from the active
+design system, and the standard button supplies its normal interaction and
+accessibility behaviour.
+
+This API remains valid. If you prefer explicitly registering reducers, or you're
+building a lower-level abstraction that needs that control, keep using it.
+There is no requirement to migrate working components to Compose.
+
+## Keep the behaviour, remove the repeated connections
+
+Replace `src/counter.rs` with this:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub CheckInCounter<()> {
+        props { label: TextContent }
+        state { count: usize = 0 }
+    }
+
+    view(counter, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.m,
+        children: [
+            Text(counter.count.to_string()),
+            Button(
+                key: "record-arrival",
+                child: Text(counter.label.clone()),
+                on_press: reduce {
+                    counter.count += 1;
+                },
+            ),
+        ],
+    )
+}
+```
+
+The distinction between a parent-supplied value and retained state is now
+written directly as `props` and `state`. The default for `count` is used when
+that component's retained state is first created, not on every build.
+
+`view(counter, _state, cx)` names the values available while constructing the
+view. It is macro syntax, not a Rust closure. Here `counter` exposes the props
+and local state, `_state` is the unused application state, and `cx` gives access
+to the current build and view context. The `()` in `CheckInCounter<()>` is the
+application-state type; this example doesn't need a custom one.
+
+The `reduce` block is also a named piece of Compose syntax. It generates a
+reducer which runs when the button is pressed. It does **not** mutate state
+whilst the view is being constructed, even though the transition is written
+next to the button that requests it.
+
+The button key gives that interaction an explicit name within the component.
+For components repeated from changing data, use stable data-derived identities
+as well; a list position is not the identity of an attendee or a conversation.
+
+## Run either version with the same shell
+
+Put this in `src/main.rs`:
+
+```rust
+mod counter;
+
+use counter::CheckInCounter;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    for (locale, messages) in [
+        ("en-US", include_str!("../i18n/en-US.json")),
+        ("es-ES", include_str!("../i18n/es-ES.json")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_json::from_str(messages)?,
+        });
+    }
+    env.locale = Locale::from("en-US");
+    Ok(env)
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(CheckInCounter {
+        label: TextContent::Key("check_in.record_arrival".into()),
+    })
+    .with_env(create_env()?)
+    .run()
+}
+```
+
+Create `i18n/en-US.json`:
+
+```json
+{
+  "check_in.record_arrival": "Record an arrival"
+}
+```
+
+And `i18n/es-ES.json`:
+
+```json
+{
+  "check_in.record_arrival": "Registrar una llegada"
+}
+```
+
+Now run `cargo run`. Press the button a few times: the count increases and
+remains there as Fission rebuilds the view. Switch the shell's initial locale
+to `es-ES` to try the longer translated label. Neither component needs to know
+which language the shell selected.
+
+Notice that the shell still constructs `CheckInCounter` as an ordinary Rust
+struct. Compose generated that struct, including its public `label` field.
+It can sit inside a struct-based parent just as a struct-based component can
+sit inside a Compose view. You can adopt it one component at a time.
+
+## What the macro actually changes
+
+The shorter version hasn't removed the work Fission must do. It has removed
+the need for you to write the predictable parts yourself.
+
+`fission_component!` generates a component struct and its conversion into
+`Widget`, creates the retained state handles, and generates and registers the
+reducers used by the handlers. It also supplies the component and interaction
+identity bookkeeping. The resulting tree uses the same `Column`, `Text` and
+`Button` widgets as the first version.
+
+That is to say, Compose generates ordinary Fission code. It isn't generating
+a second representation of your app which needs a separate renderer, state
+store or event loop. The first example shows the machinery explicitly; the
+second asks the macro to produce it. They are equivalent ways to express this
+behaviour, not a claim that the macro expansion is byte-for-byte the first
+listing.
+
+The same distinction applies when work becomes asynchronous. A synchronous
+`reduce` handler changes state; an `effect` request queues asynchronous work.
+Compose lets you put an optional `on_start` block and required `on_ok` and
+`on_err` blocks alongside that request. Those blocks become reducers too, so
+the completion acts on current state rather than a borrowed view that has long
+since finished building.
+
+The async operation receives owned snapshots of the inputs it needs. It
+doesn't receive the live `counter`, application state or reducer context.
+Moving the syntax closer together doesn't make those lifetimes disappear.
+See the [remote counter example](/compose/) for the full effect lifecycle.
+
+There are tradeoffs. The contents of `fission_component!` are a macro grammar,
+not ordinary Rust function arguments, and stock `rustfmt` does not format that
+grammar for you. Widget construction still uses the underlying widgets'
+constructors and defaults; Compose does not make every omitted field a
+compile-time error. Both are reasons to be precise about what this API is,
+rather than presenting it as a new language which solves problems it doesn't.
+
+## Less to repeat, the same things to reason about
+
+The point of Compose is not that fewer lines automatically make an application
+better. It's that the code you're reading should spend more of its time
+describing the application and less of it repeating how Fission connects the
+pieces.
+
+If the struct-based version is clearer for the component you're writing, use
+it. If the Compose version lets you see the behaviour more directly, use that.
+Both remain supported Fission APIs, and both run on the same framework.
+
+For a larger example, the [WhatsApp-style chat tutorial](/docs/learn/whatsapp-clone/)
+builds a responsive Compose app with conversation selection, drafts and local
+message sending. The [Compose reference](/compose/) covers the authoring
+grammar beyond this small component.
+
+## Also in 0.16.0
+
+- Goal-oriented documentation with interactive checkpoints built from the
+  tutorial source, rather than separately maintained demo applications.
+- Faster documentation builds: stable generated projects, complete preview
+  caching, one Rust compilation per uncached checkpoint and optional `wasm-opt`.
+- Retained identity fixes for keyed lazy rows, plus text-editing and caret
+  corrections after value replacement and responsive changes.
+- Web SQLite transaction and permission fixes, and LiveTest memory adapters
+  which work without dynamic JavaScript code generation.
+- Rendering, Metal compatibility, native document ownership, Android PDF
+  copying and notification receipt fixes.
+- Opt-in **alpha** 2D/3D scenes, deterministic game runtime and optional Rapier
+  physics providers. These are not stable APIs; see the
+  [complete changelog](https://github.com/fission-ui/fission/blob/v0.16.0/CHANGELOG.md).
+- Existing applications should review the
+  [0.16.0 migration notes](https://github.com/fission-ui/fission/blob/v0.16.0/docs/release-0.16.0-readiness.md).
+  The published CLI's generated app can hit a Compose parser error on a bare
+  `_` component binding. Change `view(_, state, cx)` to
+  `view(_app, state, cx)` (or `|_, state, cx| =>` to
+  `|_app, state, cx| =>` in generated legacy syntax). The parser correction is
+  on `main`, not in the immutable 0.16.0 packages; this tutorial already uses
+  named bindings.

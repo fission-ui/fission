@@ -1,0 +1,53 @@
+---
+title: Cycle polar line
+sidebar_label: Cycle polar line
+description: Fission Charts reference for Cycle polar line.
+---
+
+# Cycle polar line
+
+![Cycle polar line screenshot](/img/charts/polar-cycle-line.png)
+
+Some measurements repeat through a physical cycle. A machine's vibration amplitude by shaft angle is one example where position around the circle carries information rather than decoration. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Compare measurements taken at the same phase positions under comparable operating conditions. A circular profile is not a chronological trend or proof that a particular component caused the vibration.
+
+## Data model
+
+`PolarLineSeries` takes angle-in-degrees/radius pairs, drawn from the top clockwise and connected in supplied order. Radius scales against the largest value. Closure is not automatic; repeat the initial position at the end only when that closing segment is intended.
+
+## Authoring from a Fission component
+
+The parent supplies a validated phase-ordered vibration profile and localized labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarLineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MachinePhaseVibration<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            degrees_and_amplitude_mm: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PolarLineSeries::new(&report.series_label)
+            .data(report.degrees_and_amplitude_mm.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test the 0/360 boundary, a missing phase sample and a flat profile. Explain the phase reference and amplitude unit outside the plot. Automatic scaling must not make two machines with different absolute amplitudes look equivalent.
+
+Tags: `polar`, `cycle`.
+
+[Radial family overview](./overview)

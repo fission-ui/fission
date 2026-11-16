@@ -1,0 +1,42 @@
+---
+title: TableRow
+description: Describe one row of string cells inside a DataTable.
+slug: /widgets/table-row
+---
+# TableRow
+
+`TableRow` is the row-data record used by [`DataTable`](/reference/widgets/data-table).
+
+Each row has a stable ID and a list of string cells. Cells match columns by
+index, so keep their order aligned with the column definitions.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let row = TableRow {
+    id: "invoice_1024".into(),
+    cells: vec!["Paid".into(), "15 May 2026".into(), "$49.00".into()],
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable row identifier. | Required. Used for selection state and callbacks. |
+| `cells` | `Vec<String>` | Cell text in the same order as the table's columns. | Required. Extra cells render against fallback widths; missing cells leave gaps in meaning. |
+
+## Specific advice
+
+Keep the real row data in structured app state and derive `cells` for presentation. That way sorting, filtering, and actions can continue to use typed data instead of parsing display strings back into meaning.
+
+## Check each row in context
+
+- Keep the row id stable and unique so selection continues to refer to the same data after sorting or filtering.
+- Keep the cell order aligned with the table columns. Format display strings from typed data rather than parsing them back into domain values.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`TableColumn`](/reference/widgets/table-column), [`Text`](/reference/widgets/text), and [`Card`](/reference/widgets/card).

@@ -72,6 +72,7 @@ pub mod platform_haptics;
 pub mod platform_microphone;
 pub mod platform_nfc;
 pub mod platform_passkey;
+pub mod platform_print;
 pub mod platform_volume;
 pub mod platform_wifi;
 pub mod registry;
@@ -253,6 +254,17 @@ pub mod internal {
         widget.clone().resolve_identities(root).lower(cx)
     }
 
+    /// Lower an owned widget tree without cloning it before identity
+    /// resolution. Shell rebuilds should use this when they create a fresh
+    /// root tree for the current frame.
+    pub fn lower_widget_with_root_owned(
+        widget: Widget,
+        cx: &mut LoweringContext,
+        root: WidgetId,
+    ) -> WidgetId {
+        widget.resolve_identities(root).lower(cx)
+    }
+
     pub fn lower_widget_to_ir(widget: &Widget) -> fission_ir::CoreIR {
         lower_widget_to_ir_with_root(widget, WidgetId::app_root())
     }
@@ -274,7 +286,15 @@ pub mod internal {
     }
 
     pub fn resolve_widget_identities(widget: &Widget, root: WidgetId) -> Widget {
-        widget.clone().resolve_identities(root)
+        resolve_widget_identities_owned(widget.clone(), root)
+    }
+
+    /// Resolve identities on an owned widget tree without cloning the tree.
+    ///
+    /// Shells build a fresh tree for each rebuild, so they should pass that
+    /// tree directly here instead of retaining a second copy of every widget.
+    pub fn resolve_widget_identities_owned(widget: Widget, root: WidgetId) -> Widget {
+        widget.resolve_identities(root)
     }
 
     pub fn shell_root_id(authored_root: WidgetId) -> WidgetId {
@@ -378,8 +398,9 @@ pub mod public {
         UpdateTextSelection,
     };
     pub use crate::async_runtime::{
-        BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
-        ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+        AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
+        ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot,
+        ServiceSpec, ServiceType,
     };
     pub use crate::capability::{
         CapabilityCtx, CapabilityInvocationPayload, CapabilityType, OpenUrlCapability,
@@ -402,8 +423,8 @@ pub mod public {
         FissionDataStreamErrorKind,
     };
     pub use crate::effect::{
-        ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
-        ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+        ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
+        ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -540,6 +561,10 @@ pub mod public {
         PasskeyUserVerification, RegisterPasskeyCapability, AUTHENTICATE_PASSKEY,
         CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
     };
+    pub use crate::platform_print::{
+        PrintError, PrintOutcome, PrintPageRange, PrintPdfCapability, PrintPdfRequest,
+        PrintPdfResult, PRINT_PDF,
+    };
     pub use crate::platform_volume::{
         AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
         VolumeAdjustDirection, VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest,
@@ -562,7 +587,7 @@ pub mod public {
     pub use crate::time::{Clock, CurrentTime};
     pub use crate::ui::{
         provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
-        Column, ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+        Column, ComponentSize, ComponentState, CustomWidget, EnvScope, IosAudioSessionCategory,
         IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
         PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
         Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
@@ -578,9 +603,9 @@ pub mod public {
         Overflow,
     };
     pub use fission_ir::{
-        EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-        PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
-        SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
+        EmbedKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding, LinkTarget,
+        MaxLengthEnforcement, Op, PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension,
+        SceneTarget, SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
         TextInputAction, TextInputType, TextWrapMode, WidgetId,
     };
     pub use fission_layout::{
@@ -597,8 +622,9 @@ pub use action::{
     UpdateTextInput, UpdateTextSelection,
 };
 pub use async_runtime::{
-    BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
-    ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+    AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
+    ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec,
+    ServiceType,
 };
 pub use bytes::Bytes;
 pub use capability::{
@@ -621,8 +647,8 @@ pub use data_stream::{
     FissionDataStreamErrorKind,
 };
 pub use effect::{
-    ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
-    ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+    ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
+    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -669,10 +695,10 @@ pub use fission_ir::op::{
     Overflow,
 };
 pub use fission_ir::{
-    EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-    PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
-    SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState, TextInputAction,
-    TextInputType, TextWrapMode, WidgetId,
+    EmbedKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding, LinkTarget,
+    MaxLengthEnforcement, Op, PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension,
+    SceneTarget, SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
+    TextInputAction, TextInputType, TextWrapMode, WidgetId,
 };
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
@@ -776,6 +802,10 @@ pub use platform_passkey::{
     RegisterPasskeyCapability, AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION,
     GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
 };
+pub use platform_print::{
+    PrintError, PrintOutcome, PrintPageRange, PrintPdfCapability, PrintPdfRequest, PrintPdfResult,
+    PRINT_PDF,
+};
 pub use platform_volume::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
     VolumeAdjustDirection, VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest,
@@ -798,7 +828,7 @@ pub use scoped_action_handlers::ScopedActionResolution;
 pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
-    ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+    ComponentSize, ComponentState, CustomWidget, EnvScope, IosAudioSessionCategory,
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
     PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
     Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,

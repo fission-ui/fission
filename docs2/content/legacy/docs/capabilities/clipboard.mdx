@@ -1,0 +1,158 @@
+---
+title: Clipboard
+description: Read, write, and clear user-visible clipboard content through the host.
+---
+
+# Clipboard
+
+Clipboard access is for explicit user transfer: Copy, Paste, Copy link, Clear copied value, or writing typed content the user intentionally asked to share with other apps.
+
+This example copies a link after the user presses a button, then reports whether the host accepted the request. Keep clipboard reads tied to a visible user action too.
+
+Avoid background clipboard reads. Users expect clipboard access to be tied to a visible action, and browsers or operating systems may require focus, a secure origin, or a direct user gesture.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct ClipboardState {
+    share_url: String,
+    copying: bool,
+    copied: bool,
+    clipboard_error: Option<String>,
+}
+
+impl GlobalState for ClipboardState {}
+```
+
+Populate `share_url` from the selected record's actual share URL. Keep the
+in-flight flag and outcome separately: requesting a copy is not proof that the
+host accepted it.
+
+## 2. Configure the target and host
+
+Clipboard needs no `fission add-capability` command. It still depends on the
+active shell's provider and the host's focus, security and user-gesture rules.
+
+Clipboard does not need generated Android or iOS permission entries in the built-in declaration. The default shell can provide a clipboard host on common desktop paths, but custom shells and web targets still need an implementation that respects focus, gesture, and security rules.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed clipboard request your reducer makes; the write call is shown below.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The write completes after its starting reducer returns. Handle success and failure in completion reducers.
+
+```rust
+#[fission_reducer(LinkCopied)]
+fn on_link_copied(state: &mut ClipboardState) {
+    state.copying = false;
+    state.copied = true;
+    state.clipboard_error = None;
+}
+
+#[fission_reducer(CopyFailed)]
+fn on_copy_failed(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    state.copying = false;
+    state.copied = false;
+    state.clipboard_error = Some(
+        ctx.input.capability_error(WRITE_CLIPBOARD_TEXT)
+            .map(|error| error.message)
+            .or_else(|| ctx.input.capability_error_message(WRITE_CLIPBOARD_TEXT).map(str::to_owned))
+            .unwrap_or_else(|| "Clipboard write failed".into()),
+    );
+}
+```
+
+Focus restrictions, unavailable providers, and denied access are expected outcomes. Show success only after the write completes.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(CopyShareLink)]
+fn on_copy_share_link(state: &mut ClipboardState, ctx: &mut ReducerContext<ClipboardState>) {
+    if state.copying || state.share_url.is_empty() {
+        return;
+    }
+    state.copying = true;
+    state.copied = false;
+    state.clipboard_error = None;
+
+    let copied = ctx.effects.bind(LinkCopied, reduce_with!(on_link_copied));
+    let failed = ctx.effects.bind(CopyFailed, reduce_with!(on_copy_failed));
+    ctx.effects
+        .clipboard()
+        .write_text(ClipboardWriteTextRequest { text: state.share_url.clone() })
+        .on_ok(copied)
+        .on_err(failed);
+}
+```
+
+Bind callbacks before borrowing the effect builder. The failure reducer reads
+the actual host result through `ctx.input`; a default error in an action payload
+would only describe the value authored earlier, not what the host returned.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts the copy:
+
+```rust
+
+
+fission_component! {
+    pub CopyShareLinkButton<ClipboardState>
+    view(_button, state, cx) {
+        let run = cx.bind(CopyShareLink, reduce!(on_copy_share_link));
+    } =>
+    Column(children: [
+        Button(
+            child: Text(cx.tr("share.copy_link")),
+            disabled: state.copying || state.share_url.is_empty(),
+            on_press: run,
+        ),
+        if state.copying { Spinner(motion: SpinnerMotion::Default, label: cx.tr("share.copying")) },
+        if state.copied { Text(cx.tr("share.link_copied")) },
+        if let Some(error) = &state.clipboard_error {
+            Alert(kind: AlertKind::Error, title: error.clone())
+        },
+    ])
+}
+```
+The button dispatches an action, a reducer requests the clipboard write, and a completion reducer updates the screen.
+
+## 6. Provide and test the host behavior
+
+Register a `ClipboardHost` with `.with_clipboard_host(...)` when the default shell is not enough. Use `MemoryClipboardHost` in tests. The provider should return typed errors for denied gestures, missing focus, unsupported rich content, or unavailable host clipboard.
+
+Test write success, empty and populated reads, rich-content reads, clear, and gesture-denied errors. Verify the app does not claim a copy succeeded when the provider returns an error, and do not test by reading the user's real clipboard.
+
+## Platform expectations
+
+Clipboard is broadly available on macOS, Windows, Linux, Web, Android, and iOS. Browser clipboard access usually requires a secure context and user gesture. Linux depends on the active display server and clipboard backend.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Clipboard reference](/reference/capabilities/clipboard/).
+
+## Finished capability flow
+
+A complete `Clipboard` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | No generated clipboard permission declaration; verify the actual provider, secure context and focus/gesture requirements. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

@@ -230,6 +230,64 @@ fn explicit_input_focus_action_remains_authoritative() {
 }
 
 #[test]
+fn empty_combobox_shows_its_placeholder_in_the_muted_colour_and_announces_it() {
+    let combobox_id = WidgetId::explicit("placeholder-combobox");
+    let input_id = WidgetId::derived(combobox_id.as_u128(), &[0, 1]);
+    let placeholder = "Search people";
+    let build_with_value = |value: &str| {
+        let value = value.to_string();
+        build_widget(move || {
+            Combobox {
+                id: combobox_id,
+                value,
+                placeholder: Some(placeholder.into()),
+                items: vec!["Avery".into()],
+                ..Default::default()
+            }
+            .into()
+        })
+        .0
+    };
+    let placeholder_runs = |ir: &CoreIR| {
+        ir.nodes
+            .values()
+            .filter_map(|node| match &node.op {
+                Op::Paint(fission_ir::op::PaintOp::DrawRichText { runs, .. }) => Some(runs),
+                _ => None,
+            })
+            .flatten()
+            .cloned()
+            .filter(|run| run.text == placeholder)
+            .collect::<Vec<_>>()
+    };
+
+    let empty = build_with_value("");
+    let runs = placeholder_runs(&empty);
+    assert_eq!(
+        runs.len(),
+        1,
+        "an empty combobox must paint its placeholder"
+    );
+    let theme = &Env::default().theme.components.text_input;
+    let muted = theme
+        .placeholder_style
+        .text_color
+        .unwrap_or(theme.placeholder_color);
+    assert_eq!(runs[0].style.color, muted);
+    assert_eq!(
+        semantics_at(&empty, input_id).label.as_deref(),
+        Some(placeholder),
+        "an unlabelled combobox announces its placeholder"
+    );
+
+    let filled = build_with_value("Av");
+    assert!(
+        placeholder_runs(&filled).is_empty(),
+        "the placeholder must disappear once the field has a value"
+    );
+}
+
+#[test]
 fn combobox_reuses_text_input_and_select_content_visual_recipes() {
     let combobox_id = WidgetId::explicit("shared-recipes");
     let input_id = WidgetId::explicit("shared-recipes.input");

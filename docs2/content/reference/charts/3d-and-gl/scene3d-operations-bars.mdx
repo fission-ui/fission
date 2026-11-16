@@ -1,0 +1,50 @@
+---
+title: 3D operations bars
+sidebar_label: 3D operations bars
+description: Locate operational measurements on a stable spatial grid rather than decorating unrelated totals.
+---
+
+# 3D operations bars
+
+![3D operations bars screenshot](/img/charts/scene3d-operations-bars.png)
+
+Operational measurements become spatial data when their positions identify where work is happening. A floor grid of waiting units can help a supervisor locate a bottleneck; the same numbers arranged arbitrarily in depth would be harder to compare than ordinary bars.
+
+Choose one measure for height and keep its unit consistent. Do not mix waiting minutes, unit counts and percentages in the same unlabelled grid.
+
+## Compose the floor projection
+
+Use `StorageReadings` from [3D bar](./bar3d-basic), placed in `widgets/spatial_readings.rs`. Its optional readings preserve a cell's location when its measurement is unavailable.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::spatial_readings::StorageReadings;
+
+fission_component! {
+    pub WaitingUnitsFloorMap<()> {
+        props {
+            title: TextContent,
+            waiting_units: Vec<Vec<Option<f32>>>,
+            bar_color: Color,
+        }
+    }
+    view(operations, _state, _cx) => StorageReadings {
+        title: operations.title.clone(),
+        readings: operations.waiting_units.clone(),
+        bar_color: operations.bar_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. The parent provides translated text, theme colour and validated non-negative counts converted into the documented scene scale. Keep location names, timestamps and exact measurements in the source records.
+
+## Checks
+
+An unavailable observation is not an empty queue. Test that missing readings do not shift neighbouring cells and that stale measurements are identified in the surrounding UI. Inspect hidden bars and the largest floor grid in a real rendering.
+
+The scene consists of meshes, not a dedicated operational-series API with automatic labels or chart events. Provide a labelled table for accessible inspection and selection. The screenshot uses gallery sample geometry.
+
+Tags: `3d`, `operations`.
+
+[3D and GL family overview](./overview)

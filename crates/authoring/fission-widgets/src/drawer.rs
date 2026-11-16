@@ -18,6 +18,12 @@ pub enum DrawerSide {
     Right,
 }
 
+impl Default for DrawerSide {
+    fn default() -> Self {
+        Self::Left
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Drawer`].
 ///
@@ -228,6 +234,21 @@ pub struct Drawer {
     /// Drawer motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<DrawerMotion>,
+}
+
+impl Default for Drawer {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            side: DrawerSide::default(),
+            is_open: false,
+            on_dismiss: None,
+            dismiss_semantics_identifier: None,
+            content: fission_core::ui::widgets::Spacer::default().into(),
+            width: None,
+            motion: None,
+        }
+    }
 }
 
 impl From<Drawer> for Widget {

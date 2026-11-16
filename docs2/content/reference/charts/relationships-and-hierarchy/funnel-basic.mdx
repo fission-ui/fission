@@ -1,0 +1,57 @@
+---
+title: Funnel
+sidebar_label: Funnel
+description: Fission Charts reference for Funnel.
+---
+
+# Funnel
+
+![Funnel screenshot](/img/charts/funnel-basic.png)
+
+A conversion funnel follows one population through ordered stages. For account onboarding, the useful question is how many accounts from the same cohort reached each successive stage. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Do not combine this month's signups with this month's completed setups if those completions belong to older accounts. The chart shape cannot repair a mismatched cohort or observation period.
+
+## Data model
+
+`FunnelSeries` accepts ordered label/value pairs. It draws them in supplied order and does not compute conversion rates or enforce decreasing counts. Prepare non-negative stage counts using one cohort and a defined completion window.
+
+## Authoring from a Fission component
+
+The parent supplies the prepared stage report and localized stage names; this is a real funnel rather than an empty chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, FunnelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccountOnboardingFunnel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            accounts_by_stage: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.accounts_by_stage.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![FunnelSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test one account reaching several stages, an unfinished observation window and a stage count increasing unexpectedly. Keep exact stage counts and conversion denominators outside the drawing. A funnel is not a workflow-state engine.
+
+Tags: `funnel`, `conversion`.
+
+[Relationships and hierarchy family overview](./overview)

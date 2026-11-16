@@ -8,61 +8,39 @@ use crate::menu_bar::MenuBar;
 use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use crate::status_bar::StatusBar;
-use fission::core::ui::{Column, Container, Row, Widget};
-use fission::widgets::Spacer;
+use fission::prelude::*;
 
-pub(crate) struct DesktopEditorLayout;
-
-impl From<DesktopEditorLayout> for Widget {
-    fn from(_layout: DesktopEditorLayout) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let viewport = view.viewport_size();
-        let sidebar_width = view.state().sidebar_width.min(
+fission_component! {
+    pub(crate) DesktopEditorLayout<EditorState> |_layout, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let viewport = cx.view.viewport_size();
+        let sidebar_width = state.sidebar_width.min(
             (viewport.width - EDITOR_HORIZONTAL_RESERVE)
                 .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
         );
-
-        let mut workspace = vec![ActivityBar.into()];
-        if view.state().sidebar_visible {
-            workspace.push(
-                EditorSidebar {
-                    width: Some(sidebar_width),
-                }
-                .into(),
-            );
-            workspace.push(
-                Container::new(Spacer::default())
+    } =>
+        Column(
+            flex_grow: 1.0,
+            children: [
+                MenuBar(),
+                Container(
+                    Row(
+                        align_items: ir_op::AlignItems::Stretch,
+                        flex_grow: 1.0,
+                        children: [
+                            ActivityBar(),
+                            if state.sidebar_visible { EditorSidebar(Some(sidebar_width)) },
+                            if state.sidebar_visible {
+                                Container(Spacer())
                     .width(DIVIDER_THICKNESS)
                     .bg(palette.border_color)
-                    .flex_shrink(0.0)
-                    .into(),
-            );
-        }
-        workspace.push(
-            Container::new(EditorCenter)
-                .flex_grow(1.0)
-                .min_width(0.0)
-                .into(),
-        );
-
-        Column {
-            children: vec![
-                MenuBar.into(),
-                Container::new(Row {
-                    children: workspace,
-                    align_items: fission::op::AlignItems::Stretch,
-                    flex_grow: 1.0,
-                    ..Default::default()
-                })
-                .flex_grow(1.0)
-                .min_height(0.0)
-                .into(),
-                StatusBar.into(),
+                                    .flex_shrink(0.0)
+                            },
+                            Container(EditorCenter()).flex_grow(1.0).min_width(0.0),
+                        ],
+                    ),
+                ).flex_grow(1.0).min_height(0.0),
+                StatusBar(),
             ],
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

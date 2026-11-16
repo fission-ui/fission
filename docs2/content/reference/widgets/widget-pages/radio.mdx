@@ -1,0 +1,80 @@
+---
+title: Radio
+description: Represent one choice inside a mutually exclusive set of options.
+slug: /widgets/radio
+---
+# Radio
+
+`Radio` represents one option in a group where exactly one choice can be
+active, such as a plan, density, or sort order.
+
+Each radio only knows whether it is selected. Your app state holds the selected
+value for the group.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShippingMethod { Standard, Express }
+
+fission_component! {
+    pub ShippingChoice<()> {
+        state { selected: ShippingMethod = ShippingMethod::Standard }
+    }
+
+    view(choice, _state, cx) =>
+        Column(
+            children: [
+                Radio(
+                    checked: choice.selected == ShippingMethod::Standard,
+                    label: Some(cx.tr("shipping.standard")),
+                    on_select: reduce { choice.selected = ShippingMethod::Standard; },
+                ),
+                Radio(
+                    checked: choice.selected == ShippingMethod::Express,
+                    label: Some(cx.tr("shipping.express")),
+                    on_select: reduce { choice.selected = ShippingMethod::Express; },
+                ),
+            ],
+        )
+}
+```
+
+This is an isolated pending shipping choice. The enum makes mutual exclusion
+explicit and does not change meaning when labels are translated or reordered.
+A checkout that shares the selection with totals and delivery estimates should
+move it into the order's `GlobalState` rather than retaining another local copy.
+
+Every radio emits a concrete selection transition. The reducer stores one enum
+value and the next build marks exactly one option checked.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether this option is the selected one. | Defaults to `false`. |
+| `on_select` | `Option<ActionEnvelope>` | Action fired when the radio is chosen. | Defaults to `None`. |
+| `label` | `Option<String>` | Visible text shown next to the radio indicator. | Defaults to `None`. |
+
+## Group behavior and accessibility
+
+The important product rule is not inside the widget. It is in the reducer: only one item in the group should end up selected after an action. That is why radios pair naturally with an enum or durable selected id in app state. An index is not a stable product identity.
+
+`Radio` exposes `Role::Radio`, uses `checked` for its selected state, and dispatches `on_select` through its default semantic action.
+
+## Specific advice
+
+Use radios only when the available choices are few enough to stay visible together. Once the list becomes long or collapsible, a [`Select`](/reference/widgets/select) or [`Combobox`](/reference/widgets/combobox) usually becomes easier to use.
+
+## Production checklist
+
+- Verify one enum/id remains selected after labels reorder or translate.
+- Test selection by keyboard and semantic action as well as pointer.
+- Keep server-form radio requirements separate; these fields do not expose native form membership.
+
+## Related
+
+[`Checkbox`](/reference/widgets/checkbox), [`Switch`](/reference/widgets/switch), [`SegmentedControl`](/reference/widgets/segmented-control), and [`Select`](/reference/widgets/select).

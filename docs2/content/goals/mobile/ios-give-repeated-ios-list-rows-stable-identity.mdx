@@ -1,0 +1,428 @@
+---
+layout: goal
+title: Give repeated iOS list rows stable identity
+description: "Build an editable inspection checklist whose open details stay with the right row when its display order changes."
+goal: "Create, filter and reorder checks whilst keeping record completion separate from a row's temporary disclosure state."
+path: /blog/give-repeated-ios-list-rows-stable-identity/
+order: 82
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-give-repeated-ios-list-rows-stable-identity
+outcomes:
+  - Allocate stable IDs when checks are created, including repeated titles
+  - Keep completion in app records and disclosure in retained row state
+  - Distinguish reordering identity from state discarded when a filtered row unmounts
+---
+
+A row's position and the record it represents are different things. If a technician opens the details for one check, reversing the list must not transfer that open panel to the item now occupying the same position.
+
+We will build a checklist the user can actually add to, filter and reorder. Completion is application data; the details panel's open/closed state is local UI memory. Using completion itself as local state would teach the wrong ownership rule, because hiding a widget should not change whether the inspection was done.
+
+## Create the project and add the target
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) first. This behavior belongs to shared Fission state and identity; it does not require a native device capability.
+
+```sh
+cargo install cargo-fission
+fission init ios-give-repeated-ios-list-rows-stable-identity
+cd ios-give-repeated-ios-list-rows-stable-identity
+fission add-target ios --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs` and replace `src/lib.rs` below. Both the native app and browser preview use the same checklist, rather than compiling a second screen only for the website.
+
+<!-- fission:step id="start-screen" -->
+## Separate record data from a row's presentation memory
+
+The state allocates an ID when an item is created. Reversing or filtering never recalculates that ID. The counter is session-scoped and never reused within the session; a persisted app should retain its record IDs alongside the records rather than derive them from current list positions.
+
+The row receives all its required props through the source-supported positional constructor, then gives Compose the item's ID as its key. There is no empty `Default` standing in for required input. The title is user data; only interface captions are translated.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod row;
+pub mod screen;
+pub mod state;
+
+pub use screen::ChecklistScreen;
+pub use state::ChecklistState;
+```
+</TabItem>
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChecklistItem {
+    pub id: u64,
+    pub title: String,
+    pub complete: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChecklistState {
+    pub items: Vec<ChecklistItem>,
+    pub next_id: u64,
+    pub locale: Locale,
+}
+
+impl Default for ChecklistState {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            next_id: 1,
+            locale: Locale::from("en-US"),
+        }
+    }
+}
+
+impl GlobalState for ChecklistState {}
+
+pub fn add_item(state: &mut ChecklistState, title: &str) {
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+    let Some(next) = state.next_id.checked_add(1) else {
+        return;
+    };
+    state.items.push(ChecklistItem {
+        id: state.next_id,
+        title: title.to_owned(),
+        complete: false,
+    });
+    state.next_id = next;
+}
+```
+</TabItem>
+<TabItem label="src/app/row.rs">
+<!-- fission:file path="src/app/row.rs" -->
+```rust
+use super::state::ChecklistState;
+use fission::prelude::*;
+
+fission_component! {
+    pub ChecklistRow<ChecklistState> {
+        props {
+            item_id: u64,
+            title: String,
+            complete: bool,
+        }
+        state {
+            expanded: bool = false,
+        }
+    }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if row.complete {
+            cx.tr("item.complete")
+        } else {
+            cx.tr("item.pending")
+        };
+    } => SemanticsRegion(
+        identifier: Some(format!("checklist.item.{}", row.item_id)),
+        child: Container(
+        Column(gap: tokens.spacing.s, children: [
+            Text(row.title.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(status),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if row.complete { cx.tr("item.reopen") } else { cx.tr("item.finish") }),
+                    key: "toggle-completion",
+                    on_press: reduce {
+                        if let Some(item) = state.items.iter_mut().find(|item| item.id == row.item_id) {
+                            item.complete = !item.complete;
+                        }
+                    },
+                ),
+                Button(
+                    child: Text(if row.expanded { cx.tr("item.hide") } else { cx.tr("item.details") }),
+                    key: "toggle-details",
+                    on_press: reduce { row.expanded = !row.expanded; },
+                ),
+            ]),
+            if row.expanded {
+                Text(cx.tr("item.detail_summary").replace("{title}", &row.title))
+            },
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::row::ChecklistRow;
+use super::state::{add_item, ChecklistState};
+use fission::prelude::*;
+
+fission_component! {
+    pub ChecklistScreen<ChecklistState> {
+        state {
+            draft: String = String::new(),
+            filter: String = String::new(),
+            reversed: bool = false,
+        }
+    }
+    view(screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = screen.filter.to_lowercase();
+        let mut visible: Vec<_> = state.items.iter()
+            .filter(|item| item.title.to_lowercase().contains(&query))
+            .collect();
+        if screen.reversed {
+            visible.reverse();
+        }
+    } => SafeArea(
+        child: Scroll(
+            child: Container(
+                Column(gap: tokens.spacing.m, children: [
+                    Text(cx.tr("list.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("list.explanation")),
+                    Row(gap: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("language.english")),
+                            key: "english",
+                            on_press: reduce { state.locale = Locale::from("en-US"); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("language.spanish")),
+                            key: "spanish",
+                            on_press: reduce { state.locale = Locale::from("es-ES"); },
+                        ),
+                    ]),
+                    FormControl(
+                        label: Some(cx.tr("list.new_item")),
+                        required: true,
+                        child: TextInput(
+                            value: screen.draft.clone(),
+                            bind(on_input): to(screen.draft),
+                        ),
+                    ),
+                    Button(
+                        child: Text(cx.tr("list.add")),
+                        key: "add-item",
+                        disabled: screen.draft.trim().is_empty() || state.next_id == u64::MAX,
+                        on_press: reduce {
+                            add_item(state, &screen.draft);
+                            screen.draft.clear();
+                        },
+                    ),
+                    TextInput(
+                        value: screen.filter.clone(),
+                        bind(on_input): to(screen.filter),
+                        label: Some(TextContent::Key("list.filter".into())),
+                    ),
+                    Button(
+                        child: Text(cx.tr("list.reverse")),
+                        key: "reverse-order",
+                        on_press: reduce { screen.reversed = !screen.reversed; },
+                    ),
+                    if visible.is_empty() {
+                        Text(cx.tr("list.empty"))
+                    },
+                    for item in visible {
+                        ChecklistRow(
+                            item.id,
+                            item.title.clone(),
+                            item.complete,
+                            key: item.id,
+                        )
+                    },
+                ]),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checklist translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::ChecklistState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{ChecklistScreen, ChecklistState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ChecklistState, _>::new(ChecklistScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<ChecklistState, _>::new(ChecklistScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<ChecklistState, _>::new(ChecklistScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<ChecklistState, _>::new(ChecklistScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::ChecklistState, _>::new(app::ChecklistScreen)
+        .with_env(i18n::create_env())
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+list.title: "Your inspection checklist"
+list.explanation: "Add your own checks, open one row's details, then reverse the order. The details must not move to another item."
+list.new_item: "New inspection check"
+list.add: "Add check"
+list.filter: "Filter checks by title"
+list.reverse: "Reverse displayed order"
+list.empty: "No checks match. Add a check or clear the filter."
+item.complete: "Complete"
+item.pending: "Not complete"
+item.reopen: "Reopen check"
+item.finish: "Mark complete"
+item.details: "Show details"
+item.hide: "Hide details"
+item.detail_summary: "Details for: {title}. Completion belongs to the checklist record; whether this panel is open belongs to this row."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+list.title: "Tu lista de inspección"
+list.explanation: "Añade tus comprobaciones, abre los detalles de una fila e invierte el orden. Los detalles no deben pasar a otro elemento."
+list.new_item: "Nueva comprobación"
+list.add: "Añadir comprobación"
+list.filter: "Filtrar comprobaciones por título"
+list.reverse: "Invertir el orden mostrado"
+list.empty: "No hay coincidencias. Añade una comprobación o borra el filtro."
+item.complete: "Completada"
+item.pending: "Sin completar"
+item.reopen: "Reabrir comprobación"
+item.finish: "Marcar como completada"
+item.details: "Mostrar detalles"
+item.hide: "Ocultar detalles"
+item.detail_summary: "Detalles de: {title}. La finalización pertenece al registro; el estado abierto de este panel pertenece a esta fila."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Add at least three checks, open details for the middle one and reverse the order. The same check must keep its panel, and clicking Complete must update that record rather than whichever row happened to have its old index. Try duplicate titles: they remain separate because their IDs differ.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Filter without treating absence as a new record
+
+Filtering changes only the displayed projection. Completion remains on `ChecklistItem` in `GlobalState`, so removing a row from the visible tree cannot undo its work. Clearing the filter reveals the same record and completion value.
+
+The optional details panel has a different lifetime. It belongs to the retained row instance. Stable keys prevent that memory from moving to another item during reordering; they are not a persistence mechanism for widgets removed from the tree. Do not promise that a panel stays open across unmounting unless the relevant retention policy has been established. Put that choice in application state if the product requires it to survive removal.
+
+For the same reason, an index is not a useful key. Inserting a check before the selected row changes the index without changing the record. A durable record identifier avoids that dependency. Its visible title can also change without creating a new identity.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Complete a check, filter it out and clear the filter. Its completion must remain, independently of whether the local details panel was retained. Insert a new check and reverse again. No panel or action should be assigned to a different record.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify the same identity behavior on iOS
+
+```sh
+fission doctor ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+Follow [the simulator guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) for selecting the target. Repeat the browser sequence on iOS, with narrow layouts, long titles, duplicate titles and both languages. The row exposes `checklist.item.<id>` as a semantic identifier for LiveTest checks.
+
+The generated launch smoke test does not test row identity for you. Drive the controls, inspect the resulting state and verify that actions still refer to the intended IDs after reordering. Check a real rendering before calling the layout qualified.
+
+This app deliberately keeps records in memory; reloading resets them. See [persistent iOS state](/blog/persist-ios-app-state-with-fission-store-and-sqlite/) when the checklist must survive process restarts. Do not turn a widget key into a substitute for storage.
+
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Widget catalog](/reference/widgets/catalog/)
+<!-- /fission:step -->

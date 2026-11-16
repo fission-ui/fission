@@ -31,6 +31,32 @@ fn changed_pixels_in_bounds(
         .count()
 }
 
+fn non_background_pixels_in_bounds(
+    png: &[u8],
+    bounds: fission_test_driver::Bounds,
+) -> Result<usize> {
+    let image = image::load_from_memory(png)?.to_rgba8();
+    let left = bounds.x.max(0.0).floor() as u32;
+    let top = bounds.y.max(0.0).floor() as u32;
+    let right = (bounds.x + bounds.width)
+        .ceil()
+        .max(0.0)
+        .min(image.width() as f32) as u32;
+    let bottom = (bounds.y + bounds.height)
+        .ceil()
+        .max(0.0)
+        .min(image.height() as f32) as u32;
+    if left >= right || top >= bottom {
+        return Ok(0);
+    }
+
+    let background = *image.get_pixel(left, top);
+    Ok((top..bottom)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| image.get_pixel(x, y) != &background)
+        .count())
+}
+
 fn browser_url() -> Option<String> {
     std::env::var("FISSION_WEB_SMOKE_URL").ok()
 }
@@ -141,9 +167,32 @@ fn canvas_buttons_accept_real_browser_touch_input() -> Result<()> {
     // A full control height above the painted button must not activate it.
     client.touch_selector_at(increment, 0.5, -1.0)?;
     client.pump()?;
-    client.scroll_into_view(scrolled_increment)?;
+    client.scroll_into_view(scrolled_increment.clone())?;
     client.pump()?;
     client.assert_text_visible("Count: 6")?;
+
+    // Resize must preserve the mobile device metrics instead of resetting DPR
+    // to 1. Check both real input and captured physical pixels in this session.
+    client.simulate_resize(360, 844)?;
+    let metrics = client.browser_evaluate_json(
+        "({width:innerWidth,height:innerHeight,scale:devicePixelRatio,screenWidth:screen.width})",
+    )?;
+    assert_eq!(
+        metrics,
+        serde_json::json!({"width":360,"height":844,"scale":3,"screenWidth":360})
+    );
+    client.touch_selector_at(
+        SelectorQuery::semantic_identifier("web-smoke.increment"),
+        0.5,
+        0.5,
+    )?;
+    // The first button's ScrollIntoView can clip the count above it. Observe
+    // the state through the second button's visible label, as before resizing.
+    client.scroll_into_view(scrolled_increment)?;
+    client.wait_for_text("Count: 7", 5_000)?;
+    let png = client.capture_screenshot_png()?;
+    let image = image::load_from_memory(&png)?.to_rgba8();
+    assert_eq!(image.dimensions(), (1080, 2532));
     Ok(())
 }
 
@@ -158,6 +207,78 @@ fn physical_key_on_the_ime_bridge_is_applied_once() -> Result<()> {
     client.focus_selector(SelectorQuery::semantic_identifier("web-smoke.text.primary"))?;
     client.press_key("q", 0)?;
     client.wait_for_text("Primary value: q (edits: 1)", 5_000)?;
+    Ok(())
+}
+
+#[test]
+fn browser_renderer_paints_cjk_and_emoji_glyph_fallbacks() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser font-fallback test");
+        return Ok(());
+    };
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+    let query = SelectorQuery::semantic_identifier("web-smoke.unicode-fallback");
+    client.wait_for_visible(query.clone(), 10_000)?;
+    client.wait_for_text("文档 🙂", 10_000)?;
+
+    let semantic = client.resolve_selector(query)?;
+    let screenshot = client.capture_screenshot_png()?;
+    let non_background = non_background_pixels_in_bounds(&screenshot, semantic.logical_bounds)?;
+
+    if let Ok(artifact_dir) = std::env::var("FISSION_WEB_SMOKE_ARTIFACT_DIR") {
+        std::fs::create_dir_all(&artifact_dir)?;
+        std::fs::write(
+            std::path::Path::new(&artifact_dir).join("browser-cjk-emoji-fallback.png"),
+            screenshot,
+        )?;
+    }
+
+    assert!(
+        non_background > 20,
+        "CJK and emoji text was present in the live text query, but did not paint visible pixels inside its semantic bounds"
+    );
+    Ok(())
+}
+
+#[test]
+fn same_size_resize_after_navigation_ignores_stale_frame_baseline() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser viewport navigation test");
+        return Ok(());
+    };
+    let mut options = BrowserTestOptions::new(url).fission_canvas();
+    options.timeout_ms = 15_000;
+    let client = LiveTestClient::launch_browser(options)?;
+    let increment = SelectorQuery::semantic_identifier("web-smoke.increment");
+    for _ in 0..24 {
+        client.tap_selector(increment.clone())?;
+    }
+    client.wait_for_text("Count: 24", 5_000)?;
+
+    client
+        .simulate_resize(800, 900)
+        .context("perform initial resize before reload")?;
+    client.browser_evaluate_json("window.location.reload(); true")?;
+    client.wait_for_text("Count: 0", 10_000)?;
+
+    // A reload restarts the Web frame counter. Repeating the current size must
+    // accept the submitted post-navigation frame instead of requiring it to be
+    // newer than a frame number from the previous page.
+    client
+        .simulate_resize(800, 900)
+        .context("perform same-size resize after page reload")?;
+    let viewport = client.browser_evaluate_json("({width:innerWidth,height:innerHeight})")?;
+    assert_eq!(viewport, serde_json::json!({"width":800,"height":900}));
+    let screenshot = client.capture_screenshot_png()?;
+    let image = image::load_from_memory(&screenshot)?.to_rgba8();
+    assert_eq!(image.dimensions(), (800, 900));
+    if let Ok(artifact_dir) = std::env::var("FISSION_WEB_SMOKE_ARTIFACT_DIR") {
+        std::fs::create_dir_all(&artifact_dir)?;
+        std::fs::write(
+            std::path::Path::new(&artifact_dir).join("browser-resize-after-navigation.png"),
+            screenshot,
+        )?;
+    }
     Ok(())
 }
 

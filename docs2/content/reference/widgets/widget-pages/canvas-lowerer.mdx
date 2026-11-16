@@ -1,0 +1,83 @@
+---
+title: CanvasLowerer
+description: The low-level lowering helper behind canvas(...).
+slug: /widgets/canvas-lowerer
+---
+# CanvasLowerer
+
+`CanvasLowerer` powers the higher-level [`canvas(...)`](/reference/widgets/canvas)
+helper.
+
+You rarely need it in app code: use ordinary widgets for product UI. Reach for
+`CanvasLowerer` when a reusable library helper needs direct control over the
+closure that emits intermediate-representation IDs.
+
+This type exists because some custom drawing paths are easier to express as direct lowering code than as ordinary widget composition. It is an advanced escape hatch, not the default way to build app user interface and not a replacement for a named `fission_component!` component.
+
+## Example
+
+This library helper emits a small triangular marker. It demonstrates actual IR
+emission rather than return an empty list from something named a sparkline.
+For an ordinary app icon, prefer `Icon`; this form is for code which needs the
+lowering hook itself.
+
+```rust
+use std::sync::Arc;
+
+use fission::prelude::*;
+use fission::authoring::IrBuilder;
+use fission::op::Op;
+
+fn vector_marker(fill: Fill) -> Widget {
+    CustomWidget {
+        debug_tag: "VectorMarker".into(),
+        lowerer: Some(Arc::new(CanvasLowerer {
+            width: Some(16.0),
+            height: Some(16.0),
+            painter: Arc::new(move |cx| {
+                let marker = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawPath {
+                        path: "M 2 2 L 14 8 L 2 14 Z".into(),
+                        fill: Some(fill.clone()),
+                        stroke: None,
+                        view_box: Some([16.0, 16.0]),
+                    }),
+                )
+                .build(cx);
+                vec![marker]
+            }),
+        })),
+        render_object: None,
+    }
+    .into()
+}
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` | `Option<f32>` | Fixed width for the root box. | `None` leaves width to parent constraints. |
+| `height` | `Option<f32>` | Fixed height for the root box. | `None` leaves height to parent constraints. |
+| `painter` | `Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>` | Closure that emits child IR ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
+
+## Behavior and escape-hatch guidance
+
+`CanvasLowerer` lowers its emitted node ids into a structural group and wraps that group in a fixed-size box. It does not add semantics, input handling, or a custom render object on its own.
+
+That means it is best for lightweight custom drawing helpers. If the surface also needs pointer handling, text input, custom hit testing, or runtime painting, you are usually in [`CustomWidget`](/reference/widgets/custom-widget) territory rather than plain `CanvasLowerer` territory.
+
+Another important limit is maintainability. Direct lowering code is powerful, but it is easier to misuse than ordinary widgets. If a layout can be expressed with [`Container`](/reference/widgets/container), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), or [`Composite`](/reference/widgets/composite), prefer those first.
+
+## Production checklist
+
+- Verify the emitted node IDs belong to this lowering context and every
+  returned ID was actually built.
+- Keep the painter deterministic and free of I/O or app-state mutation.
+- Supply theme-derived paint and meaningful surrounding semantics; the custom
+  path does not provide a control role by itself.
+
+## Related
+
+[`canvas(...)`](/reference/widgets/canvas), [`CustomWidget`](/reference/widgets/custom-widget), and [`Composite`](/reference/widgets/composite).

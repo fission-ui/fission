@@ -1,0 +1,107 @@
+---
+title: Fission 0.5.1: lower native GPU memory and Android startup fixes
+authors:
+  - fission
+tags:
+  - release
+  - platform
+  - authoring
+categories:
+  - Releases
+---
+
+Fission 0.5.1 fixes two problems that blocked native releases: Vello's high baseline GPU memory use and Android startup crashes in the older `android-activity` stack. The 0.5 widget-motion API is unchanged.
+
+The investigation, measurements, fork decision, and remaining follow-up work are recorded in [issue #81](https://github.com/fission-ui/fission/issues/81).
+
+## Why this patch exists
+
+After 0.5.0, even simple native apps paid a large memory cost before doing anything demanding. On the macOS/Metal release harness, `examples/inbox` used about 214 MiB and `examples/counter` about 247 MiB on the default Vello GPU path.
+
+The comparison made the problem clear: the same inbox app used around 57.5 MiB with the software renderer. A minimal Vello test isolated the jump. Creating the renderer used little memory; the first `render_to_texture` pushed the process close to 192 MiB.
+
+The cause was Vello's fixed dynamic GPU working set. It allocates large bump-backed intermediate buffers for tiles, line soup, segment counts, path segments, blend spill, and `ptcl` before a normal scene needs that capacity.
+
+## The Fission Vello fork
+
+Fission 0.5.1 uses Fission-owned Vello fork packages:
+
+- `fission-vello-encoding`
+- `fission-vello-shaders`
+- `fission-vello`
+
+Fission code still imports `vello::...`; Cargo package renaming maps that name to the fork package.
+
+The fork adds a dynamic-buffer path sized from a render profile. Fission calculates that profile while walking its retained display list, then passes it to Vello so initial buffer sizes better match the scene and target.
+
+It also validates buffer growth and retries with GPU bump counters, checks bounds for coarse shader writes, and sanitises retry counters. Failed allocations are reported instead of silently producing undefined output or a blank frame.
+
+On the same release harness, the final fork measured:
+
+| Case | Physical footprint | Peak |
+| --- | ---: | ---: |
+| `examples/inbox` | 50.0 MiB | 64.6 MiB |
+| `examples/counter` | 42.4 MiB | 56.5 MiB |
+| `examples/motion-memory-repro` | 74.1 MiB | 88.7 MiB |
+
+The reduction is large enough to justify carrying the fork while Vello's upstream memory strategy continues to evolve.
+
+These figures describe that release's macOS/Metal harness and measured
+workloads. They are not a current cross-platform memory budget or a guarantee
+for a different app; retain the workload and renderer when making a comparison.
+
+## Why not upstream this exact patch?
+
+We looked at the related upstream discussions and work:
+
+- Vello's robust dynamic memory discussion: https://github.com/linebender/vello/issues/366
+- Xilem's high memory issue: https://github.com/linebender/xilem/issues/918
+- Ribir's memory reduction work: https://github.com/RibirX/Ribir/pull/797
+
+The Fission fork uses one of the approaches discussed upstream: profile the workload, validate allocations, read back counters, and retry. Vello has not chosen that as its production design, given the trade-offs around readback, asynchronous behaviour, and robust dynamic memory.
+
+For now, carrying the fork is a Fission product decision, not an attempt to push this exact patch upstream. We will keep tracking Vello; the memory difference makes the fork worthwhile today.
+
+## Android startup fix
+
+Version 0.5.1 also updates the winit shell stack to `winit 0.30.13`, which moves Android startup to `android-activity 0.6.1`.
+
+This fixes a startup panic in generated mobile apps that still resolved `winit 0.29.15` and `android-activity 0.5.2`:
+
+```text
+unsafe precondition(s) violated: slice::from_raw_parts requires the pointer to be aligned and non-null
+```
+
+The 0.5.1 dependency graph no longer takes that crash path.
+
+## Other runtime hardening
+
+The release also includes the bounded decoded-image cache from issue #79. Clipped scroll content can no longer keep decoded images alive without a firm cache budget.
+
+The `fission-render-wgpu2d` experiment remains in the repository as a parked prototype. It helped us compare approaches, but it is not part of the release workspace or a production renderer.
+
+## Migration notes
+
+Apps using Fission 0.5.0 can move to 0.5.1 without application-code changes.
+
+Use 0.5.1 for native desktop or mobile shells, Vello GPU rendering, or Android. The public authoring API remains the 0.5 motion API.
+
+```toml
+fission = { version = "0.5.1", default-features = false, features = ["desktop"] }
+```
+
+For Android:
+
+```toml
+fission = { version = "0.5.1", default-features = false, features = ["android"] }
+```
+
+## Verification
+
+Before publishing, we checked native, Wasm, and Android targets; ran renderer-diagnostics tests; validated a downstream application's Android dependency graph; and checked the new fork packages.
+
+The key dependency checks now resolve:
+
+- `winit v0.30.13`
+- `android-activity v0.6.1`
+- `fission-vello v0.6.0-fission.1`

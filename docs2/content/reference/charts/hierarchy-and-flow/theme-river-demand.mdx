@@ -1,0 +1,84 @@
+---
+title: Demand theme river
+sidebar_label: Demand theme river
+description: Fission Charts reference for Demand theme river.
+---
+
+# Demand theme river
+
+![Demand theme river screenshot](/img/charts/theme-river-demand.png)
+
+A demand theme river shows how several sources contribute to demand over the same period. Its bands preserve the changing composition, which a single daily total would hide. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example counts enquiries from search and referrals. This is a count, not a share of demand: the total can change as well as the mix. Use a line or bar chart when users need to compare individual source values precisely against a common baseline.
+
+## Data model
+
+ThemeRiverSeries accepts time/value/category triples. Aggregate to one value for each date and source before plotting. The renderer orders time labels as strings and places them at equal spacing, so use sortable ISO dates and regular intervals; it does not infer elapsed time from a date string.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ThemeRiverSeries::data` | `Vec<(&str, f32, &str)>` | Accepts time, value and category, then owns the strings. |
+| `ThemeRiverSeries::data` field | `Vec<(String, f32, String)>` | Stores the prepared samples. |
+| `Chart::series` | `Vec<Series>` | Adds the theme river without Cartesian-axis configuration. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, ThemeRiverSeries};
+
+let chart = Chart::new()
+    .title("Daily enquiries by source")
+    .series(vec![ThemeRiverSeries::new("Enquiries")
+        .data(vec![
+        ("2026-10-01", 42.0, "Search"),
+        ("2026-10-01", 18.0, "Referral"),
+        ("2026-10-02", 51.0, "Search"),
+        ("2026-10-02", 23.0, "Referral"),
+        ("2026-10-03", 39.0, "Search"),
+        ("2026-10-03", 31.0, "Referral"),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The component receives the completed aggregate. A reducer or effect completion updates the source state; drawing the chart does not trigger another load.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, ThemeRiverSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DemandThemeRiverChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            samples: Vec<(String, f32, String)>,
+        }
+    }
+    view(river, _state, _cx) =>
+        Chart(
+            title: Some(river.chart_title.clone()),
+            series: vec![Series::ThemeRiver(ThemeRiverSeries {
+                name: river.series_label.clone(),
+                data: river.samples.clone(),
+            })],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test duplicate source/date records in the aggregation layer; the chart does not sum duplicates for you. Supply explicit zeros for known inactive source/date combinations, and handle missing observations separately rather than implying they were zero.
+
+Keep a readable summary or exact-value table beside the chart. Colour separates bands visually, but should not be the only means of identifying which category contributed a value.
+
+Tags: `themeRiver`, `demand`.
+
+[Hierarchy and flow family overview](./overview)

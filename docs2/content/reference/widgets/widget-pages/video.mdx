@@ -1,0 +1,174 @@
+---
+title: Video
+description: Embed a host-managed video surface into layout while the runtime tracks playback state.
+slug: /widgets/video
+---
+# Video
+
+`Video` embeds a host-backed video player in a Fission layout. Use it for
+media that belongs alongside the rest of your app, such as a lesson or product
+demo. Your widget tree declares the source and playback settings; Fission keeps
+playback state and routes controls; the target shell renders the video.
+
+Video uses a host player rather than Fission's normal text, shape, and layout
+rendering path. Codec, file access, autoplay, and hardware-decoding behavior can
+therefore vary by target.
+
+## What `Video` provides at the app-model level
+
+Your widget tree chooses the source, size, autoplay, and loop behavior. The
+runtime tracks playback status, position, duration, mute state, volume, and
+pending seeks. Controls dispatch typed actions such as play, pause, stop, and
+seek.
+
+For example, a play button dispatches an action for that video id. The runtime
+updates playback state, then asks the host player to match it.
+
+## When to use it
+
+Use `Video` when the product really needs embedded media playback inside the app.
+
+Do not use it for decorative motion or lightweight transitions. For those cases, ordinary animation primitives are usually a better fit. Also do not assume an embedded video surface behaves like an ordinary `Image` or `Container`. Video is a host-backed media feature with its own constraints around codecs, file paths, autoplay policy, and platform backend support.
+
+## Example
+
+This example shows a help video with an explicit play control.
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub LessonPlayer<()> {
+        props {
+            video_url: String,
+            width: f32,
+            height: f32,
+        }
+    }
+
+    view(lesson, _state, cx) {
+        let video_id = WidgetId::explicit("lesson.video");
+        let controls = cx.video_controls(video_id);
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Column(
+            gap: spacing.m,
+            children: [
+                Video::network(lesson.video_url.clone())
+                    .id(video_id)
+                    .size(lesson.width, lesson.height)
+                    .audio(VideoAudioOptions::playback()),
+                Button(
+                    child: Text(cx.tr("lesson.play_video")),
+                    on_press: controls.play(),
+                ),
+            ],
+        )
+}
+```
+
+The parent supplies a real lesson URL and bounded layout dimensions. For
+multiple simultaneously retained lessons derive the component identity from
+the lesson id. `Video` intentionally uses its typed constructor rather than a
+`Default` struct path; the normal Rust expression needs no `rust { ... }` wrapper.
+
+The control boundary is deliberate.
+
+`ctx.video_controls(video_id)` returns typed control actions for this specific video surface. The button does not directly manipulate a backend player object. It dispatches a normal Fission action envelope for that video id. That keeps the interaction explicit and consistent with the rest of the framework's state-driven model.
+
+## Field reference
+
+| Field | Type | Meaning | Notes and default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for this video surface and its control actions. | Defaults to an id derived from `source`. Provide an explicit id when you need predictable controls or multiple instances of the same source. |
+| `source` | `VideoSource` | Typed video media source: asset, file, or network URL. | Set this through `Video::asset`, `Video::file`, `Video::network`, `Video::from_source`, or the checked literal helpers. Direct `Video { ... }` construction is intentionally not part of the app-facing API. |
+| `width` | `Option<f32>` | Requested layout width. | Defaults to `None`. |
+| `height` | `Option<f32>` | Requested layout height. | Defaults to `None`. |
+| `autoplay` | `bool` | Whether playback should begin automatically when possible. | Defaults to `false`. On initial registration, the runtime marks the video as playing when autoplay is requested. |
+| `loop_playback` | `bool` | Whether playback should restart after ending. | Defaults to `false`. |
+| `audio` | `VideoAudioOptions` | Platform-neutral audio-session policy and optional platform overrides. | Defaults to `VideoAudioOptions::system_default()`, so Fission does not force product-level audio behavior such as ignoring the iOS silent switch. |
+
+## Audio session policy
+
+Audio behavior is a product decision. Fission therefore does not hard-code a single global choice for every video-playing app.
+
+Use the default when the app should inherit the host platform's normal audio behavior:
+
+```rust
+Video::asset("assets/inline-preview.mp4")
+    .audio(VideoAudioOptions::system_default())
+```
+
+Use foreground playback behavior when the video is the primary media experience:
+
+```rust
+Video::asset("assets/lesson.mp4").audio(VideoAudioOptions::playback())
+```
+
+On iOS that maps to `AVAudioSessionCategoryPlayback` and activates the session on first play, which is the equivalent of configuring playback audio manually in the host shell. Apps that need a more precise iOS policy can use the platform escape hatch:
+
+```rust
+Video::asset("assets/training.mp4")
+    .audio(
+        VideoAudioOptions::playback()
+        .mix_with_others(true)
+        .ios(
+            IosVideoAudioOptions::mode(IosAudioSessionMode::MoviePlayback)
+                .with_option(IosAudioSessionCategoryOption::MixWithOthers),
+        ),
+    )
+```
+
+If a platform cannot represent a requested option, the shell treats it as a backend limitation rather than changing the cross-platform widget contract.
+
+## Runtime behavior
+
+During component conversion, `Video` registers a `VideoRegistration` through `BuildCtxHandle`. The runtime then synchronizes that registration into `runtime.video.states`, where it tracks playback status, current position, duration, playback rate, volume, mute state, looping preference, and pending seeks.
+
+Control actions such as play, pause, stop, seek, set rate, set volume, and set muted are handled in the runtime rather than in your own reducer.
+
+That is a good trade for this kind of surface. It means media playback still participates in an explicit state model, even though the actual pixels come from a host-managed player backend.
+
+## Host backend differences
+
+What varies is the host API used by each target for this particular media surface.
+
+In the winit shell path, macOS and iOS use AVFoundation player layers, Windows uses Media Foundation, Linux uses GStreamer, Android uses the generated `FissionActivity` Java host bridge backed by Android media playback, and Web uses a browser `<video>` element positioned over the canvas. Static site and SSR output ordinary HTML video markup. Terminal does not support embedded video surfaces. iOS audio-session policy is configured only when requested through `VideoAudioOptions`; the default does not force `AVAudioSessionCategoryPlayback`.
+
+Native Linux video is behind the `video` Cargo feature so ordinary desktop apps do not need GStreamer development packages unless they use embedded video:
+
+```toml
+fission = { version = "0.16.0", default-features = false, features = ["desktop", "video"] }
+```
+
+On Debian or Ubuntu, enabling that feature requires:
+
+```bash
+sudo apt install libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+```
+
+These differences affect the video surface only. The widget, state, reducer,
+and layout APIs remain the same across targets.
+
+## Specific guidance
+
+Give production-critical videos explicit ids and build controls around `ctx.video_controls(...)`. That keeps your commands stable even if the surrounding layout changes.
+
+For compile-time checked literal sources, use `video_asset!("relative/path.mp4")` for app assets or `video_file!(...)` for local file literals. These helpers only fail when the literal path cannot be resolved at compile time. Runtime strings should use `Video::asset`, `Video::file`, or `Video::network` and will be validated by the active shell backend at runtime.
+
+Treat playback user interface as ordinary app user interface. Buttons, labels, progress displays, and surrounding layout still belong to your widget tree and app state, even though the media surface itself is host-managed.
+
+Validate the exact target and media source strategy you plan to ship. Codec support, local-file expectations, autoplay behavior, and embedded-player behavior are all backend-level concerns for this widget.
+
+If video is only a nice-to-have on a screen, keep the surrounding experience resilient so the product still makes sense when the media backend on a given host is more limited than your primary target.
+
+## Production checklist
+
+- Test the actual codec, source policy, host permissions, and audio behaviour on every advertised target.
+- Keep control ids matched to the retained video through rebuild and navigation.
+- Provide captions/transcripts and usable play/pause controls, not only decorative media.
+- Check autoplay rejection and unsupported backends without hiding the rest of the lesson.
+
+## Related
+
+[`Image`](/reference/widgets/image), [`WebView`](/reference/widgets/web-view), [`Platform runtime`](/reference/core/platform-runtime), and [`Media, animation, portals, and 3D`](/docs/guides/media-animation-portals-and-3d).

@@ -10,6 +10,9 @@ fn sqlite_store_is_shared_across_browser_contexts() -> Result<()> {
 
     let report = run_browser_smoke(BrowserTestOptions::new(url))?;
     assert_eq!(report.title, "Fission SQLite Web multi-context test");
-    assert_eq!(report.body_text_len, "parent,peer".len());
+    assert_eq!(
+        report.body_text_len,
+        "parent,peer|other-workspace,peer-other".len()
+    );
     Ok(())
 }

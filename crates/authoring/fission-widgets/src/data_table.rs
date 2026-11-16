@@ -1,11 +1,11 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Scroll, SemanticsRegion, Text, Widget,
+    Button, ButtonVariant, Checkbox, Container, Row, Scroll, SemanticsRegion, Text, Widget,
 };
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
-use fission_ir::op::Length;
+use fission_ir::op::{AlignItems, Length};
 use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -41,6 +41,16 @@ pub struct TableRow {
     pub cells: Vec<String>,
 }
 
+/// Controls whether a data table exposes row-selection controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataTableSelectionMode {
+    /// Present data without selection checkboxes or row activation.
+    None,
+    /// Allow multiple controlled rows to be selected.
+    #[default]
+    Multiple,
+}
+
 impl Default for TableColumn {
     fn default() -> Self {
         Self {
@@ -63,6 +73,9 @@ pub struct DataTable {
     pub columns: Vec<TableColumn>,
     /// Row values in display order.
     pub rows: Vec<TableRow>,
+    /// Row-selection behaviour. Use [`DataTableSelectionMode::None`] for a
+    /// read-only presentation table.
+    pub selection_mode: DataTableSelectionMode,
     /// Application-owned set of selected row IDs.
     pub selected_ids: Vec<String>,
     /// Factory that produces an action when a row selection is toggled.
@@ -82,6 +95,7 @@ impl Default for DataTable {
             id: WidgetId::explicit("data-table"),
             columns: Vec::new(),
             rows: Vec::new(),
+            selection_mode: DataTableSelectionMode::Multiple,
             selected_ids: Vec::new(),
             on_selection_change: None,
             on_select_all: None,
@@ -109,6 +123,7 @@ impl From<DataTable> for Widget {
             component.id = id;
         }
         let this = &component;
+        let selectable = this.selection_mode == DataTableSelectionMode::Multiple;
 
         let tokens = &view.env().theme.tokens;
 
@@ -120,21 +135,23 @@ impl From<DataTable> for Widget {
                 .rows
                 .iter()
                 .all(|row| this.selected_ids.contains(&row.id));
-        header_cells.push(
-            Container::new(
-                SemanticsRegion::new(Checkbox {
-                    checked: all_selected,
-                    label: None,
-                    on_toggle: this.on_select_all.clone(),
-                    disabled: this.on_select_all.is_none(),
-                    ..Default::default()
-                })
-                .label("Select all rows"),
-            )
-            .width(40.0)
-            .padding_all(tokens.spacing.s)
-            .into(),
-        );
+        if selectable {
+            header_cells.push(
+                Container::new(
+                    SemanticsRegion::new(Checkbox {
+                        checked: all_selected,
+                        label: None,
+                        on_toggle: this.on_select_all.clone(),
+                        disabled: this.on_select_all.is_none(),
+                        ..Default::default()
+                    })
+                    .label("Select all rows"),
+                )
+                .width(40.0)
+                .padding_all(tokens.spacing.s)
+                .into(),
+            );
+        }
 
         for col in &this.columns {
             let label = Text::new(col.title.clone())
@@ -196,9 +213,11 @@ impl From<DataTable> for Widget {
         }
 
         let header: Widget = SemanticsRegion::new(
-            Container::new(HStack {
-                spacing: Some(0.0),
+            Container::new(Row {
+                gap: Some(0.0),
+                align_items: AlignItems::Stretch,
                 children: header_cells,
+                ..Default::default()
             })
             .bg(tokens.colors.surface)
             .width_length(Length::percent(100.0))
@@ -210,25 +229,27 @@ impl From<DataTable> for Widget {
         // Rows
         let mut row_nodes = Vec::new();
         for row in &this.rows {
-            let is_selected = this.selected_ids.contains(&row.id);
+            let is_selected = selectable && this.selected_ids.contains(&row.id);
             let mut row_cells = Vec::new();
 
             // Checkbox
             let toggle = this.on_selection_change.clone();
-            row_cells.push(
-                Container::new(
-                    SemanticsRegion::new(Checkbox {
-                        checked: is_selected,
-                        label: None,
-                        on_toggle: toggle.map(|f| f(row.id.clone())),
-                        ..Default::default()
-                    })
-                    .label(format!("Select row {}", row.id)),
-                )
-                .width(40.0)
-                .padding_all(tokens.spacing.s)
-                .into(),
-            );
+            if selectable {
+                row_cells.push(
+                    Container::new(
+                        SemanticsRegion::new(Checkbox {
+                            checked: is_selected,
+                            label: None,
+                            on_toggle: toggle.map(|f| f(row.id.clone())),
+                            ..Default::default()
+                        })
+                        .label(format!("Select row {}", row.id)),
+                    )
+                    .width(40.0)
+                    .padding_all(tokens.spacing.s)
+                    .into(),
+                );
+            }
 
             for (i, cell_text) in row.cells.iter().enumerate() {
                 let width = this.columns.get(i).map(|c| c.width).unwrap_or(100.0);
@@ -240,6 +261,7 @@ impl From<DataTable> for Widget {
                                 .color(tokens.colors.text_primary),
                         )
                         .width(width)
+                        .min_width(0.0)
                         .padding_all(tokens.spacing.s),
                     )
                     .role(Role::TableCell)
@@ -247,13 +269,17 @@ impl From<DataTable> for Widget {
                 );
             }
 
-            let row_content: Widget = HStack {
-                spacing: Some(0.0),
+            let row_content: Widget = Row {
+                gap: Some(0.0),
+                align_items: AlignItems::Stretch,
                 children: row_cells,
+                ..Default::default()
             }
             .into();
 
-            let row_toggle = this.on_selection_change.clone().map(|f| f(row.id.clone()));
+            let row_toggle = selectable
+                .then(|| this.on_selection_change.clone().map(|f| f(row.id.clone())))
+                .flatten();
             let row_body = Container::new(row_content)
                 .bg(if is_selected {
                     tokens.colors.primary.with_alpha(20)
@@ -278,12 +304,11 @@ impl From<DataTable> for Widget {
             } else {
                 row_body
             };
-            row_nodes.push(
-                SemanticsRegion::new(row_node)
-                    .role(Role::TableRow)
-                    .selected(is_selected)
-                    .into(),
-            );
+            let mut row_region = SemanticsRegion::new(row_node).role(Role::TableRow);
+            if selectable {
+                row_region = row_region.selected(is_selected);
+            }
+            row_nodes.push(row_region.into());
 
             // Divider
             row_nodes.push(

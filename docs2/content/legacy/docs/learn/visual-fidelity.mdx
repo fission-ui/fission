@@ -1,0 +1,137 @@
+---
+title: Visual fidelity
+description: Use design-system tokens, packaged fonts, typed paint, shadows, filters, and golden tests to keep Fission UI visually reliable.
+---
+
+# Visual fidelity
+
+Layout, paint, and text metrics need to agree before an interface looks right.
+Fission describes them as typed values, so the same design can be lowered by
+each target and inspected in tests. That does not mean one screenshot proves
+every target renders identically.
+
+Keep shared visual decisions in the generated design system. A component reads
+the active theme instead of creating a second palette or typography scale.
+
+## Use tokens before literals
+
+```rust
+use fission::prelude::*;
+
+const HERO_HORIZONTAL_PADDING_MIN: f32 = 20.0;
+const HERO_HORIZONTAL_PADDING_MAX: f32 = 64.0;
+
+fission_component! {
+    pub HeroCard<()> {}
+    view(_hero, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let padding = Length::symmetric(
+            Length::clamp(
+                Length::points(HERO_HORIZONTAL_PADDING_MIN),
+                Length::vw(5.0),
+                Length::points(HERO_HORIZONTAL_PADDING_MAX),
+            ),
+            Length::points(tokens.spacing.xl),
+        );
+    } =>
+    Container(
+        Text(TextContent::Key("home.hero.title".into())),
+        background_color: tokens.colors.surface,
+        border_color: tokens.colors.border,
+        border_width: 1.0,
+        border_radius: tokens.radii.large,
+    ).padding_lengths(padding)
+}
+```
+
+The horizontal clamp constrains this hero's geometry. Shared colours, spacing,
+and radius still come from the theme. If several screens need the same clamp,
+move that decision into the design system too. Raw colours and font sizes
+remain available; repeating them throughout the app distributes the same
+design decisions across unrelated components again.
+
+## Typed paint and effects
+
+Fission represents gradients, strokes, shadows, and backdrop filters as typed
+data rather than target-specific CSS. For example, this custom glass surface
+uses the active surface colour and elevation:
+
+```rust
+fission_component! {
+    pub GlassPanel<()> {
+        props { content: Widget }
+    }
+    view(panel, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let mut leading = tokens.colors.surface;
+        leading.a = 160;
+        let mut trailing = tokens.colors.surface;
+        trailing.a = 72;
+    } =>
+    Container(
+        child: panel.content.clone(),
+        background_fill: Fill::LinearGradient {
+            start: (0.0, 0.0),
+            end: (1.0, 1.0),
+            stops: vec![(0.0, leading), (1.0, trailing)],
+        },
+        border_radius: tokens.radii.large,
+        shadow: tokens.elevations.level2.clone(),
+    ).backdrop_blur(18.0)
+}
+```
+
+The opacity and blur are this material's custom treatment. For a shared
+material, put those choices in its design recipe; for an ordinary grouped
+surface, use `Card` instead. The parent passes the content through
+`GlassPanel(content)`, which calls the generated constructor.
+
+Each target lowers the supported primitives to its host representation.
+Inspect compositing and text contrast on the intended background instead of
+assuming a blurred surface is readable because it uses theme colours.
+
+## Fonts are assets
+
+Design-system codegen packages declared font files with the generated type.
+Native shells register them through `DesignSystem::font_faces()`. Static site
+and SSR do not add packaged fonts to CSS by default. Choose delivery explicitly
+in `fission.toml`:
+
+```toml
+[web]
+font_delivery = "none" # default; "external" or "inline" opts in
+```
+
+`external` emits separately cacheable font assets referenced by CSS. `inline`
+embeds their bytes as data URLs and increases the CSS payload. These options
+apply to Static site and SSR documents. A canvas-rendered Web SPA registers
+packaged font data with its renderer instead; the setting does not change that
+into browser CSS. See the [Web configuration](/reference/config/fission-toml/#web).
+
+Use typography tokens and the intended packaged faces. A matching family name
+does not establish that another machine has the same font, weight, or glyphs.
+
+## Verify with golden tests
+
+Capture a real target at a known size, theme, locale, and data state. First
+assert the product state, then compare its rendering:
+
+```rust
+client.simulate_resize(390, 844)?;
+client.wait_for_idle(2_000, false)?;
+client.wait_for_text("Your projects", 5_000)?;
+client.compare_golden(
+    "goldens/home-phone.png",
+    Some(".artifacts/diffs/home-phone.png"),
+    GoldenOptions {
+        channel_tolerance: 2,
+        max_changed_percent: 0.2,
+    },
+)?;
+```
+
+The English text assertion belongs to this test's English scenario, not to a
+reusable component. `0.2` is a 0.2% changed-pixel budget. Review the diff when it
+fails; increasing the budget until it passes can hide a missing control as
+easily as harmless rasterisation noise. Golden tests complement interaction and
+accessibility checks rather than replacing them.

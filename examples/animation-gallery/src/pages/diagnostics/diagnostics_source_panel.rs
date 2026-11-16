@@ -1,40 +1,27 @@
 use super::diagnostics_case::DiagnosticsCase;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use crate::ui;
+use crate::ui::*;
 use fission::prelude::*;
 
-pub(super) struct DiagnosticsSourcePanel {
-    pub diagnostics: DiagnosticsCase,
-}
-
-impl From<DiagnosticsSourcePanel> for Widget {
-    fn from(panel: DiagnosticsSourcePanel) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                ui::SectionTitle {
-                    title: panel.diagnostics.primary_title,
-                },
-                ui::CodeBlock {
-                    source: panel.diagnostics.primary_source,
-                },
-                ui::SectionTitle {
-                    title: panel.diagnostics.secondary_title,
-                },
-                ui::CodeBlock {
-                    source: panel.diagnostics.secondary_source,
-                },
+fission_component! {
+    pub(super) DiagnosticsSourcePanel<AnimationGalleryState> {
+        diagnostics: DiagnosticsCase,
+    } |panel, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Column(
+            gap: tokens.spacing.s,
+            children: [
+                SectionTitle(panel.diagnostics.primary_title.to_string()),
+                CodeBlock(panel.diagnostics.primary_source.to_string()),
+                SectionTitle(panel.diagnostics.secondary_title.to_string()),
+                CodeBlock(panel.diagnostics.secondary_source.to_string()),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.m)
         .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
         .bg(style::surface())
-        .into()
-    }
 }

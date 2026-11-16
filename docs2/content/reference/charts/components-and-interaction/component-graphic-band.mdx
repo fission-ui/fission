@@ -1,0 +1,56 @@
+---
+title: Graphic band
+sidebar_label: Graphic band
+description: Draw a plot-relative graphic band without confusing it with a data-coordinate range.
+---
+
+# Graphic band
+
+![Graphic band screenshot](/img/charts/component-graphic-band.png)
+
+A graphic band is positioned relative to the plot, not to its observations. It can mark a visual region of a report, but it will not follow a particular deployment time when the dataset or zoom window changes.
+
+Use a data-aware annotation when the band is meant to represent measured coordinates. This example deliberately treats it as a presentation overlay.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries, Series};
+
+fission_component! {
+    pub QueueReportBand<()> {
+        props {
+            title: String,
+            jobs_label: String,
+            band_explanation: TextContent,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<f32>,
+            left_fraction: f32,
+            width_fraction: f32,
+            band_colour: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.intervals.iter().map(String::as_str).collect();
+    } => Column(children: [
+        Text(report.band_explanation.clone()),
+        Chart(
+            title: Some(report.title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![Series::Line(
+                LineSeries::new(&report.jobs_label).data(report.waiting_jobs.clone()),
+            )],
+            graphics: vec![ChartGraphic::rect(
+                report.left_fraction, 0.0, report.width_fraction, 1.0, report.band_colour,
+            )],
+        ),
+    ])
+}
+```
+
+Validate finite plot fractions, with a non-negative width and a band inside 0–1. The full-height rectangle is an overlay convention, not a unit of queue time. Supply the colour from the design system and all visible explanations through translations.
+
+Keep interval labels aligned with finite non-negative observations. Test resizing and different data windows; the same fractions continue to occupy the same portion of the screen, not the same source timestamps. Show the explanation outside the plot and inspect overlap with labels. The gallery screenshot uses its own fixture.
+
+[Components and interaction family overview](./overview)

@@ -1,7 +1,7 @@
 use fission_core::{
-    collect_data_stream, single_chunk_data_stream, BoxFuture, CapabilityCtx, CapabilityType,
-    DataStreamId, JobCtx, JobRef, JobSpec, OperationCapability, ServiceCtx, ServiceRunner,
-    ServiceSlot, ServiceSpec, ServiceType,
+    collect_data_stream, single_chunk_data_stream, AppEffect, BoxFuture, CapabilityCtx,
+    CapabilityType, DataStreamId, InlineJob, JobCtx, JobRef, JobSpec, OperationCapability,
+    ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
 use fission_shell::async_host::{AsyncMessage, AsyncRegistry, ServiceControlMessage};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,21 @@ impl JobSpec for EchoJob {
 }
 
 const ECHO_JOB: JobRef<EchoJob> = JobRef::new("echo-job");
+
+#[derive(Debug)]
+struct InlineIncrement;
+
+impl AppEffect for InlineIncrement {
+    type Request = i32;
+    type Ok = i32;
+    type Err = String;
+
+    const NAME: &'static str = "inline-increment";
+
+    fn run(request: i32, _ctx: JobCtx) -> BoxFuture<Result<i32, String>> {
+        Box::pin(async move { Ok(request + 1) })
+    }
+}
 
 #[derive(Debug)]
 struct StreamEchoJob;
@@ -269,6 +284,7 @@ fn registered_jobs_emit_typed_results() {
     let (tx, rx) = mpsc::channel();
     let spawned = registry.spawn_job(
         ECHO_JOB.name,
+        None,
         7,
         serde_json::to_vec(&EchoRequest {
             value: "hello".into(),
@@ -292,6 +308,34 @@ fn registered_jobs_emit_typed_results() {
             assert_eq!(ok, "echo:hello");
         }
         other => panic!("unexpected message: {:?}", other),
+    }
+}
+
+#[test]
+fn inline_app_effects_run_without_registry_setup() {
+    let registry = AsyncRegistry::new();
+    let (tx, rx) = mpsc::channel();
+
+    assert!(registry.spawn_job(
+        InlineIncrement::NAME,
+        Some(InlineJob::for_effect::<InlineIncrement>()),
+        8,
+        serde_json::to_vec(&41).unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        Arc::new(|| {}),
+    ));
+
+    match rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("effect result")
+    {
+        AsyncMessage::JobOk { payload, .. } => {
+            assert_eq!(serde_json::from_slice::<i32>(&payload).unwrap(), 42);
+        }
+        other => panic!("unexpected message: {other:?}"),
     }
 }
 
@@ -510,6 +554,7 @@ fn capability_registered_streams_can_be_consumed_by_jobs() {
 
     assert!(registry.spawn_job(
         STREAM_ECHO_JOB.name,
+        None,
         22,
         serde_json::to_vec(&StreamEchoRequest { stream }).unwrap(),
         None,

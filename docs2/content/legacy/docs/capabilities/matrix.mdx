@@ -1,0 +1,64 @@
+---
+title: Capability matrix
+description: Compare Fission built-in capabilities across web, desktop, Android, and iOS targets.
+---
+
+# Capability matrix
+
+Use this page when you need to answer a practical question: can this feature work on the platform I am targeting, and what extra work is required before it behaves like a production feature?
+
+A Fission capability has three separate pieces:
+
+1. **The typed API** is what shared app code calls. For example, `ctx.effects.camera().capture_photo(...)` records a camera request without importing Android, iOS, web, or desktop camera APIs into your reducer.
+2. **The provider** is the shell-side Rust implementation. It receives the typed request and maps it to the current host: an operating-system API, browser API, hardware SDK, service worker, device manager, or a typed unsupported error.
+3. **Packaging configuration** is the native metadata that lets the platform allow the feature in an installed app. Examples include Android permissions, iOS usage strings, entitlements, URL schemes, associated domains, service-worker files, Windows package capabilities, macOS bundle keys, Linux portal dependencies, or store-side setup.
+
+When a cell says **Provider**, the Fission API is present and the platform has a realistic implementation route, but the app or shell still needs the concrete provider and the package metadata for that product. For example, a desktop camera app needs a `CameraHost` implementation and, on packaged macOS builds, camera usage text in the app bundle. Without the provider the call returns unsupported; without the package metadata the operating system may deny access.
+
+A cell marked **Yes** means there is a normal product path for the feature on that target. **Limited** means support depends heavily on browser, hardware, distribution, policy, or optional platform services. **No general API** means the platform does not expose a normal app-level API for that feature.
+
+| Capability | Reference | Web | Windows | macOS | Linux | Android | iOS | CLI config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) | Provider | Provider | Provider | Limited | Yes | Yes | Shell setup |
+| [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Shell setup |
+| [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
+| [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Provider | Yes |
+| [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Provider | Provider | Yes |
+| [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | No extra CLI value |
+| [File system](/docs/capabilities/file-system/) | [API](/reference/capabilities/file-system/) | Modern browser API | Yes | Yes | Yes | Yes | Yes | `filesystem` |
+| [Geolocation](/docs/capabilities/geolocation/) | [API](/reference/capabilities/geolocation/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Haptics](/docs/capabilities/haptics/) | [API](/reference/capabilities/haptics/) | Limited | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
+| [Microphone](/docs/capabilities/microphone/) | [API](/reference/capabilities/microphone/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Bluetooth](/docs/capabilities/bluetooth/) | [API](/reference/capabilities/bluetooth/) | Limited | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Wi-Fi](/docs/capabilities/wifi/) | [API](/reference/capabilities/wifi/) | No general API | Provider | Provider | Provider | Yes | Provider | Yes |
+| [Volume control](/docs/capabilities/volume-control/) | [API](/reference/capabilities/volume-control/) | No system API | Provider | Provider | Provider | Yes | Limited | Yes |
+| [PDF printing](/docs/capabilities/printing/) | [API](/reference/capabilities/printing/) | Limited | Limited | Yes | Yes | Yes | Yes | none required |
+
+Fission has no built-in iOS Wi-Fi provider: its built-in host is `UnsupportedWifiHost`. An app can register a custom provider, but it remains subject to iOS policy and cannot assume general Wi-Fi scanning or connection access.
+
+Native passkey hosts default to `UnsupportedPasskeyHost`; Android and iOS apps must install a platform-specific provider as well as the domain-association metadata. iOS biometrics similarly requires an app-supplied `BiometricHost`. A generated permission string or capability declaration does not install these implementations. The corresponding references describe the current integration boundaries.
+
+Desktop support deserves a careful reading. Windows and macOS increasingly expose camera, microphone, notifications, Bluetooth, local authentication, clipboard, location, and volume APIs that a Fission host can connect to. Linux often has an equivalent route, but it may depend on portals, desktop services, BlueZ, NetworkManager, PulseAudio or PipeWire, and distribution packaging. For that reason Linux cells are more often marked limited or provider-driven.
+
+Web biometrics deserve a separate note. When a site appears to authenticate with a fingerprint, it is usually using a passkey or WebAuthn credential. The browser or password manager may use fingerprint or face recognition to unlock the credential, but the web app receives a credential assertion rather than direct biometric access. Fission models that as the separate [Passkeys](/docs/capabilities/passkeys/) credential capability, not as raw biometric scanning.
+
+For conceptual guidance, read [Platform capabilities](/docs/guides/platform-capabilities/). For lower-level request, provider, and configuration details, start with [Platform capabilities reference](/reference/core/platform-capabilities/).
+
+## Before you ship a capability
+
+Check each of these before shipping a capability. A typed API alone does not
+mean the feature is ready on every target.
+
+| Check | What needs to be in place |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability, and generated platform files include any required permission text, manifest entry, entitlement, domain, or protocol metadata. |
+| State | App state keeps the in-flight status, successful value, and user-facing error separate. |
+| Reducers | A reducer starts the host request; completion reducers handle success, denial, unsupported hosts, cancellation, and provider errors. |
+| Provider | The production shell registers a real provider. Tests use a memory provider. |
+| Tests | Cover success and at least one relevant failure, such as permission denial or an unsupported host. |
+
+## Diagnose capability failures
+
+Make capability failures safe to retry and easy to explain. Check `fission.toml`, run `fission doctor`, and inspect the generated target files. A missing provider should return an unsupported error. If the provider exists but platform configuration is wrong, the OS or browser may deny access before the provider completes the request. Keep those cases distinct so users know whether to retry, change settings, connect hardware, or choose another path.

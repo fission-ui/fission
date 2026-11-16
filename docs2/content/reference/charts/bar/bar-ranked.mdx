@@ -1,0 +1,69 @@
+---
+title: Ranked bar
+sidebar_label: Ranked bar
+description: Rank category values while keeping labels, values and tie-breaking together.
+---
+
+# Ranked bar
+
+![Ranked bar screenshot](/img/charts/bar-ranked.png)
+
+Ranking answers which category has the largest value. For a fulfilment overview, horizontal bars can show which locations have the most outstanding orders whilst leaving room for their names.
+
+Sort complete rows, not the values alone. Otherwise a chart can display plausible bars with the wrong location labels. Decide how ties are ordered as well; an arbitrary change between equal values makes repeated reports harder to follow.
+
+## Compose example
+
+This component makes a sorted display projection without mutating the parent's source order. A durable location identifier breaks ties independently of translated labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct LocationBacklog {
+    pub id: String,
+    pub label: String,
+    pub outstanding_orders: f32,
+}
+
+fission_component! {
+    pub LocationRankingChart<()> {
+        props {
+            title: String,
+            orders_label: String,
+            rows: Vec<LocationBacklog>,
+        }
+    }
+    view(ranking, _state, _cx) {
+        let mut rows = ranking.rows.clone();
+        rows.sort_by(|left, right| {
+            right.outstanding_orders.total_cmp(&left.outstanding_orders)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let labels = rows.iter().map(|row| row.label.as_str()).collect();
+        let counts = rows.iter().map(|row| row.outstanding_orders).collect();
+    } => Chart(
+        title: Some(ranking.title.clone()),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![
+            Series::Bar(BarSeries::new(&ranking.orders_label)
+                .horizontal()
+                .data(counts)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. The parent supplies finite, non-negative counts and translated labels. `total_cmp` gives a well-defined float ordering; it does not make an invalid measurement valid. Reject unavailable or invalid readings before treating them as a completed report.
+
+## Keep ranking separate from action identity
+
+A rank is a position in the current projection, not an identifier for the location. If selecting a bar opens its orders, resolve the selected row to its durable `id`; do not dispatch the rank as though it identified the same location after filtering or reordering.
+
+Provide exact values in an accessible list, test ties and reordered inputs, and inspect long labels in a real rendering. For a large collection, choose a deliberate top-N view with a route to the full list rather than compressing hundreds of bars into one card. The gallery screenshot uses fixture data.
+
+Tags: `bar`, `ranked`.
+
+[Bar family overview](./overview)

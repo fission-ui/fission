@@ -1,0 +1,60 @@
+---
+title: Cartesian heatmap
+sidebar_label: Cartesian heatmap
+description: Fission Charts reference for Cartesian heatmap.
+---
+
+# Cartesian heatmap
+
+![Cartesian heatmap screenshot](/img/charts/heatmap-cartesian.png)
+
+A matrix makes comparisons across two category sets visible at once. For warehouse planning, occupancy by zone and reporting hour can show where usable space becomes constrained. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one consistently defined occupancy percentage. Do not mix occupied locations and stored item counts under a single colour scale; they describe different capacities.
+
+## Data model
+
+`HeatmapSeries` stores `(column_index, row_index, value)` triples. Category axes name columns and rows, whilst `VisualMap` defines the cell-value scale. Missing measurements are not measured zero occupancy.
+
+## Authoring from a Fission component
+
+The parent prepares validated cell indices and corresponding localized category labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub WarehouseOccupancyMatrix<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            hour_labels: Vec<String>,
+            zone_labels: Vec<String>,
+            occupancy_percent: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let hours = report.hour_labels.iter().map(String::as_str).collect();
+        let zones = report.zone_labels.iter().map(String::as_str).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(hours)),
+        y_axis: Some(Axis::category(zones)),
+        visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+        series: vec![HeatmapSeries::new(&report.series_label)
+            .data(report.occupancy_percent.clone()).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test out-of-range indices, duplicate cells and failed collection. Keep the scale fixed across refreshes and show exact percentages and unavailable cells in an accessible table.
+
+Tags: `heatmap`, `matrix`.
+
+[Statistical and finance family overview](./overview)

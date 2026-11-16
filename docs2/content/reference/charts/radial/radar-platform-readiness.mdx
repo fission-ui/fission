@@ -1,0 +1,57 @@
+---
+title: Platform readiness radar
+sidebar_label: Platform readiness radar
+description: Fission Charts reference for Platform readiness radar.
+---
+
+# Platform readiness radar
+
+![Platform readiness radar screenshot](/img/charts/radar-platform-readiness.png)
+
+Platform readiness involves several independent prerequisites. Packaging, accessibility, storage and navigation may each be at a different stage, and a single average can hide a release blocker. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+A radar can summarise four explicitly defined readiness scores. Keep higher values consistently meaning more of the required work is verified. The shape is not permission to ship with a failed mandatory requirement.
+
+## Data model
+
+`RadarSeries` maps each value onto a fixed 0–100 radius. It does not calculate scores, draw named spokes or attach evidence to a score. Keep a fixed dimension order and the assessment evidence in the release model.
+
+## Authoring from a Fission component
+
+The parent supplies four validated scores and a localized explanation naming them in order.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PlatformReleaseReadiness<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![RadarSeries::new(&report.series_label)
+                .data(vec![report.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test a missing assessment and a blocking failure despite otherwise high scores. Provide named values and unresolved requirements outside the radar, and never infer an overall readiness grade from polygon area.
+
+Tags: `radar`, `platform`.
+
+[Radial family overview](./overview)

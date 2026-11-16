@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// The widget does not open a platform picker itself. Bind `on_browse` to a
 /// reducer that requests Fission's file-picker capability and pass the returned
 /// display name back through `selected_file`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FileUpload {
     /// Text shown on the browse button.
     pub label: String,

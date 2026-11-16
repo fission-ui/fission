@@ -1,49 +1,44 @@
 use super::*;
 use crate::style;
 
-pub(super) struct BottomStrip;
-
-impl From<BottomStrip> for Widget {
-    fn from(_: BottomStrip) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Wrap {
+fission_component! {
+    pub(super) BottomStrip<AnimationGalleryState> |_strip, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.l),
-            run_spacing: None,
-            children: vec![
-                StripItem {
-                    title: "Typed & discoverable",
-                    body: "via widget-owned enums",
-                }
-                .into(),
-                StripItem {
-                    title: "Composability by design",
-                    body: "Additive + last-wins",
-                }
-                .into(),
-                StripItem {
-                    title: "One runtime",
-                    body: "Everything lowers to MotionExpr",
-                }
-                .into(),
-                StripItem {
-                    title: "Deterministic",
-                    body: "Pure, replayable, testable",
-                }
-                .into(),
-                StripItem {
-                    title: "Accessibility first",
-                    body: "Policy respects users",
-                }
-                .into(),
+            spacing: tokens.spacing.l,
+            children: [
+                StripItem(
+                    "Typed & discoverable",
+                    "via widget-owned enums",
+                    key: "typed",
+                ),
+                StripItem(
+                    "Composability by design",
+                    "Additive + last-wins",
+                    key: "composable",
+                ),
+                StripItem(
+                    "One runtime",
+                    "Everything lowers to MotionExpr",
+                    key: "runtime",
+                ),
+                StripItem(
+                    "Deterministic",
+                    "Pure, replayable, testable",
+                    key: "deterministic",
+                ),
+                StripItem(
+                    "Accessibility first",
+                    "Policy respects users",
+                    key: "accessibility",
+                ),
             ],
-        })
+        ))
         .padding_all(tokens.spacing.m)
         .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
         .bg(style::surface())
-        .into()
-    }
 }

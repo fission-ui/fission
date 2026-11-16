@@ -1,0 +1,92 @@
+---
+title: Org revenue sunburst
+sidebar_label: Org revenue sunburst
+description: Fission Charts reference for Org revenue sunburst.
+---
+
+# Org revenue sunburst
+
+![Org revenue sunburst screenshot](/img/charts/sunburst-org-revenue.png)
+
+An organisation revenue sunburst places a business unit's contribution within the company's reporting hierarchy. This gives a useful part-to-whole view, provided every branch follows the same accounting rules. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one currency and reporting period, and define how shared contracts are attributed. Assigning the same contract to two units would enlarge both slices without creating any additional revenue.
+
+## Data model
+
+The example maps a reconciled net-revenue aggregate into TreemapNode values. Keep exact monetary values in the financial model; f32 is the chart's presentation representation, not an accounting type.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SunburstSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Business".into(),
+    value: 250000.0,
+    children: vec![
+        TreemapNode {
+            name: "Products".into(),
+            value: 180000.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Services".into(),
+            value: 70000.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Net revenue by business unit (GBP)")
+    .series(vec![SunburstSeries::new("Net revenue (GBP)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub OrgRevenueSunburstChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![SunburstSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check inter-unit attribution, adjustments and totals before rendering. Offer the exact report alongside the visual so similar slice sizes do not become an imprecise financial comparison.
+
+Tags: `sunburst`, `revenue`.
+
+[Hierarchy family overview](./overview)

@@ -2,8 +2,7 @@ use super::button_preview::ButtonPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/button";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Secondary,
 };
 
-pub struct ButtonPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ButtonPage<'_>> for Widget {
-    fn from(page: ButtonPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: ButtonPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub ButtonPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), ButtonPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -53,13 +33,12 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Button {
-    id: Some(WidgetId::explicit("send_button")),
+const SOURCE: &str = r#"Button(
+    id: WidgetId::explicit("send_button"),
     variant: ButtonVariant::Filled,
-    child: Some(Text::new("Send").into()),
-    motion: Some(ButtonMotion::HoverPressRipple),
-    ..Default::default()
-}.into()"#;
+    child: Text("Send"),
+    motion: ButtonMotion::HoverPressRipple,
+)"#;
 
 const NATIVE_SOURCE: &str = r#"Motion {
     id: WidgetId::explicit("send_button_motion"),

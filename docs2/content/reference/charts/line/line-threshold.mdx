@@ -1,0 +1,68 @@
+---
+title: Line with threshold
+sidebar_label: Line with threshold
+description: Fission Charts reference for Line with threshold.
+---
+
+# Line with threshold
+
+![Line with threshold screenshot](/img/charts/line-threshold.png)
+
+A threshold line turns an operational rule into a visible comparison. For a job queue, the age of the oldest waiting job can be more useful than its count when deciding whether work is being left behind. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example marks the application's queue-review interval in minutes. Crossing it is a reason to inspect the queue, not an automatic diagnosis of a failed worker. A small queue can still contain one very old job.
+
+## Data model
+
+Pass prepared age samples and a non-negative review threshold in the same units. MarkLine draws the threshold and MarkArea shows the interval below it. Handle an empty queue deliberately rather than treating missing telemetry as a measured age of zero.
+
+## Authoring from a Fission component
+
+The component receives the reporting values and labels. Fetch, aggregate and validate those inputs before constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea, MarkLine};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub LineWithThresholdChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            secondary_annotation_label: String,
+            labels: Vec<String>,
+            oldest_age_minutes: Vec<f32>,
+            review_after_minutes: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            mark_lines: vec![MarkLine::y(&report.annotation_label, report.review_after_minutes).color(colors.primary)],
+            mark_areas: vec![MarkArea::y_range(&report.secondary_annotation_label, 0.0, report.review_after_minutes)
+                .color(colors.primary_subtle.with_alpha(80))],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.oldest_age_minutes.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check ages below, on and above the threshold, and ensure the threshold remains inside the visible axis range. Expose the current age and review rule in text as well as colour.
+
+Tags: `line`, `markLine`.
+
+[Line family overview](./overview)

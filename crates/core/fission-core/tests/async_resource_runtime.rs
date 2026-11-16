@@ -135,9 +135,16 @@ fn timer_resources_dispatch_actions_from_runtime_tick() {
         }])
         .unwrap();
 
+    assert_eq!(runtime.next_timer_deadline(), Some(0));
+
     let tick = runtime.tick(0).unwrap();
     assert_eq!(tick.resource_actions_dispatched, 1);
+    assert_eq!(runtime.next_timer_deadline(), Some(10));
+
+    let tick = runtime.tick(35).unwrap();
+    assert_eq!(tick.resource_actions_dispatched, 3);
+    assert_eq!(runtime.next_timer_deadline(), Some(40));
     let state = runtime.get_app_state::<TestState>().unwrap();
-    assert_eq!(state.ticks, 1);
+    assert_eq!(state.ticks, 4);
     assert_eq!(state.last_payload, "refresh");
 }

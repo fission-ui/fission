@@ -1,0 +1,53 @@
+---
+title: Dynamic toolbox line
+sidebar_label: Dynamic toolbox line
+description: Attach real reset and export actions to an updated line report.
+---
+
+# Dynamic toolbox line
+
+![Dynamic toolbox line screenshot](/img/charts/dynamic-toolbox-line.png)
+
+Refreshing chart data does not turn decorative utility labels into commands. Reset and export must use the current report state and the application's permissions, and export can fail.
+
+The [report commands example](../analytics/analytics-toolbox-report) defines `ReportWithCommands`. Put it in `widgets/report_with_commands.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::report_with_commands::ReportWithCommands;
+
+fission_component! {
+    pub CurrentOrdersReport<()> {
+        props {
+            title: String,
+            orders_label: String,
+            periods: Vec<String>,
+            values: Vec<f32>,
+            export_label: TextContent,
+            reset_label: TextContent,
+            export_action: ActionEnvelope,
+            reset_action: ActionEnvelope,
+            exporting: bool,
+        }
+    }
+    view(report, _state, _cx) => ReportWithCommands {
+        title: report.title.clone(),
+        measure_label: report.orders_label.clone(),
+        periods: report.periods.clone(),
+        values: report.values.clone(),
+        export_label: report.export_label.clone(),
+        reset_label: report.reset_label.clone(),
+        export_action: report.export_action.clone(),
+        reset_action: report.reset_action.clone(),
+        exporting: report.exporting,
+    }
+}
+```
+
+Register the actions against the concrete application state. Queue export through an effect with explicit success and failure handling, and make its snapshot/filter policy clear when new data arrives during export.
+
+The current chart toolbox merely paints labels. Use `DataZoom` and `ChartBrush` for actual plot gestures rather than claiming toolbox enum entries implement them.
+
+Supply translated labels and aligned finite values. Test repeated activation while pending, failed export and reset after a refresh. Verify the exported records rather than the appearance of a save label. The image is a gallery fixture.
+
+[Dataset and dynamic family overview](./overview)

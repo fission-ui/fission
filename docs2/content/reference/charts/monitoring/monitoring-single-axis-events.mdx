@@ -1,0 +1,53 @@
+---
+title: Monitoring event strip
+sidebar_label: Monitoring event strip
+description: Fission Charts reference for Monitoring event strip.
+---
+
+# Monitoring event strip
+
+![Monitoring event strip screenshot](/img/charts/monitoring-single-axis-events.png)
+
+An event strip shows when operational events occurred without implying that there was a continuously measured value between them. It is useful for seeing a cluster of alerts or restarts within a reporting window. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Position represents elapsed time and marker size represents a documented event quantity, such as affected instances. The vertical lanes are a rendering aid; the current renderer assigns them by item order, not by service, severity or ownership.
+
+## Data model
+
+`SingleAxisSeries::data` takes `(position, size)` pairs. Use elapsed minutes from an explicit report start rather than large epoch timestamps in `f32`. Positions are scaled from the supplied values; the API does not provide a fixed event-window range through this series.
+
+## Authoring from a Fission component
+
+Supply validated event pairs from the current report. Keep IDs, full timestamps and descriptions in the source records rather than encoding them only in marker positions.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SingleAxisSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RestartEventStrip<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            minutes_and_affected_instances: Vec<(f32, f32)>,
+        }
+    }
+    view(events, _state, _cx) => Chart(
+        title: Some(events.chart_title.clone()),
+        series: vec![SingleAxisSeries::new(&events.series_label)
+            .data(events.minutes_and_affected_instances.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test events sharing a timestamp, an event at time zero and a report with only one event. Validate non-negative elapsed time and size, and explain the common report start. Provide a chronological event list with exact timestamps; marker overlap and layout lanes cannot describe all events accessibly.
+
+Tags: `monitoring`, `singleAxis`.
+
+[Monitoring family overview](./overview)

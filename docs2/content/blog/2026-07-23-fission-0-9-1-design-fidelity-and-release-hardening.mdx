@@ -1,0 +1,75 @@
+---
+title: Fission 0.9.1: design fidelity and release hardening
+authors:
+  - fission
+tags:
+  - release
+  - design-systems
+  - testing
+  - desktop
+  - cli
+categories:
+  - Releases
+---
+
+Fission 0.9.1 is a small follow-up to 0.9.0. It adds typed values for describing visual design and golden-image checks, and fixes issues found while testing packaging and desktop workflows.
+
+## Design fidelity primitives
+
+This release adds lower-level values for describing visual design once and using it across shells, rather than translating the same intent separately for each renderer.
+
+The API covers typed lengths, box styles, responsive variants, grid tracks, packaged fonts, shadows, backdrop filters, and pressable styles that account for interaction. These primitives do not replace a design system. They let generated design tokens and reusable widgets reach layout and rendering without each app inventing its own translation layer.
+
+For an app, that means more of the design can be expressed as typed Fission values instead of unexplained numbers or assumptions about one renderer. It also gives the renderers and static output path a contract they can inspect and test.
+
+## Golden image verification
+
+LiveTest already lets tests drive an app with semantic commands and inspect its runtime tree. Fission 0.9.1 adds golden-image comparisons, so the rendered result can be checked too.
+
+This catches a different class of regression than a unit test: a slider thumb that is off-centre, an inspection API using the wrong viewport, the wrong responsive branch, or a renderer dropping a shadow or font rule. These are visual bugs, but that does not mean they have to be found by eyeballing screenshots after a change.
+
+The design-fidelity and golden-testing types now have Rust docs and examples, so you can use them in app tests as well as framework regression tests.
+
+A golden comparison detects a change against the reviewed baseline. It does
+not decide that baseline is a good design. Keep the initial visual review and
+inspect a failed diff before approving a replacement image.
+
+## Desktop tray behavior remains explicit
+
+Fission 0.9.0 introduced a setting for whether a tray app remains in the Dock, taskbar, or app switcher. This release keeps that choice explicit across desktop shells.
+
+Tray apps normally disappear from the Dock, taskbar, or app switcher when they move to the tray, where the platform supports it. If your app should stay visible, you can choose that instead. The policy is now a setting rather than an accidental shell difference.
+
+Set the tray switcher policy explicitly if your app should remain visible there.
+
+## CLI stack hardening
+
+The CLI now reserves more stack for nested command flows. This prevents stack exhaustion on Windows ARM64 and other paths where packaging, release, and generated-target commands call through several layers.
+
+You should not notice a change to the workflow. You should notice that these commands fail for a real missing requirement, not because the dispatcher ran out of stack.
+
+## Inspection correctness
+
+`LayoutEngine::inspect_node` now resolves styled lengths against the viewport snapshot for the frame being inspected, not an older engine value. The measurements now describe the frame that tests and diagnostics actually asked about.
+
+There is a regression test for this. Inspection is part of how Fission makes UI state observable; if those results are wrong, automation can make the wrong decision even when the screen looks fine.
+
+## Documentation and release notes
+
+This release also includes the Rust GUI lifecycle essay and a correction to the release checklist. Its smoke test now uses the current `fission add-target` command, and the blog author metadata uses a normalised HTTPS profile URL.
+
+## Migration notes
+
+Update Fission dependencies to 0.9.1:
+
+```toml
+fission = { version = "0.9.1", default-features = false, features = ["desktop"] }
+```
+
+There are no required application code migrations for ordinary apps. If your app uses tray behavior and depends on Dock, taskbar, or app-switcher visibility, set the tray app switcher policy explicitly so the intended behavior is clear across desktop targets.
+
+Relevant pull requests:
+
+- [#139: design fidelity primitives and verification](https://github.com/fission-ui/fission/pull/139)
+- [#137: configurable minimize-to-tray behavior](https://github.com/fission-ui/fission/pull/137)
+- [#140: reserve stack for command dispatcher](https://github.com/fission-ui/fission/pull/140)

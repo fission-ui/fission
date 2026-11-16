@@ -1,0 +1,67 @@
+---
+title: Candlestick
+sidebar_label: Candlestick
+description: Fission Charts reference for Candlestick.
+---
+
+# Candlestick
+
+![Candlestick screenshot](/img/charts/candlestick-basic.png)
+
+A candle summarises an interval's opening price, closing price and extremes. It can show movement without implying that the path between those values is known. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one instrument, currency and consistent interval definition. Candles cannot explain the order of all trades within an interval, and their appearance is not a forecast.
+
+## Data model
+
+Fission expects `[open, close, low, high]` arrays. Validate that low/high bound both open and close, preserve interval alignment and keep financial calculations in exact domain types before the f32 projection.
+
+## Authoring from a Fission component
+
+The parent supplies localized labels and two distinguishable design-system colours instead of relying on red/green defaults.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub InstrumentPriceCandles<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test equal open/close, no-trade intervals and session boundaries. Present exact values and direction as accessible text; do not require colour perception to distinguish price movement.
+
+Tags: `finance`, `ohlc`.
+
+[Statistical and finance family overview](./overview)

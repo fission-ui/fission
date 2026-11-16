@@ -15,6 +15,15 @@ pub struct AspectRatio {
     pub child: Widget,
 }
 
+impl Default for AspectRatio {
+    fn default() -> Self {
+        Self {
+            ratio: 1.0,
+            child: fission_core::ui::widgets::Spacer::default().into(),
+        }
+    }
+}
+
 impl From<AspectRatio> for Widget {
     fn from(component: AspectRatio) -> Self {
         let this = &component;

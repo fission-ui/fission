@@ -21,7 +21,7 @@ pub struct TimelineItem {
 }
 
 /// Ordered vertical presentation of related events.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Timeline {
     /// Events displayed from first to last.
     pub items: Vec<TimelineItem>,
@@ -257,10 +257,13 @@ impl From<TimelineLayout> for Widget {
                             ..Default::default()
                         })
                         .width(marker_width)
+                        .min_width(marker_width)
                         .min_height(marker_extent)
+                        .flex_shrink(0.0)
                         .into(),
                         Container::new(entry.child)
                             .padding([0.0, 0.0, 0.0, if last { 0.0 } else { item_gap }])
+                            .min_width(0.0)
                             .flex_grow(1.0)
                             .into(),
                     ],

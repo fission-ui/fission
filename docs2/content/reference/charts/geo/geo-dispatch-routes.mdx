@@ -1,0 +1,21 @@
+---
+title: Dispatch routes
+sidebar_label: Dispatch routes
+description: Keep dispatch totals and regional service context in one coherent report.
+---
+
+# Dispatch routes
+
+![Dispatch routes screenshot](/img/charts/geo-dispatch-routes.png)
+
+A dispatcher may need to compare deliveries between depots whilst checking which regions lack coverage. These are related questions, but parcel movement and coverage percentage are not the same measure.
+
+Use [the paired route report](../geo-and-route/geo-route-map) for the dispatch projection, and [premises coverage](../dataset/dataset-map-coverage) for the region values. Compose them through [NetworkRegionReport](../geo-and-route/geo-network), with separate translated panel titles and one reporting cutoff.
+
+The current chart API does not provide a shared projection between `MapSeries` polygons and `LinesSeries` endpoints. A combined overlay can therefore appear plausible whilst placing a route incorrectly. The paired composition is a supported alternative, not a claim that this gap has been solved.
+
+Keep stable depot, dispatch and region IDs in the source records. Verify that each dispatch endpoint exists, that counts represent the same completed period and that coverage denominators are measured. An absent depot or unknown service area needs an explicit explanation rather than an invented coordinate.
+
+Test empty dispatches, missing region joins and a report refreshed during inspection. Provide an exact dispatch list and access to the coverage counts, so decisions do not depend only on colour or line width. The gallery uses separate fixtures and does not establish route alignment or navigation.
+
+[Geo family overview](./overview)

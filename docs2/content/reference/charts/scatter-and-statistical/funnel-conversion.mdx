@@ -1,0 +1,57 @@
+---
+title: Conversion funnel
+sidebar_label: Conversion funnel
+description: Fission Charts reference for Conversion funnel.
+---
+
+# Conversion funnel
+
+![Conversion funnel screenshot](/img/charts/funnel-conversion.png)
+
+A checkout conversion report should follow the same sessions from entry to purchase. Counts of unrelated events over a calendar period do not necessarily describe a funnel. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Count each eligible session once at each stage it reaches. Define the observation window and which purchase status counts as completion; retries and duplicate events must not inflate later stages.
+
+## Data model
+
+`FunnelSeries` draws ordered label/value pairs. It does not deduplicate sessions, calculate conversion percentages or enforce stage progression. Prepare non-negative stage counts from the cohort model first.
+
+## Authoring from a Fission component
+
+The parent supplies the ordered report and localized stage labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, FunnelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CheckoutSessionFunnel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            sessions_by_stage: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.sessions_by_stage.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![FunnelSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test repeated checkout attempts, delayed purchases and a still-open cohort window. Provide exact stage counts and denominators outside the bands; a smaller segment does not explain why sessions stopped.
+
+Tags: `funnel`, `conversion`.
+
+[Scatter and statistical family overview](./overview)

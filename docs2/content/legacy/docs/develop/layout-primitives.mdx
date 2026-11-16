@@ -1,0 +1,100 @@
+---
+title: Layout primitives
+description: Develop with Length, BoxStyle, GridTrack, overflow, alignment, and positioning primitives.
+---
+
+# Layout primitives
+
+A panel's constraints should mean the same thing on every target. Fission
+represents layout as typed values rather than CSS strings or renderer-specific
+options, so the runtime can lower, inspect, and test the same contract.
+
+| Primitive | Job |
+| --- | --- |
+| `Length` | Express fixed, percentage, viewport, intrinsic, and clamped sizes. |
+| `BoxStyle` | Group box sizing, margin, padding, alignment, overflow, aspect ratio, positioning, and grid placement. |
+| `GridTrack` | Define grid tracks with points, percentages, fractions, intrinsic sizes, repeat, auto-fit, and auto-fill. |
+| `Responsive` | Select one child branch from ordered viewport or container breakpoints. |
+
+## Length
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ProfilePanel<()> {
+        props { summary: Widget }
+    }
+    view(panel, _state, _cx) =>
+    Container(
+        child: panel.summary.clone(),
+        box_style: BoxStyle::default()
+            .width(Length::clamp(
+                Length::points(280.0),
+                Length::percent(40.0),
+                Length::points(520.0),
+            ))
+            .max_height(Length::vh(80.0)),
+    )
+}
+```
+
+Percentages are expressed as whole percentages: `Length::percent(50.0)` means
+half of the containing axis. The profile's clamp is a specific readable-width
+constraint; promote those values into the app's design tokens when shared.
+Below 280 points, this minimum still needs a narrow-layout policy—it cannot
+make extra space appear.
+
+## BoxStyle
+
+```rust
+fission_component! {
+    pub SettingsPanel<()> {
+        props { form: Widget }
+    }
+    view(panel, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+        let layout = BoxStyle::default()
+            .width(Length::percent(100.0))
+            .max_width(Length::points(960.0))
+            .padding_symmetric(
+                Length::points(spacing.xl),
+                Length::points(spacing.l),
+            )
+            .margin_symmetric(Length::Auto, Length::points(spacing.none));
+    } =>
+    Container(child: panel.form.clone(), box_style: layout)
+}
+```
+
+Compose sets the widget's fields; the `BoxStyle` methods construct the typed
+layout value supplied to one field. They are not a second widget tree. Avoid
+clipping a settings form to hide overflow: scrolling and a narrow-layout
+policy must keep its controls reachable.
+
+## Grid tracks
+
+```rust
+fission_component! {
+    pub CardGrid<()> {
+        props { cards: Vec<Widget> }
+    }
+    view(grid, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+    Grid(
+        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+            GridTrack::Points(220.0),
+            GridTrack::Fr(1.0),
+        ))],
+        row_gap: spacing.l,
+        column_gap: spacing.l,
+        children: grid.cards.clone(),
+    )
+}
+```
+
+The parent constructs each card once and gives dynamic cards durable data
+identities. Use `auto_fit` when empty tracks should collapse; use `auto_fill`
+when those tracks should reserve space. Both are container layout rules,
+not a reason to calculate columns from the overall window width.

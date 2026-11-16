@@ -1,0 +1,204 @@
+---
+title: Write a live interface test
+description: Launch a real Fission host, drive it through LiveTestClient, and validate behavior that reducer tests cannot prove by themselves.
+---
+
+# Write a live interface test
+
+A reducer test can prove that incrementing changes a value. It cannot prove
+the visible button receives a tap, the host delivers input, or the new value
+reaches the screen. A live test exercises that connected path through the
+running shell's control server.
+
+This recipe targets the repository's `counter` package. Its actual screen has
+Increment and Decrement controls and displays the number alone; it does not
+have a modal or a `Count:` prefix.
+
+## The problem we are solving
+
+The requirement is small: open the real app, increment once, confirm `1`,
+decrement, and confirm `0`. Stable semantic identifiers select the controls;
+visible text confirms the user-facing result.
+
+A screenshot can supplement that evidence, but seeing a button in an image
+would not prove it activated the right reducer.
+
+## Step 1: understand what part is host-level and what part is deterministic
+
+The test owns a separate child process. Commands arrive through the loopback
+control server and enter the host/runtime input path. Reducers and Compose
+still operate normally inside the app; the test does not replace them with a
+second implementation.
+
+Use this layer for host integration. Keep ordinary state rules in fast Rust
+tests, and keep geometry/semantic checks headless when no real host is needed.
+
+## Step 2: enable the test control server when launching the app
+
+The native driver connects to `FISSION_TEST_CONTROL_PORT`. An ephemeral local
+port avoids hard-coding one port for every test. Releasing that reservation
+before launching the app leaves a small allocation race, so run each GUI test
+with isolated process ownership and diagnose startup failures rather than
+blindly connecting to an unrelated service.
+
+Use Cargo's executable path instead of assuming `target/debug`: projects may
+configure another shared target directory. The complete test below belongs
+inside `examples/counter/tests/live.rs`, where Cargo defines
+`CARGO_BIN_EXE_counter`.
+
+`FISSION_BACKGROUND_TEST=1` selects the example's unattended-test behaviour.
+It does not turn the app into a headless reducer test or replace a valid
+desktop/display session.
+
+## Step 3: wait for the real app to become ready
+
+Connect only after launch and wait for the shell's readiness response:
+
+```rust
+let client = LiveTestClient::connect(control_port);
+client.wait_for_ready(15_000)?;
+```
+
+A fixed sleep does not tell you whether the app started. Readiness failure
+should retain a useful startup error, and cleanup must still stop the child.
+
+## Step 4: drive the interface like a user would
+
+```rust
+client.tap_semantic_identifier("counter.increment")?;
+client.wait_for_idle(2_000, false)?;
+client.assert_text_visible("1")?;
+client.tap_semantic_identifier("counter.decrement")?;
+client.wait_for_idle(2_000, false)?;
+client.assert_text_visible("0")?;
+```
+
+The identifier names the product control independently of its translated
+label. The displayed value remains part of the assertion: dispatching an
+action without observing its visible result would miss a disconnected view.
+
+## Step 5: add a modal assertion to cover overlay behavior
+
+Only add this part to an app that actually has a dialog. The current counter
+does not. In that app's test, use its real opener and dialog identifiers and
+wait for the dialog rather than asserting a boolean or a changed button label:
+
+```rust
+use fission_test_driver::SelectorQuery;
+
+fn open_and_find_dialog(
+    client: &LiveTestClient,
+    opener_id: &str,
+    dialog_id: &str,
+) -> anyhow::Result<()> {
+    client.tap_semantic_identifier(opener_id)?;
+    client.wait_for_visible(SelectorQuery::semantic_identifier(dialog_id), 5_000)?;
+    Ok(())
+}
+```
+
+Visibility alone does not prove a focus trap or correct keyboard dismissal.
+Test those separately when the dialog's contract requires them.
+
+## Step 6: capture a screenshot or semantic tree when it helps
+
+Keep evidence under the project's artifact directory:
+
+```rust
+std::fs::create_dir_all(".artifacts")?;
+client.screenshot(".artifacts/counter.png")?;
+let tree = client.get_tree()?;
+assert!(tree.iter().any(|node| {
+    node.identifier.as_deref() == Some("counter.increment")
+        && node.role.eq_ignore_ascii_case("button")
+        && !node.disabled
+}));
+```
+
+`get_tree` returns a vector of semantic nodes, not an object with a `nodes`
+field. Structure and screenshots answer different questions; keep the
+assertion that explains the intended behaviour.
+
+## Step 7: shut down cleanly
+
+Request a normal quit and wait for the process. Also arrange cleanup on a
+failed assertion or early return. Otherwise one failing test can leave a GUI
+app and occupied control port behind for the next run.
+
+## Step 8: see the full test together
+
+```rust
+use fission_test_driver::LiveTestClient;
+use std::net::TcpListener;
+use std::process::{Child, Command};
+
+struct TestProcess(Child);
+
+impl Drop for TestProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+#[ignore = "requires a real native desktop/display session"]
+fn counter_buttons_work_in_a_real_window() -> anyhow::Result<()> {
+    let control_port = TcpListener::bind(("127.0.0.1", 0))?
+        .local_addr()?.port();
+    let mut process = TestProcess(Command::new(env!("CARGO_BIN_EXE_counter"))
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
+        .spawn()?);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(15_000)?;
+    client.tap_semantic_identifier("counter.increment")?;
+    client.wait_for_idle(2_000, false)?;
+    client.assert_text_visible("1")?;
+    client.tap_semantic_identifier("counter.decrement")?;
+    client.wait_for_idle(2_000, false)?;
+    client.assert_text_visible("0")?;
+
+    std::fs::create_dir_all(".artifacts")?;
+    client.screenshot(".artifacts/counter.png")?;
+    client.quit()?;
+    assert!(process.0.wait()?.success(), "counter exited unsuccessfully");
+    Ok(())
+}
+```
+
+From the repository root, run the test deliberately:
+
+```console
+cargo test -p counter --test live -- --ignored
+```
+
+The package already has `fission-test-driver` as a development dependency.
+For your own app, add the matching version and change the Cargo executable
+name and semantic identifiers. `#[ignore]` keeps ordinary unit-test runs from
+unexpectedly opening a GUI.
+
+## When to write a live test instead of only reducer tests
+
+Use live tests for real-shell input, focus, scrolling, overlays, rendered
+appearance, and platform integrations. A pure validation rule does not need
+this process and display setup.
+
+For Web, use the supported browser-launch API and test build rather than
+assuming the native executable setup above launches Chromium.
+
+## What to avoid
+
+Do not use screenshots as a substitute for behavioural assertions. Do not
+skip readiness or leave the child process alive on failure. Do not select a
+control by coordinates when its semantic identifier expresses the requirement.
+
+Most importantly, keep the tested controls aligned with the actual app:
+an old test recipe referencing a removed modal does not validate the counter.
+
+## Where to go next
+
+[Testing and diagnostics](/docs/guides/testing-and-diagnostics/) explains the
+layers. [LiveTest command API](/reference/core/live-test-command-api/) covers
+selector commands and browser support. [Golden image testing](/docs/test-and-debug/golden-image-testing/)
+adds an explicit visual comparison budget.

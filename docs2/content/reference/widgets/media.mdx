@@ -1,0 +1,31 @@
+---
+title: Media and embed surfaces
+description: The reference overview for image, video, web, and terminal widgets.
+---
+
+# Media and embed surfaces
+
+These widgets display media or embed host-backed content. `Image` behaves like
+any other display widget. `Video`, `WebView`, and `TerminalView` also depend on
+runtime registration or host integration.
+
+## Media and embed widgets
+
+| Widget | Dedicated page | When to choose it |
+| --- | --- | --- |
+| `Image` | [Image](/reference/widgets/image) | Asset, file, memory, SVG, or network image content inside normal layout |
+| `Video` | [Video](/reference/widgets/video) | Video playback surface tied to runtime registration |
+| `WebView` | [WebView](/reference/widgets/web-view) | Embedded browser content surface |
+| `TerminalView` | [TerminalView](/reference/widgets/terminal-view) | Interactive terminal surface inside the app |
+| `TerminalLaunchConfig` | [TerminalLaunchConfig](/reference/widgets/terminal-launch-config) | Supporting type for terminal startup configuration |
+| `TerminalSession` | [TerminalSession](/reference/widgets/terminal-session) | Supporting handle for a live terminal session |
+
+## How to choose within this family
+
+Use `Image` when the content is still ordinary image display. It supports typed asset, file, network, memory, and SVG sources, and it participates in layout like any other widget.
+
+Move to `Video`, `WebView`, or `TerminalView` when the surface needs runtime registration or host-backed behavior.
+
+## Practical cross-reference
+
+For the runtime contracts behind animation, portals, and media registration, see [Animations, portals, and media](/reference/core/animations-portals-media). For a guided explanation of these ideas in app terms, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d). For the full widget map, return to the [Widget catalog](/reference/widgets/catalog).

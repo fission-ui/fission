@@ -1,0 +1,64 @@
+---
+title: Transform
+description: Apply a raw 4x4 transform matrix to one child.
+slug: /widgets/transform
+---
+# Transform
+
+`Transform` is the low-level matrix-transform wrapper.
+
+It applies a raw 4x4 transform matrix to one child. This is useful when you already have matrix math from another part of the system and want to feed that matrix directly into the widget tree.
+
+Most app authors should not reach for `Transform` first. If you want common presentation effects such as opacity, translation, scale, or rotation, [`Composite`](/reference/widgets/composite) is usually easier to read and easier to animate.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::core::ui::Transform;
+
+fission_component! {
+    pub ViewportLayer<()> {
+        props {
+            matrix: [f32; 16],
+            content: Widget,
+        }
+    }
+
+    view(layer, _state, _cx) =>
+        Transform(layer.content.clone(), layer.matrix)
+}
+```
+
+The parent owns the viewport mathematics and passes the resulting matrix.
+This component does not mix row-major/column-major assumptions into a random
+translation literal. Keep the matrix convention consistent with the library
+that produces it and test hit testing, clipping, and painted bounds together.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `transform` | `[f32; 16]` | Raw 4x4 transform matrix. | Defaults to the identity matrix. |
+| `child` | `Widget` | The transformed child. | Required. `Default` uses an empty spacer child. |
+
+## Behavior and advice
+
+`Transform` forwards the same layout constraints to its child and applies the matrix as a visual transform. Like `Composite`, it does not relayout siblings around the transformed result.
+
+That makes it appropriate for advanced rendering flows, but also easier to misuse than higher-level helpers. If the transformation is really part of layout rather than presentation, change the layout tree instead.
+
+## Specific advice
+
+Prefer `Composite` unless you already need raw matrix control. Matrix-heavy code is harder for teammates to scan, so it is worth paying that complexity cost only when it buys something real.
+
+## Check the transform in context
+
+- Use `Composite` for common translation, scale, rotation, or opacity; keep `Transform` for cases where you already have a matrix.
+- The matrix changes how the child is drawn, not how siblings are laid out. Check the result against nearby content and the parent's clip.
+- Keep the matrix near the code that calculates it, and test the rendered position with the actual parent constraints.
+
+## Related
+
+[`Composite`](/reference/widgets/composite), [`Clip`](/reference/widgets/clip), and [`Container`](/reference/widgets/container).

@@ -285,6 +285,19 @@ pub struct FormControl {
     pub required: bool,
 }
 
+impl Default for FormControl {
+    fn default() -> Self {
+        Self {
+            id: None,
+            label: None,
+            child: fission_core::ui::widgets::Spacer::default().into(),
+            error: None,
+            helper: None,
+            required: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct FormControlRecipe {
     id: Option<WidgetId>,

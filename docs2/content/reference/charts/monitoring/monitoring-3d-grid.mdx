@@ -1,0 +1,52 @@
+---
+title: Monitoring 3D grid
+sidebar_label: Monitoring 3D grid
+description: Fission Charts reference for Monitoring 3D grid.
+---
+
+# Monitoring 3D grid
+
+![Monitoring 3D grid screenshot](/img/charts/monitoring-3d-grid.png)
+
+Some operational measurements belong to fixed positions: temperatures from sensors in a room, for example. Keeping those positions allows a reader to look for a spatial pattern rather than only a ranking of readings. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Depth is justified when location matters. A two-dimensional heatmap is often a clearer alternative when the grid has no meaningful height or when readers need to compare exact values. Perspective can obscure a high reading behind another bar.
+
+## Data model
+
+Enable the `three-d` feature. Each grid cell holds an optional, validated reading in scene units. Row and column locate a sensor; the bar height is a display projection of its measured value. `None` means unavailable, not a measured zero. The scene itself does not create axes, a scale or chart selection events.
+
+## Authoring from a Fission component
+
+Use `StorageReadings` from the [3D bar reference](../3d-and-gl/bar3d-basic), moving that reusable component and its mesh helper into `widgets/spatial_readings.rs`. Its name describes the original storage example; this wrapper gives it a monitoring-specific boundary without duplicating mesh construction.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::spatial_readings::StorageReadings;
+
+fission_component! {
+    pub SensorGridChart<()> {
+        props {
+            title: TextContent,
+            readings: Vec<Vec<Option<f32>>>,
+            bar_color: Color,
+        }
+    }
+    view(grid, _state, _cx) => StorageReadings {
+        title: grid.title.clone(),
+        readings: grid.readings.clone(),
+        bar_color: grid.bar_color,
+    }
+}
+```
+
+## Testing and accessibility
+
+Test the measurement-to-height projection separately from rendering, including unavailable sensors and values beyond the normal range. Keep invalid readings in an explicit error state rather than making them look like successful zero readings. Show positions, units and exact values in accessible content alongside the scene, then inspect occlusion and sizing on the intended target. The legacy scene API has no `camera` or `ambient_light` builders.
+
+Tags: `monitoring`, `3d`.
+
+[Monitoring family overview](./overview)

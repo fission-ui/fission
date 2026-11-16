@@ -1,0 +1,48 @@
+---
+title: Dataset visual heatmap
+sidebar_label: Dataset visual heatmap
+description: Map typed team-hour records to sparse heatmap cells.
+---
+
+# Dataset visual heatmap
+
+![Dataset visual heatmap screenshot](/img/charts/dataset-visual-heatmap.png)
+
+A support manager needs to know which team and hour combination carries the most work. Here the row and column identify a cell; the ticket count determines its colour. A generic dataset does not perform that join for a heatmap in the current resolver.
+
+The [team-hour workload component](../components-and-interaction/component-visual-map) accepts a matrix with optional counts. Put that component in `widgets/team_hour_workload.rs` and compose it with an explicit caller-owned report:
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::team_hour_workload::TeamHourWorkload;
+
+fission_component! {
+    pub SupportWorkloadReport<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            hours: Vec<String>,
+            teams: Vec<String>,
+            counts: Vec<Vec<Option<u32>>>,
+            scale_max: f32,
+            scale_colours: Vec<Color>,
+        }
+    }
+    view(report, _state, _cx) => TeamHourWorkload {
+        title: report.title.clone(),
+        tickets_label: report.tickets_label.clone(),
+        hours: report.hours.clone(),
+        teams: report.teams.clone(),
+        counts: report.counts.clone(),
+        scale_max: report.scale_max,
+        scale_colours: report.scale_colours.clone(),
+    }
+}
+```
+
+Validate matrix dimensions before rendering. A `Some(0)` means that reporting confirmed no tickets, whilst `None` leaves that cell absent. Filling both with zero would make an incomplete report look quiet. Keep the same colour bounds when comparing reports, and supply translated labels and a palette that does not depend on red/green differences.
+
+Test the record-to-cell join independently from the chart, including missing teams and hours. Provide an exact-value table or summary for readers who cannot infer values from colour. The gallery screenshot is not this report's data.
+
+[Dataset family overview](./overview)

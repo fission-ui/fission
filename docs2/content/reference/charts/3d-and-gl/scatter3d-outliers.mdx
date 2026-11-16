@@ -1,0 +1,57 @@
+---
+title: 3D scatter outliers
+sidebar_label: 3D scatter outliers
+description: Highlight observations already classified as outliers without changing their positions or hiding the comparison group.
+---
+
+# 3D scatter outliers
+
+![3D scatter outliers screenshot](/img/charts/scatter3d-outliers.png)
+
+An observation can be unusual under one rule and ordinary under another. State what makes it an outlier before presenting it as one. A point appearing distant in a 3D view is not, by itself, an adequate statistical test.
+
+Keep the classification and its explanation in the source model. The scene can then help locate the observation without becoming the authority for the conclusion.
+
+## Display the classification
+
+Use `SpatialSample` and `SpatialScatter` from [3D scatter](./scatter3d-basic), placed in `widgets/spatial_scatter.rs`. The helper below retains every position and uses a constant radius so highlighting does not imply a different physical size.
+
+```rust
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::spatial_scatter::SpatialSample;
+
+pub struct ReviewedObservation {
+    pub position: Point3D,
+    pub is_outlier: bool,
+}
+
+pub fn reviewed_samples(
+    observations: &[ReviewedObservation],
+    radius: f32,
+    normal_color: Color,
+    outlier_color: Color,
+) -> Vec<SpatialSample> {
+    observations.iter().map(|observation| SpatialSample {
+        position: observation.position.clone(),
+        radius,
+        color: if observation.is_outlier { outlier_color } else { normal_color },
+    }).collect()
+}
+```
+
+Enable Fission's `three-d` feature. Validate finite positions and a finite positive radius before constructing the display projection. The parent supplies a localised title and theme colours when passing the samples to `SpatialScatter`.
+
+## Keep investigation possible
+
+Retain ordinary observations for comparison instead of showing only the flagged ones. Provide an accessible list of flagged records and their reasons; colour alone cannot communicate why a measurement needs attention.
+
+This scene API has no automatic outlier calculation or per-sphere `ChartInteractionEvent`. Selection should use the source records' durable identifiers through a labelled list or an explicit picking-capable scene interface.
+
+## Checks
+
+Test that classification changes do not alter coordinates or remove comparison samples. Inspect outliers near the main group and points hidden behind other geometry. The screenshot is a gallery fixture, not a validated statistical result.
+
+Tags: `3d`, `scatter`.
+
+[3D and GL family overview](./overview)

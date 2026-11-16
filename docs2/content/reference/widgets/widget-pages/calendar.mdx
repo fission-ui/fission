@@ -1,0 +1,97 @@
+---
+title: Calendar
+description: Render a month grid for picking or displaying dates with explicit month state.
+slug: /widgets/calendar
+---
+# Calendar
+
+`Calendar` renders one month as a date grid.
+
+Your app supplies the `year`, `month`, selected date, and actions for
+selecting a day or changing months. Rules such as which dates are allowed stay
+in your app rather than being hidden inside the widget.
+
+## Example
+
+The selected day uses `chrono::NaiveDate`. Add `chrono` directly to the app
+before using this example; Fission's dependency does not make the crate
+available to your code:
+
+```bash
+cargo add chrono
+```
+
+```rust
+use chrono::NaiveDate;
+use fission::prelude::*;
+use std::sync::Arc;
+
+fission_component! {
+    pub AppointmentCalendar<()> {
+        props {
+            year: i32,
+            month: u32,
+            selected: Option<NaiveDate>,
+            select_date: Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>,
+            navigate_month: Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(calendar, _state, _cx) =>
+        Calendar(
+            year: calendar.year,
+            month: calendar.month,
+            selected_date: calendar.selected,
+            on_select: calendar.select_date.clone(),
+            on_navigate: calendar.navigate_month.clone(),
+        )
+}
+```
+
+The parent supplies factories for its registered date-selection and month-navigation
+actions. They create owned action payloads; they must not capture a build context
+or a borrowed state handle. Let the theme choose cell size and padding unless the
+calendar has a specific constrained placement.
+
+The reducer usually stores both the selected day and the currently visible month. Those are related, but they are not always the same thing.
+
+Month navigation uses directional icon buttons with independent accessible
+names. When `on_navigate` is absent, both buttons are disabled instead of
+presenting controls that appear actionable but do nothing.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `year` | `i32` | Year shown in the current month view. | Required. |
+| `month` | `u32` | Month shown in the current month view. | Required. Expected range is `1..=12`; validate before rendering. |
+| `selected_date` | `Option<NaiveDate>` | Currently selected day, if any. | Defaults to `None`. |
+| `on_select` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a picked day. | Called when the user presses a day cell. |
+| `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for previous or next month. | Called with the new `(year, month)` pair. |
+| `cell_size` | `Option<f32>` | Width and height of each day cell. | Defaults to `tokens.sizing.control_md`. Respect the target's touch and focus requirements. |
+| `padding` | `Option<f32>` | Outer padding around the calendar surface. | Defaults to `tokens.spacing.m`. |
+
+## State ownership and practical limits
+
+`Calendar` does not compute product rules such as unavailable dates, range constraints, or locale-specific week starts. The checked-in implementation is Sunday-first, uses single-letter weekday headings, and highlights today using the host's local date.
+
+This is a real boundary: a wrapper can reject an unavailable date, but the
+current grid still presents every day as selectable. It cannot promise that
+blocked dates are visibly disabled. Validate an actual year/month before
+rendering: the lowerer constructs the first day with `NaiveDate::from_ymd_opt`
+and invalid input can panic. `Default` supplies zero for the year/month fields;
+it does not provide a usable current month.
+
+## Specific advice
+
+Keep visible-month state explicit even when a date is selected. Users often need to look at another month without committing a new date yet.
+
+## Production checklist
+
+- Validate year/month and product date rules before rendering or committing a selection.
+- Test December/January navigation and leap-day selection.
+- Check long month names and the hard-coded Sunday-first/English navigation boundary for your locales.
+
+## Related
+
+[`DatePicker`](/reference/widgets/date-picker), [`DateRangePicker`](/reference/widgets/date-range-picker), [`TimePicker`](/reference/widgets/time-picker), and [`Pagination`](/reference/widgets/pagination).

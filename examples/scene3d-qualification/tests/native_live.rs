@@ -6,7 +6,7 @@ use std::process::{Child, Command};
 use fission::game::{Game, GameTime};
 use fission::scene3d::{RenderCapabilities3D, Scene3DProcessor, Vec2};
 use fission_test_driver::{LiveTestClient, SemanticNode, TestPointerKind};
-use scene3d_qualification::{BEACON_NODE, HarborGame};
+use scene3d_qualification::{HarborGame, BEACON_NODE};
 
 struct ChildGuard(Option<Child>);
 

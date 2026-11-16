@@ -1,0 +1,50 @@
+---
+title: Polar line
+sidebar_label: Polar line
+description: Project ordered directional wind-speed observations into a polar line.
+---
+
+# Polar line
+
+![Polar line screenshot](/img/charts/polar-line.png)
+
+A polar line is meaningful when angle is part of the observation. For wind measurements, a direction and a mean speed form a directional profile; they are not ordinary categories placed in a circle.
+
+State the directional convention. This renderer places zero degrees at the top and increases angles clockwise.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarLineSeries, Series};
+
+#[derive(Clone)]
+pub struct DirectionalWind {
+    pub direction_degrees: f32,
+    pub mean_speed: f32,
+}
+
+fission_component! {
+    pub WindSpeedProfile<()> {
+        props {
+            title: String,
+            speed_label: String,
+            readings: Vec<DirectionalWind>,
+        }
+    }
+    view(wind, _state, _cx) {
+        let points = wind.readings.iter().map(|reading| (
+            reading.direction_degrees, reading.mean_speed,
+        )).collect();
+    } => Chart(
+        title: Some(wind.title.clone()),
+        series: vec![Series::PolarLine(
+            PolarLineSeries::new(&wind.speed_label).data(points),
+        )],
+    )
+}
+```
+
+Supply translated labels with a declared speed unit. Validate finite angles and finite non-negative speeds, and order the profile by direction before rendering. If a closed profile is intended, append the first observation at its equivalent full-turn angle deliberately; the renderer does not infer closure.
+
+Radial extent is normalised to the current series maximum. It is therefore a profile view, not a fixed-scale comparison between separate charts. Keep exact directional observations in a table, including missing-bin explanations. Test wrap-around and a sparse profile without smoothing that implies unmeasured values. The gallery screenshot uses another fixture.
+
+[Coordinates family overview](./overview)

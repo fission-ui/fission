@@ -1,0 +1,74 @@
+---
+title: 3D line
+sidebar_label: 3D line
+description: Render ordered spatial samples as a trajectory without connecting across missing sections.
+---
+
+# 3D line
+
+![3D line screenshot](/img/charts/line3d-basic.png)
+
+A trajectory joins positions in order. For an inspection route, each sample might record where an operator was at a particular time. Connecting the same points in a different order produces a different route even though the set of positions has not changed.
+
+Use a 3D trajectory when height or depth is part of that route. For a measurement over time, a conventional line chart with labelled axes usually answers the question more directly.
+
+## Preserve gaps as well as order
+
+A missing section must not become a straight line between the last known positions. Represent continuous sections separately so that rendering cannot accidentally imply movement through an unobserved area.
+
+The following component uses the `segment_prism` helper defined in [3D graph](./graph3d-basic). Place that helper in `widgets/spatial_graph.rs` first.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+use crate::widgets::spatial_graph::segment_prism;
+
+fission_component! {
+    pub InspectionTrajectory<()> {
+        props {
+            title: TextContent,
+            sections: Vec<Vec<Point3D>>,
+            route_color: Color,
+        }
+    }
+    view(route, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for section in &route.sections {
+            for pair in section.windows(2) {
+                if let Some(mesh) = segment_prism(
+                    &pair[0], &pair[1], 0.02, route.route_color,
+                ) {
+                    scene = scene.add_primitive(mesh);
+                }
+            }
+            for point in section {
+                scene = scene.add_primitive(Primitive3D::Sphere {
+                    center: point.clone(),
+                    radius: 0.04,
+                    color: route.route_color,
+                });
+            }
+        }
+    } => Column(children: [
+        Text(route.title.clone()),
+        scene,
+    ])
+}
+```
+
+Enable Fission's `three-d` feature. A one-point section displays a sample without claiming that it forms a line. Coincident consecutive samples produce no segment; invalid coordinates should be reported by the data layer before rendering them as sphere primitives.
+
+## What this API does not infer
+
+`Scene3D` stores geometry, not timestamps, speed or route direction. Preserve those facts in the source model and explain them in nearby text or a sample table. The scene does not supply chart axes or per-sample `ChartInteractionEvent` selection.
+
+For large recorded routes, simplify the display projection deliberately and retain the original samples separately. Dropping points changes the visible path; choose an error bound appropriate to the task rather than taking every tenth point without considering geometry.
+
+## Checks
+
+Test sample order, one-point sections, repeated positions and gaps. Then inspect the rendered trajectory, especially where segments overlap from the chosen viewpoint. Supply a textual route description or accessible sample list; the gallery screenshot is illustrative sample output.
+
+Tags: `3d`, `line`.
+
+[3D and GL family overview](./overview)

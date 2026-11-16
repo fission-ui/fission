@@ -136,7 +136,7 @@ allow_write_tools = false
 allow_command_tools = false
 allow_network_tools = false
 allow_screenshot_tools = true
-include = ["src/**", "examples/**", "content/**", "documentation/**"]
+include = ["src/**", "examples/**", "content/**", "docs2/**"]
 exclude = ["target/**", ".git/**", "dist/**", ".fission/agent/index/**"]
 
 [agent.mcp]

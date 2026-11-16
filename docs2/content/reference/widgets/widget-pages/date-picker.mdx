@@ -1,0 +1,100 @@
+---
+title: DatePicker
+description: Pick a single calendar date from an explicit state-driven popup.
+slug: /widgets/date-picker
+---
+# DatePicker
+
+`DatePicker` selects one calendar date. Its value is an
+`Option<NaiveDate>`: either no date or one selected date. Your app also owns
+whether the popup is open.
+
+## Example
+
+Add `chrono` to the app for the `NaiveDate` value used below:
+
+```bash
+cargo add chrono
+```
+
+This must be a direct dependency of your app, even though Fission also uses it
+internally.
+
+```rust
+use chrono::NaiveDate;
+use fission::prelude::*;
+use std::sync::Arc;
+
+fission_component! {
+    pub PublishDateField<()> {
+        props {
+            date: Option<NaiveDate>,
+            open: bool,
+            year: i32,
+            month: u32,
+            choose_date: Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>,
+            change_month: Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>,
+            toggle_popup: ActionEnvelope,
+            close_popup: ActionEnvelope,
+        }
+    }
+
+    view(field, _state, cx) =>
+        FormControl(
+            label: Some(cx.tr("article.publish_date")),
+            child: DatePicker(
+                id: WidgetId::explicit("article.publish-date"),
+                value: field.date,
+                is_open: field.open,
+                view_year: field.year,
+                view_month: field.month,
+                on_navigate: field.change_month.clone(),
+                on_change: field.choose_date.clone(),
+                on_toggle: field.toggle_popup.clone(),
+                on_close: field.close_popup.clone(),
+            ),
+        )
+}
+```
+
+The parent owns the selected date and a separate visible month. Selection can
+commit a day and close the popup in one reducer; explicit close sets `open = false`
+rather than toggling a possibly already-closed picker. The callbacks create
+owned action payloads for the parent's registered reducers.
+
+A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the selected date, and the same reducer or a follow-up action closes the picker.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the trigger and popover. | Required. |
+| `value` | `Option<NaiveDate>` | Currently selected date, or no date yet. | Controlled by app state. |
+| `is_open` | `bool` | Whether the popup calendar is visible. | Controlled by app state. |
+| `width` | `Option<f32>` | Preferred trigger width. | Defaults to `164.0`, then clamps against the viewport when needed. |
+| `view_year` | `Option<i32>` | Calendar year currently shown in the popup. | Defaults to the selected date's year, or today. |
+| `view_month` | `Option<u32>` | Calendar month currently shown in the popup. | Defaults to the selected date's month, or today. |
+| `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for previous/next month navigation. | Use with `view_year` and `view_month` for controlled month state. |
+| `on_change` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for a chosen day. | Called when the user selects a date. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action for opening or toggling the popup. | Usually flips `is_open`. |
+| `on_close` | `Option<ActionEnvelope>` | Action for explicit popup dismissal. | Use this to close on outside click without overloading your toggle logic. |
+
+## Value model and current behavior
+
+The checked-in `DatePicker` uses an outline [`Button`](/reference/widgets/button) as its trigger and opens a calendar popover. It does not currently parse free-form typed dates. If `value` is `None`, the trigger reads "Select Date". If a date exists, it is displayed in `YYYY-MM-DD` form.
+
+The popup calendar opens around the selected date or today unless `view_year` and `view_month` are supplied. When you provide `on_navigate`, the previous/next controls dispatch your action with the next visible year and month so app state can keep the calendar view controlled.
+
+## Product pitfalls to avoid
+
+Store a real `NaiveDate` in state, not a locale-formatted display string. A display string is for rendering, not for business logic. Also remember that a date picker chooses a calendar day, not a timezone-aware instant. If your product cares about midnight boundaries, time zones, or scheduled timestamps, keep those concerns separate from the picker's user interface value.
+
+## Production checklist
+
+- Test visible-month navigation independently of the selected date, including leap years.
+- Set explicit labels around the field and check built-in English popup copy for your target locales.
+- Validate the date against product rules again when saving; the calendar itself does not disable unavailable days.
+
+## Related
+
+[`DateRangePicker`](/reference/widgets/date-range-picker), [`TimePicker`](/reference/widgets/time-picker), [`TextInput`](/reference/widgets/text-input), and [`FormControl`](/reference/widgets/form-control).

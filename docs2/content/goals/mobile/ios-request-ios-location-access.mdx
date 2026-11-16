@@ -1,0 +1,620 @@
+---
+layout: goal
+title: Request iOS location access
+description: "Build a Rust delivery-handoff form with Fission that requests location when needed, reads the real permission result and keeps the draft after denial."
+goal: Attach an optional location pin to a delivery handoff without making the draft depend on permission or a GPS signal.
+path: /blog/request-ios-location-access/
+order: 95
+difficulty: Beginner
+duration: 45 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-request-ios-location-access
+outcomes:
+  - Explain the location request before opening the system prompt
+  - Refresh access after the user answers rather than assuming the prompt granted it
+  - Keep a named stop and notes usable when a pin cannot be obtained
+  - Distinguish permission, a returned position and a submitted handoff
+---
+
+A delivery address does not become meaningless because a phone cannot locate itself. Location is useful as additional evidence, but treating it as a prerequisite would stop a courier from preparing a handoff indoors, after a denied permission request or when the provider has no position available.
+
+Here, the screen keeps the named stop and handoff notes, then lets the courier attach a one-time pin. The position includes its reported accuracy so that the courier can judge its usefulness. Nothing in this example tracks the driver in the background or submits a delivery record.
+
+This requires two separate results: permission to request a position, and the position returned by a later request. A permission grant is not itself evidence that the device has found a location.
+
+## Create the project and add the target
+
+Complete the [iOS toolchain setup](/blog/set-up-rust-ios-development-with-fission/) and [simulator launch guide](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) first.
+
+```sh
+fission init delivery-handoff
+cd delivery-handoff
+fission add-target ios --project-dir .
+fission add-capability geolocation --project-dir .
+cargo add serde_yaml
+fission doctor ios --project-dir .
+```
+
+The capability command adds `NSLocationWhenInUseUsageDescription` to the generated iOS configuration. Review `platforms/ios/Info.plist` and replace its generic explanation with the reason this app needs location. For example:
+
+```xml
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Add an optional location pin to the delivery handoff you are preparing.</string>
+```
+
+Keep that explanation consistent with what the app actually does. This tutorial does not add a background-location mode or an always-authorised workflow.
+
+## Project layout
+
+```text
+src/
+├── main.rs
+├── lib.rs                # thin native and Web launchers
+├── state.rs              # permission and position requests, results and tests
+├── app.rs                # Compose screen and retained text drafts
+└── app/
+    └── translations.rs
+i18n/
+├── en-US.yaml
+└── es-ES.yaml
+```
+
+<!-- fission:step id="main-flow" -->
+## Request access, then inspect the current result
+
+The iOS provider queues its permission prompt on the main queue and returns the permission state it already knows. That response may precede the user's answer. A completed request must therefore not be presented as a grant: after answering, use **Refresh access status** before requesting a pin.
+
+The browser provider behaves differently. It can report that permission is undecided, then prompt during the position lookup itself. The shared reducer permits that browser path without treating an undecided native permission as approval.
+
+Buttons use inline `reduce` handlers for their synchronous work. Completion reducers decode `cx.input.capability_ok(...)` and `capability_error(...)`. The callback actions do not contain an invented position or a default error that might be mistaken for the host's response.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod translations;
+
+use crate::state::*;
+use fission::prelude::*;
+
+fission_component! {
+    pub DeliveryHandoffForm<DeliveryHandoffState> {
+        state {
+            stop_name: String = String::new(),
+            handoff_notes: String = String::new(),
+        }
+    }
+    view(form, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let access_granted = state.permission == Some(GeolocationPermission::Granted);
+        let can_add_pin = may_request_position(state.permission, cfg!(target_arch = "wasm32"));
+        let permission_message = state.permission_message
+            .map(|message| cx.tr(message.translation_key()))
+            .unwrap_or_else(|| cx.tr("handoff.permission.not_checked"));
+        let location_message = state.location_message
+            .map(|message| cx.tr(message.translation_key()))
+            .unwrap_or_else(|| cx.tr("handoff.location.no_pin"));
+    } =>
+    SemanticsRegion(
+        identifier: Some("nightjar-handoff-form".to_string()),
+        label: Some(cx.tr("handoff.screen.label")),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(cx.tr("handoff.brand"))
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text(cx.tr("handoff.subtitle"))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Row(gap: tokens.spacing.xs, children: [
+                                Button(
+                                    child: Text(cx.tr("locale.english")),
+                                    key: "locale-en-US",
+                                    variant: if state.locale == Locale::from("en-US") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: reduce { state.locale = Locale::from("en-US"); },
+                                ).semantics_identifier("handoff.locale.en-US".to_string()),
+                                Button(
+                                    child: Text(cx.tr("locale.spanish")),
+                                    key: "locale-es-ES",
+                                    variant: if state.locale == Locale::from("es-ES") { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                                    on_press: reduce { state.locale = Locale::from("es-ES"); },
+                                ).semantics_identifier("handoff.locale.es-ES".to_string()),
+                            ]),
+                            Text(cx.tr("handoff.optional_pin"))
+                                .weight(tokens.typography.font_weight_bold),
+                            if state.permission_busy { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("handoff.permission.checking"))) },
+                            Text(permission_message)
+                                .color(tokens.colors.text_secondary),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if state.permission_busy {
+                                        cx.tr("handoff.action.working")
+                                    } else if access_granted {
+                                        cx.tr("handoff.action.access_granted")
+                                    } else {
+                                        cx.tr("handoff.action.request_access")
+                                    }),
+                                    key: "request-location-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.permission_busy || state.locating || access_granted,
+                                    on_press: reduce { request_access(state, cx); },
+                                )
+                                .semantics_identifier("handoff.request-location-access".to_string()),
+                                Button(
+                                    child: Text(cx.tr("handoff.action.refresh_access")),
+                                    key: "refresh-location-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.permission_busy || state.locating,
+                                    on_press: reduce { refresh_access(state, cx); },
+                                )
+                                .semantics_identifier("handoff.refresh-location-access".to_string()),
+                            ]),
+                            TextInput(
+                                label: Some(cx.tr("handoff.field.stop").into()),
+                                placeholder: Some(cx.tr("handoff.field.stop_placeholder").into()),
+                                bind: form.stop_name,
+                                helper_text: Some(cx.tr("handoff.field.stop_help").into()),
+                                semantics_identifier: "handoff.stop-name".to_string(),
+                            ),
+                            TextInput(
+                                label: Some(cx.tr("handoff.field.notes").into()),
+                                placeholder: Some(cx.tr("handoff.field.notes_placeholder").into()),
+                                bind: form.handoff_notes,
+                                multiline: true,
+                                required: true,
+                                helper_text: Some(
+                                    cx.tr("handoff.field.notes_help").into(),
+                                ),
+                                semantics_identifier: "handoff.notes".to_string(),
+                            ),
+                            Button(
+                                child: Text(if state.locating {
+                                    cx.tr("handoff.action.finding_pin")
+                                } else {
+                                    cx.tr("handoff.action.add_pin")
+                                }),
+                                key: "add-handoff-pin",
+                                variant: ButtonVariant::Outline,
+                                disabled: state.locating || state.permission_busy || !can_add_pin,
+                                on_press: reduce { add_pin(state, cx); },
+                            )
+                            .semantics_identifier("handoff.add-pin".to_string()),
+                            if state.locating { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("handoff.location.finding"))) },
+                            Text(location_message)
+                                .color(tokens.colors.text_secondary),
+                            if let Some(position) = &state.position {
+                                Text(cx.tr("handoff.location.coordinates")
+                                    .replace("{latitude}", &format!("{:.5}", position.latitude))
+                                    .replace("{longitude}", &format!("{:.5}", position.longitude))
+                                    .replace("{accuracy}", &format!("{:.0}", position.accuracy_meters)))
+                            },
+                            Text(cx.tr("handoff.draft_note"))
+                                .color(tokens.colors.text_secondary),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default)]
+pub struct DeliveryHandoffState {
+    pub locale: Locale,
+    pub permission: Option<GeolocationPermission>,
+    pub permission_busy: bool,
+    pub permission_message: Option<PermissionMessage>,
+    pub locating: bool,
+    pub position: Option<GeolocationPosition>,
+    pub location_message: Option<LocationMessage>,
+}
+
+impl GlobalState for DeliveryHandoffState {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionMessage {
+    Requesting,
+    Checking,
+    Granted,
+    Denied,
+    Prompt,
+    Unsupported,
+    Unknown,
+    CheckFailed,
+}
+
+impl PermissionMessage {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Requesting => "handoff.permission.requesting",
+            Self::Checking => "handoff.permission.checking",
+            Self::Granted => "handoff.permission.granted",
+            Self::Denied => "handoff.permission.denied",
+            Self::Prompt => "handoff.permission.prompt",
+            Self::Unsupported => "handoff.permission.unsupported",
+            Self::Unknown => "handoff.permission.unknown",
+            Self::CheckFailed => "handoff.permission.check_failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocationMessage {
+    Finding,
+    Captured,
+    AccessRequired,
+    Denied,
+    Unsupported,
+    TimedOut,
+    Unavailable,
+    Failed,
+}
+
+impl LocationMessage {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Finding => "handoff.location.finding",
+            Self::Captured => "handoff.location.captured",
+            Self::AccessRequired => "handoff.location.access_required",
+            Self::Denied => "handoff.location.denied",
+            Self::Unsupported => "handoff.location.unsupported",
+            Self::TimedOut => "handoff.location.timeout",
+            Self::Unavailable => "handoff.location.unavailable",
+            Self::Failed => "handoff.location.failed",
+        }
+    }
+}
+
+
+#[fission_reducer(LocationPermissionUpdated)]
+fn permission_updated(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    state.permission_busy = false;
+    let permission = cx.input.capability_ok(REQUEST_GEOLOCATION_PERMISSION)
+        .or_else(|| cx.input.capability_ok(GET_GEOLOCATION_PERMISSION));
+    state.permission = permission;
+    state.permission_message = Some(match permission {
+        Some(GeolocationPermission::Granted) => PermissionMessage::Granted,
+        Some(GeolocationPermission::Denied) => PermissionMessage::Denied,
+        Some(GeolocationPermission::Prompt) => PermissionMessage::Prompt,
+        Some(GeolocationPermission::Unsupported) => PermissionMessage::Unsupported,
+        Some(GeolocationPermission::Unknown) | None => PermissionMessage::Unknown,
+    });
+}
+
+#[fission_reducer(LocationPermissionFailed)]
+fn permission_failed(state: &mut DeliveryHandoffState) {
+    state.permission_busy = false;
+    state.permission_message = Some(PermissionMessage::CheckFailed);
+}
+
+pub fn request_access(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    if state.permission_busy || state.locating { return; }
+    state.permission_busy = true;
+    state.permission_message = Some(PermissionMessage::Requesting);
+    let ok = cx.effects.bind(LocationPermissionUpdated, reduce_with!(permission_updated));
+    let err = cx.effects.bind(LocationPermissionFailed, reduce_with!(permission_failed));
+    cx.effects.geolocation()
+        .request_permission(GeolocationPermissionRequest { precise: true, background: false })
+        .on_ok(ok).on_err(err);
+}
+
+pub fn refresh_access(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    if state.permission_busy || state.locating { return; }
+    state.permission_busy = true;
+    state.permission_message = Some(PermissionMessage::Checking);
+    let ok = cx.effects.bind(LocationPermissionUpdated, reduce_with!(permission_updated));
+    let err = cx.effects.bind(LocationPermissionFailed, reduce_with!(permission_failed));
+    cx.effects.geolocation().permission().on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(HandoffPinCaptured)]
+fn pin_captured(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    state.locating = false;
+    if let Some(position) = cx.input.capability_ok(GET_CURRENT_POSITION) {
+        state.position = Some(position);
+        state.location_message = Some(LocationMessage::Captured);
+    } else {
+        state.location_message = Some(LocationMessage::Failed);
+    }
+}
+
+#[fission_reducer(HandoffPinFailed)]
+fn pin_failed(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    state.locating = false;
+    let error = cx.input.capability_error(GET_CURRENT_POSITION);
+    let code = error.as_ref().map(|error| error.code.as_str()).unwrap_or("");
+    if code == "permission_denied" {
+        state.permission = Some(GeolocationPermission::Denied);
+        state.permission_message = Some(PermissionMessage::Denied);
+    }
+    state.location_message = Some(match code {
+        "permission_denied" => LocationMessage::Denied,
+        "unsupported" => LocationMessage::Unsupported,
+        "timeout" => LocationMessage::TimedOut,
+        "position_unavailable" | "unavailable" => LocationMessage::Unavailable,
+        _ => LocationMessage::Failed,
+    });
+}
+
+pub fn may_request_position(permission: Option<GeolocationPermission>, browser: bool) -> bool {
+    permission == Some(GeolocationPermission::Granted)
+        || (browser && permission == Some(GeolocationPermission::Prompt))
+}
+
+pub fn add_pin(state: &mut DeliveryHandoffState, cx: &mut ReducerContext<DeliveryHandoffState>) {
+    if state.locating || state.permission_busy { return; }
+    if !may_request_position(state.permission, cfg!(target_arch = "wasm32")) {
+        state.location_message = Some(LocationMessage::AccessRequired);
+        return;
+    }
+    state.locating = true;
+    state.location_message = Some(LocationMessage::Finding);
+    let ok = cx.effects.bind(HandoffPinCaptured, reduce_with!(pin_captured));
+    let err = cx.effects.bind(HandoffPinFailed, reduce_with!(pin_failed));
+    cx.effects.geolocation()
+        .current_position(GeolocationPositionRequest {
+            high_accuracy: true, timeout_ms: Some(10_000), maximum_age_ms: Some(30_000),
+        }).on_ok(ok).on_err(err);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_the_browser_may_prompt_as_part_of_position_lookup() {
+        assert!(!may_request_position(Some(GeolocationPermission::Prompt), false));
+        assert!(may_request_position(Some(GeolocationPermission::Prompt), true));
+    }
+    #[test]
+    fn absent_or_denied_access_never_enables_a_position_request() {
+        for permission in [None, Some(GeolocationPermission::Denied), Some(GeolocationPermission::Unknown),
+                           Some(GeolocationPermission::Unsupported)] {
+            assert!(!may_request_position(permission, false));
+            assert!(!may_request_position(permission, true));
+        }
+        assert!(may_request_position(Some(GeolocationPermission::Granted), false));
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app/translations.rs">
+<!-- fission:file path="src/app/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::Env;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid handoff translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+locale.english: "English"
+locale.spanish: "Spanish"
+handoff.screen.label: "Nightjar Couriers delivery handoff"
+handoff.brand: "Nightjar Couriers"
+handoff.subtitle: "Delivery handoff · Harbor Street depot"
+handoff.optional_pin: "The location pin is optional"
+handoff.permission.not_checked: "Location has not been checked. Request access only when this handoff needs a pin."
+handoff.permission.requesting: "Requesting foreground location access…"
+handoff.permission.checking: "Checking the current location access…"
+handoff.permission.granted: "Location access is granted. Add a pin only if this handoff needs one."
+handoff.permission.denied: "Location is not currently granted. Refresh after the system prompt or change access in system settings. You can continue without a pin."
+handoff.permission.prompt: "No location choice has been made. Answer the system prompt, then refresh. The browser asks when you add a pin."
+handoff.permission.unsupported: "This host cannot provide location. The stop and handoff notes remain available."
+handoff.permission.unknown: "The host could not determine location access. Refresh the status or continue without a pin."
+handoff.permission.check_failed: "The host could not check location access. Continue without a pin or try again."
+handoff.location.no_pin: "No GPS pin is attached. The named stop remains the handoff location."
+handoff.location.finding: "Finding a position for this handoff…"
+handoff.location.captured: "A location pin was returned. Review its reported accuracy before using it."
+handoff.location.access_required: "Request access and refresh its status before adding a pin. The form remains available without it."
+handoff.location.denied: "Location was not granted. Refresh access after the prompt, or continue without a pin."
+handoff.location.unsupported: "This device cannot provide a location pin. Keep the named stop and handoff notes."
+handoff.location.timeout: "The phone did not find a position in time. Try again or continue without a pin."
+handoff.location.unavailable: "The location provider has no position right now. Check location services or continue without a pin."
+handoff.location.failed: "The provider could not add a pin. The stop and notes are unchanged."
+handoff.location.coordinates: "Map pin: {latitude}, {longitude} · about {accuracy} m accuracy"
+handoff.action.working: "Working…"
+handoff.action.access_granted: "Location access granted"
+handoff.action.request_access: "Request location access"
+handoff.action.refresh_access: "Refresh access status"
+handoff.action.finding_pin: "Finding handoff pin…"
+handoff.action.add_pin: "Add handoff pin"
+handoff.field.stop: "Delivery stop"
+handoff.field.stop_placeholder: "For example, Harbor Street depot · Bay 4"
+handoff.field.stop_help: "Keep a named stop so the handoff still makes sense without GPS."
+handoff.field.notes: "Handoff notes"
+handoff.field.notes_placeholder: "Who received the package? What should the next courier know?"
+handoff.field.notes_help: "Record who received the package or what the next courier should know."
+handoff.draft_note: "This screen demonstrates the location capability. It does not persist or submit the handoff."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+locale.english: "Inglés"
+locale.spanish: "Español"
+handoff.screen.label: "Entrega de Nightjar Couriers"
+handoff.brand: "Nightjar Couriers"
+handoff.subtitle: "Entrega · Depósito de Harbor Street"
+handoff.optional_pin: "La ubicación es opcional"
+handoff.permission.not_checked: "Aún no se comprobó la ubicación. Solicita acceso solo si esta entrega necesita un punto."
+handoff.permission.requesting: "Solicitando acceso a la ubicación en primer plano…"
+handoff.permission.checking: "Comprobando el acceso actual a la ubicación…"
+handoff.permission.granted: "El acceso a la ubicación está concedido. Añade un punto solo si esta entrega lo necesita."
+handoff.permission.denied: "El acceso a la ubicación no está concedido. Actualiza el estado tras el diálogo de iOS o cambia el acceso en los ajustes. Puedes continuar sin un punto."
+handoff.permission.prompt: "Aún no se eligió una opción. Responde al diálogo de iOS y actualiza el estado. El navegador pregunta al añadir un punto."
+handoff.permission.unsupported: "Este host no puede proporcionar la ubicación. El punto de entrega y las notas siguen disponibles."
+handoff.permission.unknown: "El host no pudo determinar el acceso a la ubicación. Actualiza el estado o continúa sin un punto."
+handoff.permission.check_failed: "El host no pudo comprobar el acceso a la ubicación. Continúa sin un punto o vuelve a intentarlo."
+handoff.location.no_pin: "No hay coordenadas adjuntas. El lugar indicado sigue siendo el punto de entrega."
+handoff.location.finding: "Buscando la ubicación de esta entrega…"
+handoff.location.captured: "Se recibió un punto de ubicación. Comprueba su precisión antes de usarlo."
+handoff.location.access_required: "Solicita acceso y actualiza el estado antes de añadir un punto. El formulario sigue disponible sin él."
+handoff.location.denied: "No se concedió la ubicación. Actualiza el acceso tras el diálogo o continúa sin un punto."
+handoff.location.unsupported: "Este dispositivo no puede proporcionar la ubicación. Conserva el lugar y las notas de entrega."
+handoff.location.timeout: "El teléfono no encontró una ubicación a tiempo. Vuelve a intentarlo o continúa sin un punto."
+handoff.location.unavailable: "El proveedor no tiene una ubicación disponible ahora. Comprueba los servicios o continúa sin un punto."
+handoff.location.failed: "El proveedor no pudo añadir el punto. El lugar y las notas no cambian."
+handoff.location.coordinates: "Punto: {latitude}, {longitude} · precisión aproximada de {accuracy} m"
+handoff.action.working: "En curso…"
+handoff.action.access_granted: "Acceso a la ubicación concedido"
+handoff.action.request_access: "Solicitar acceso a la ubicación"
+handoff.action.refresh_access: "Actualizar el estado del acceso"
+handoff.action.finding_pin: "Buscando el punto de entrega…"
+handoff.action.add_pin: "Añadir punto de ubicación"
+handoff.field.stop: "Punto de entrega"
+handoff.field.stop_placeholder: "Por ejemplo, depósito de Harbor Street · Muelle 4"
+handoff.field.stop_help: "Indica un lugar para que la entrega siga siendo clara sin GPS."
+handoff.field.notes: "Notas de entrega"
+handoff.field.notes_placeholder: "¿Quién recibió el paquete? ¿Qué debe saber el siguiente repartidor?"
+handoff.field.notes_help: "Indica quién recibió el paquete o qué debe saber el siguiente repartidor."
+handoff.draft_note: "Esta pantalla muestra la capacidad de ubicación. No guarda ni envía la entrega."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod state;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::DeliveryHandoffState, _>::new(app::DeliveryHandoffForm::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::DeliveryHandoffState, app::DeliveryHandoffForm> {
+    let app = MobileApp::<state::DeliveryHandoffState, _>::new(app::DeliveryHandoffForm::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .with_title("Delivery handoff");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::DeliveryHandoffState, _>::new(app::DeliveryHandoffForm::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .with_title("Delivery handoff")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::DeliveryHandoffState, _>::new(app::DeliveryHandoffForm::new())
+        .with_env(app::translations::create_env())
+        .with_sync_env(|state, env| env.locale = state.locale.clone())
+        .with_title("Nightjar Couriers handoff")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+The stop name and notes are component-owned drafts. Permission and position results remain in app state, where a later submission flow could read them. Neither type of state is persisted here.
+
+The position request allows a short cached result and asks for high accuracy, but those options do not establish a fresh or precise fix. Show the actual accuracy and retain the no-pin path. On iOS, restricted access is represented by this provider as `Denied`; the portable enum does not give this screen a separate restricted state.
+
+The preview uses the real browser provider. It may fail when embedded permission policy, browser settings or a missing location provider prevents access. It does not install a memory provider which always grants permission, and it cannot verify the native iOS prompt.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Type a stop and a note before requesting location. Deny the prompt and confirm that both remain. If the browser allows access, review the returned coordinates and accuracy. On iOS, answer the prompt, refresh access, then request the position.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Verify the native request on iOS
+
+```sh
+cargo test
+fission run --target ios --project-dir .
+```
+
+The tests exercise the app's permission gate: undecided access may trigger a browser lookup, but not a native one. They do not pretend to open the iOS prompt.
+
+In the simulator, supply a location using the simulator's location controls, then repeat with no simulated location. On an iPhone, check the first-use prompt, denial, a later change in Settings and an unavailable position. The text draft must survive every attempt, and neither permission checks nor position requests should leave the screen permanently pending.
+
+Use the [physical iPhone guide](/blog/install-a-fission-app-on-a-physical-iphone/) for signing, Developer Mode and installation. `fission run --target ios` launches the simulator; packaging an IPA is a separate operation:
+
+```sh
+fission package --project-dir . --target ios --format ipa --release
+```
+
+A successful simulator build establishes neither an iPhone permission result nor the usefulness of its location. Verify those through the actual user action on the device.
+
+See the [geolocation reference](/reference/capabilities/geolocation/) for the portable contract, and the [permissions and privacy descriptions guide](/blog/configure-ios-permissions-and-privacy-descriptions-for-fission-capabilities/) when adding another capability.

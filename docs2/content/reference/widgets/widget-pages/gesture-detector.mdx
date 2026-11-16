@@ -1,0 +1,89 @@
+---
+title: GestureDetector
+description: Wrap a child and dispatch low-level pointer and drag actions.
+slug: /widgets/gesture-detector
+---
+# GestureDetector
+
+`GestureDetector` lets a child respond to taps, secondary clicks, long
+presses, drag events, hover, and drops. Use it for custom surfaces, dismissal
+backdrops, or context menus when a built-in control does not fit.
+
+For ordinary actions and inputs, start with a
+[`Button`](/reference/widgets/button),
+[`Checkbox`](/reference/widgets/checkbox), or the matching higher-level widget.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub TimelineGestureArea<()> {
+        props {
+            timeline: Widget,
+            begin_scrub: ActionEnvelope,
+            scrub: ActionEnvelope,
+            finish_scrub: ActionEnvelope,
+        }
+    }
+
+    view(area, _state, _cx) =>
+        GestureDetector(
+            child: area.timeline.clone(),
+            on_drag_start: area.begin_scrub.clone(),
+            on_drag_update: area.scrub.clone(),
+            on_drag_end: area.finish_scrub.clone(),
+        )
+}
+```
+
+The parent supplies registered scrub actions; position/delta information arrives
+through the reducer's input context. The detector adds no timeline semantics or
+keyboard controls by itself. Keep an accessible seek control beside the surface;
+a gesture-only scrubber excludes users who cannot drag.
+
+Use `ContextMenuRegion` for a normal secondary-click menu; it owns the menu
+boundary rather than leaving the author to recreate focus and dismissal.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `child` | `Widget` | The wrapped child that receives gesture detection. | Required. `Default` uses an empty spacer child. |
+| `on_tap` | `Option<ActionEnvelope>` | Action for a normal tap. | When present, the lowered semantics become focusable. |
+| `on_double_tap` | `Option<ActionEnvelope>` | Action for a double tap. | Defaults to `None`. |
+| `on_long_press` | `Option<ActionEnvelope>` | Action for a long press. | Defaults to `None`. |
+| `on_drag_start` | `Option<ActionEnvelope>` | Action for drag start. | Defaults to `None`. |
+| `on_drag_update` | `Option<ActionEnvelope>` | Action for drag movement. | Defaults to `None`. |
+| `on_drag_end` | `Option<ActionEnvelope>` | Action for drag end. | Defaults to `None`. |
+| `on_hover_enter` | `Option<ActionEnvelope>` | Action when the pointer enters the bounds. | Useful on desktop and web. |
+| `on_hover_exit` | `Option<ActionEnvelope>` | Action when the pointer leaves the bounds. | Useful on desktop and web. |
+| `on_drop` | `Option<ActionEnvelope>` | Action when a drag payload is dropped on this widget. | Defaults to `None`. |
+| `on_secondary_click` | `Option<ActionEnvelope>` | Action for right click or equivalent secondary click. | Defaults to `None`. |
+| `on_drag_enter` | `Option<ActionEnvelope>` | Action when a drag enters the target bounds. | Defaults to `None`. |
+| `on_drag_leave` | `Option<ActionEnvelope>` | Action when a drag leaves the target bounds. | Defaults to `None`. |
+| `drag_payload` | `Option<Vec<u8>>` | Opaque bytes attached to drag sources. | Defaults to `None`. Also marks the widget as draggable. |
+
+## Interaction and semantics behavior
+
+`GestureDetector` lowers to a semantics node rather than a visual node. That matters because it means the wrapped child keeps its layout and appearance, while the detector adds interaction triggers around it.
+
+The lowered semantics also advertise drag capability when drag handlers or drag payload are present. That is what makes it a useful building block for custom drag-and-drop flows.
+
+## Specific advice
+
+Prefer higher-level widgets when possible. If a control is conceptually a button, use a button. If a control is conceptually a text input, use a text input. `GestureDetector` is best when the gesture itself is the important abstraction, not when it is only a way to simulate a more specific control.
+
+For drop targets, keep the payload format documented and stable. The runtime only carries opaque bytes here; your application still needs a clear meaning for those bytes.
+
+## Production checklist
+
+- Test drag start/update/end and cancellation against the current timeline model.
+- Provide keyboard and assistive-technology equivalents for scrubbing.
+- Keep a normal action in Button or Pressable rather than simulating it with raw taps.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`Popover`](/reference/widgets/popover).

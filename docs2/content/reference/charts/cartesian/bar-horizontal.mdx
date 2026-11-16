@@ -1,0 +1,41 @@
+---
+title: Horizontal bar
+sidebar_label: Horizontal bar
+description: Swap axis roles as well as bar orientation for a meaningful horizontal backlog comparison.
+---
+
+# Horizontal bar
+
+![Horizontal bar screenshot](/img/charts/bar-horizontal.png)
+
+Horizontal bars leave category names on the vertical axis and extend values from left to right. This is useful for a backlog report with longer location names, but changing orientation alone is not enough: the axes must change roles too.
+
+The [ranked bar example](../bar/bar-ranked) defines `LocationBacklog` and `LocationRankingChart`. Put them in `widgets/location_ranking.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::location_ranking::{LocationBacklog, LocationRankingChart};
+
+fission_component! {
+    pub FulfilmentBacklogs<()> {
+        props {
+            title: String,
+            orders_label: String,
+            locations: Vec<LocationBacklog>,
+        }
+    }
+    view(backlogs, _state, _cx) => LocationRankingChart {
+        title: backlogs.title.clone(),
+        orders_label: backlogs.orders_label.clone(),
+        rows: backlogs.locations.clone(),
+    }
+}
+```
+
+That component uses `Axis::value()` for x, `Axis::category(...)` for y and `BarSeries::horizontal()` for the marks. Its deterministic sorting also keeps labels and values together.
+
+The parent supplies finite non-negative counts, translated location names and durable location IDs. A rank is not an identity; selection should resolve back to the location record if the report becomes interactive.
+
+Inspect the label margin at narrow widths rather than assuming horizontal orientation guarantees every name fits. Test ties and missing reports, and show the exact backlog in an accessible list. The gallery's population fixture is not the data used by this example.
+
+[Cartesian family overview](./overview)

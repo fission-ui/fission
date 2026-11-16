@@ -1,0 +1,94 @@
+---
+title: File ownership tree
+sidebar_label: File ownership tree
+description: Fission Charts reference for File ownership tree.
+---
+
+# File ownership tree
+
+![File ownership tree screenshot](/img/charts/tree-file-ownership.png)
+
+An ownership tree helps a developer find the team responsible for a repository area. The structure needs to preserve which owner applies to which area, not merely list all the teams involved. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example shows one primary owner per area. Shared ownership is a different relationship: forcing several owners into a single-parent tree can hide an important responsibility. Use a graph or a readable owner list when that distinction matters.
+
+## Data model
+
+TreeSeries receives nested TreemapNode records. The labels include the repository area and its primary team; values are unit placeholders, not measures of team workload. Resolve ownership rules before building the chart.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreeSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Repository".into(),
+    value: 2.0,
+    children: vec![
+        TreemapNode {
+            name: "API — Platform team".into(),
+            value: 1.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Client — Experience team".into(),
+            value: 1.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Primary ownership of repository areas")
+    .series(vec![TreeSeries::new("Owned areas")
+        .data(nodes)
+        .radial(false)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FileOwnershipTreeChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .radial(false)
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check areas without an owner, renamed teams and overlapping ownership rules. Use TreeView for an interactive ownership browser; this chart is a structural overview, not a file-selection control.
+
+Tags: `tree`, `ownership`.
+
+[Hierarchy family overview](./overview)

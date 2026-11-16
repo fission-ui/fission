@@ -1,0 +1,56 @@
+---
+title: Ranked dataset bars
+sidebar_label: Ranked dataset bars
+description: Sort one typed dataset before encoding backlog bars.
+---
+
+# Ranked dataset bars
+
+![Ranked dataset bars screenshot](/img/charts/dataset-ranked-bars.png)
+
+Ranking is a transformation of the report, not a property that a bar chart discovers. A dispatch team, for example, needs locations ordered by outstanding orders. Sorting only the values would detach each total from its location.
+
+The [ranked location example](../bar/bar-ranked) defines `LocationBacklog`. Put that type in `widgets/location_ranking.rs`, then use it here:
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Series};
+use crate::widgets::location_ranking::LocationBacklog;
+
+fission_component! {
+    pub EncodedLocationRanking<()> {
+        props {
+            title: String,
+            orders_label: String,
+            rows: Vec<LocationBacklog>,
+        }
+    }
+    view(report, _state, _cx) {
+        let mut ranked = report.rows.clone();
+        ranked.sort_by(|a, b| b.outstanding_orders.total_cmp(&a.outstanding_orders)
+            .then_with(|| a.id.cmp(&b.id)));
+        let dataset = Dataset::new()
+            .dimensions(vec!["location".into(), "outstanding".into()])
+            .source(ranked.iter().map(|row| vec![
+                DataValue::from(row.label.clone()),
+                DataValue::from(row.outstanding_orders),
+            ]).collect());
+    } => Chart(
+        title: Some(report.title.clone()),
+        dataset: Some(dataset),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(
+            ranked.iter().map(|row| row.label.as_str()).collect()
+        )),
+        series: vec![Series::Bar(BarSeries::new(&report.orders_label)
+            .horizontal()
+            .encode(Encode::new().x("location").y("outstanding")))],
+    )
+}
+```
+
+Validate that totals are finite and non-negative before they reach this component. The durable ID breaks ties consistently whilst the translated label remains what the user sees. Encoding still names the category column as `x` and the measure as `y`; horizontal orientation changes the displayed axes. Supply the sorted Y-axis labels explicitly because the current horizontal-axis resolver does not recover those labels from the dataset.
+
+Test that sorting preserves each ID/label/value association, especially ties and an empty report. If selecting a bar opens a location, resolve its index against this ranked snapshot, not the unsorted source. The gallery screenshot uses separate data.
+
+[Dataset family overview](./overview)

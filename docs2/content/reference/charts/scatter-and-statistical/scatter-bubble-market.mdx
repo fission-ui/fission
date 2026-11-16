@@ -1,0 +1,57 @@
+---
+title: Market bubble chart
+sidebar_label: Market bubble chart
+description: Fission Charts reference for Market bubble chart.
+---
+
+# Market bubble chart
+
+![Market bubble chart screenshot](/img/charts/scatter-bubble-market.png)
+
+A bubble plot can preserve three observations per market: position on two numeric axes and a third value controlling marker size. The meaning of each quantity needs to be stated before the comparison is useful. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here x is annual unit growth percentage, y is gross margin percentage and size is recorded units sold. These values describe observed markets, not an automatically selected investment or expansion strategy.
+
+## Data model
+
+`BubbleSeries` takes `(x, y, size)` triples. Size must be finite and non-negative; radius interpolates between configured bounds using the square root of relative size. Because of the minimum radius, painted area is not exactly proportional to units.
+
+## Authoring from a Fission component
+
+The parent supplies one validated triple per market and retains its stable ID and exact values separately.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ObservedMarketBubblePlot<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero units, negative growth and overlapping markets. Labels painted inside large bubbles are display indices, not stable market IDs. Provide a named table and retain the full reporting definitions outside the plot.
+
+Tags: `scatter`, `bubble`.
+
+[Scatter and statistical family overview](./overview)

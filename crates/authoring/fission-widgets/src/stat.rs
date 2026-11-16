@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// `Stat` is intended for dashboard summaries: it renders a subdued label, a
 /// prominent value, and optional explanatory text inside a bordered surface.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Stat {
     /// Short description of the metric, such as `Active users`.
     pub label: String,

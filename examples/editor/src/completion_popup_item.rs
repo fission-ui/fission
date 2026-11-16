@@ -1,86 +1,62 @@
 use crate::layout::{COMPLETION_ITEM_HEIGHT, COMPLETION_KIND_WIDTH};
-use crate::model::{on_select_completion, EditorState, SelectCompletion};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
-use fission::widgets::{HStack, Spacer};
 
-pub(crate) struct CompletionPopupItem {
-    pub index: usize,
-    pub label: String,
-    pub detail: Option<String>,
-    pub kind: String,
-    pub selected: bool,
-}
-
-impl From<CompletionPopupItem> for Widget {
-    fn from(item: CompletionPopupItem) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(crate) CompletionPopupItem<EditorState> {
+        index: usize,
+        label: String,
+        detail: Option<String>,
+        kind: String,
+        selected: bool,
+    } |item, _state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
         let detail = item
             .detail
+            .as_ref()
             .map(|value| value.chars().take(30).collect::<String>());
-
-        let button: Widget = Button {
+    } =>
+        Container(
+            Button(
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
-            child: Some(
-                HStack {
-                    spacing: Some(tokens.spacing.s),
-                    children: widgets![
-                        Container::new(
+            child: HStack(
+                    spacing: tokens.spacing.s,
+                    children: [
+                        Container(
                             Text::new(kind_label(&item.kind))
                                 .size(tokens.typography.font_size_xs)
                                 .color(kind_color(&item.kind, &palette)),
                         )
                         .width(COMPLETION_KIND_WIDTH),
-                        Text::new(item.label)
+                        Text(item.label.clone())
                             .size(tokens.typography.font_size_xs)
                             .color(palette.bright_text),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
+                        Spacer(flex_grow: 1.0),
                         if let Some(detail) = detail {
-                            Widget::from(
-                                Text::new(detail)
+                            Text(detail)
                                     .size(tokens.typography.font_size_xs)
-                                    .color(palette.dim_text),
-                            )
-                        } else {
-                            Widget::from(Spacer {
-                                width: Some(tokens.spacing.none),
-                                ..Default::default()
-                            })
+                                    .color(palette.dim_text)
                         },
                     ],
-                }
-                .into(),
             ),
-            on_press: Some(ctx.bind(
-                SelectCompletion(item.index),
-                reduce_with!(on_select_completion),
-            )),
-            height: Some(COMPLETION_ITEM_HEIGHT),
-            padding: Some([
+            on_press: |item, state, _cx| state.select_completion(item.index),
+            height: COMPLETION_ITEM_HEIGHT,
+            padding: [
                 tokens.spacing.xs,
                 tokens.spacing.xs,
                 tokens.spacing.xs,
                 tokens.spacing.xs,
-            ]),
-            ..Default::default()
-        }
-        .semantics_identifier(format!("editor.completion.{}", item.index))
-        .into();
-
-        if item.selected {
-            Container::new(button)
-                .bg(palette.completion_selected_bg)
-                .into()
+            ],
+            ).semantics_identifier(format!("editor.completion.{}", item.index)),
+        )
+        .bg(if item.selected {
+            palette.completion_selected_bg
         } else {
-            button
-        }
-    }
+            palette.transparent
+        })
 }
 
 fn kind_label(kind: &str) -> &'static str {

@@ -1,0 +1,48 @@
+---
+title: ProgressBar
+description: Show determinate progress along a horizontal track.
+slug: /widgets/progress-bar
+---
+# ProgressBar
+
+`ProgressBar` shows how far a task has progressed. Use it when the app has a
+real completion fraction, for example during an upload, import, or setup step.
+If the fraction is unknown, use an indeterminate indicator such as
+[`Spinner`](/reference/widgets/spinner).
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view, after computing progress from the worker's reported byte counts.
+ProgressBar(value: upload_fraction, label: cx.tr("uploads.progress"))
+```
+
+For example, `upload_fraction = 0.35` fills 35 percent of the track. Handle an
+unknown or zero total before calculating the ratio; elapsed time is not proof
+of completed work.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `value` | `f32` | Progress fraction from empty to full. | The checked-in widget clamps it to the `0.0` to `1.0` range. |
+| `label` | `Option<String>` | Accessible name describing the task. | Resolve from the active locale. |
+
+## When to use it
+
+A linear bar is usually easier to read than a circular one when the layout already has horizontal room, especially in forms, task flows, and lists. It also pairs naturally with descriptive text above or below it.
+
+The widget exposes progress semantics with a range and percentage. Still
+provide a meaningful task label, and add visible detail such as bytes sent
+or “3 of 8 completed” when that helps someone decide whether to keep waiting.
+
+## Check progress in context
+
+- Pass a real completion fraction. `ProgressBar` clamps values to `0.0..=1.0`; use an indeterminate indicator when the app cannot report progress.
+- Pair the bar with text that identifies the task and, when useful, its current value.
+
+## Related
+
+[`CircularProgress`](/reference/widgets/circular-progress), [`Spinner`](/reference/widgets/spinner), [`Skeleton`](/reference/widgets/skeleton), and [`Stat`](/reference/widgets/stat).

@@ -28,6 +28,7 @@ impl From<Page> for Widget {
                         payload: Vec::new(),
                     },
                     semantics_identifier: None,
+                    form_value: None,
                 }],
                 width: Some(200.0),
                 ..Default::default()

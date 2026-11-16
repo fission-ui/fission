@@ -5,9 +5,10 @@ use fission_core::authoring::LoweringContext;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
-    ActionEnvelope, ActionId, Env, GlobalState, Runtime, RuntimeState, TextAffinity,
-    TextEditCommand, TextEditSource, TextEditingValue, TextSelection, TextValuePhase, View, Widget,
-    WidgetId,
+    ActionEnvelope, ActionId, ActionInput, CapabilityInvocationPayload, ClipboardError, Effect,
+    EffectEnvelope, Env, GlobalState, LinkTarget, NavigationCommand, Runtime, RuntimeState,
+    TextAffinity, TextEditCommand, TextEditSource, TextEditingValue, TextSelection, TextValuePhase,
+    View, Widget, WidgetId, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_TEXT,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Semantics};
 use fission_theme::{DesignMode, DesignSystem, Theme};
@@ -26,7 +27,8 @@ thread_local! {
 /// The server shell compiles one WASM artifact per declared island. Each
 /// artifact keeps its own state in browser memory, runs normal Fission
 /// reducers for actions emitted by its widget tree, and returns renderer-owned
-/// DOM patches to the server browser bridge.
+/// DOM patches to the server browser bridge. Plain-text clipboard read and
+/// write effects use that same bridge; other host effects remain unsupported.
 pub struct BrowserIslandApp<S, W>
 where
     S: GlobalState,
@@ -37,6 +39,8 @@ where
     runtime: Runtime,
     widget: W,
     env: Env,
+    current_route_path: String,
+    pending_capabilities: BTreeMap<u64, PendingBrowserCapability>,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     _state: std::marker::PhantomData<fn() -> S>,
 }
@@ -60,6 +64,8 @@ where
             runtime,
             widget,
             env: Env::default(),
+            current_route_path: "/".to_string(),
+            pending_capabilities: BTreeMap::new(),
             sync_env: None,
             _state: std::marker::PhantomData,
         }
@@ -107,15 +113,33 @@ where
 
     fn handle(&mut self, input: &str) -> Result<String> {
         let message = parse_bridge_message(input);
+        if let Some(route) = message
+            .get("route")
+            .and_then(Value::as_str)
+            .filter(|route| route.starts_with('/'))
+        {
+            self.current_route_path = route.to_string();
+        }
         if is_action_event(&message) {
             self.dispatch_browser_action(&message)?;
+        } else if is_browser_response(&message) {
+            self.dispatch_browser_response(&message)?;
         }
-        self.render_bridge_output(message.get("sequence").and_then(Value::as_u64).unwrap_or(1))
+        let capability_requests = self.take_browser_capability_requests()?;
+        let navigation = self.runtime.take_pending_navigation();
+        self.render_bridge_output(
+            message.get("sequence").and_then(Value::as_u64).unwrap_or(1),
+            navigation,
+            capability_requests,
+        )
     }
 
     fn dispatch_browser_action(&mut self, message: &Value) -> Result<()> {
         if is_browser_text_action(message) {
             return self.dispatch_browser_text_action(message);
+        }
+        if is_browser_range_action(message) {
+            return self.dispatch_browser_range_action(message);
         }
         let action = message
             .get("binding")
@@ -149,7 +173,42 @@ where
             },
             WidgetId::from_u128(target),
         );
-        self.finish_browser_dispatch(dispatch)?;
+        dispatch?;
+        Ok(())
+    }
+
+    fn dispatch_browser_range_action(&mut self, message: &Value) -> Result<()> {
+        let action = message
+            .get("binding")
+            .and_then(|binding| binding.get("message"))
+            .ok_or_else(|| anyhow!("browser island range event is missing action metadata"))?;
+        let target = action
+            .get("target_node")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island range event is missing target_node"))?
+            .parse::<u128>()
+            .context("browser island range target_node is not a u128")?;
+        let target = WidgetId::from_u128(target);
+        let proposed = message
+            .get("value")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island range event is missing value"))?
+            .parse::<f32>()
+            .context("browser island range value is not numeric")?;
+
+        let output = self.build_widget();
+        let ir = lower_browser_island_widget(
+            output.node,
+            output.portals,
+            &output.env,
+            &self.runtime.runtime_state,
+        );
+        let (owner, envelope, input) = fission_core::input::slider::prepare_slider_change(
+            &ir, target, proposed,
+        )
+        .ok_or_else(|| anyhow!("browser island range target {target} is not dispatchable"))?;
+        self.install_registry(output.registry);
+        self.runtime.dispatch_with_input(envelope, owner, &input)?;
         Ok(())
     }
 
@@ -223,11 +282,16 @@ where
                 },
             )
             .map(|_| ());
-        self.finish_browser_dispatch(dispatch)?;
+        dispatch?;
         Ok(())
     }
 
-    fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
+    fn render_bridge_output(
+        &mut self,
+        sequence: u64,
+        navigation: Vec<NavigationCommand>,
+        capability_requests: Vec<Value>,
+    ) -> Result<String> {
         let output = self.build_widget();
         let ir = lower_browser_island_widget(
             output.node,
@@ -244,6 +308,7 @@ where
                 root_class: "fission-browser-island-root".to_string(),
                 css_variables: CssVariableMap::from_theme(&output.env.theme),
                 browser_action_bindings: true,
+                current_route_path: self.current_route_path.clone(),
                 motion_declarations: output.motion_declarations,
                 video_registrations: output
                     .video_registrations
@@ -259,32 +324,35 @@ where
             },
             &mut styles,
         )?;
-        Ok(json!({
-            "messages": [
+        let mut messages = vec![json!({
+            "type": "dom_batch",
+            "sequence": sequence,
+            "transaction_id": self.id,
+            "ops": [
                 {
-                    "type": "dom_batch",
-                    "sequence": sequence,
-                    "transaction_id": self.id,
-                    "ops": [
-                        {
-                            "op": "set_stylesheet",
-                            "id": format!("fission-island-{}", self.id),
-                            "css": rendered.css
-                        },
-                        {
-                            "op": "replace_children_html_by_semantics",
-                            "semantics": self.mount_id,
-                            "html": rendered.body_html
-                        },
-                        {
-                            "op": "set_attr_by_semantics",
-                            "semantics": self.mount_id,
-                            "name": "data-fission-island-loaded",
-                            "value": "true"
-                        }
-                    ]
+                    "op": "set_stylesheet",
+                    "id": format!("fission-island-{}", self.id),
+                    "css": rendered.css
+                },
+                {
+                    "op": "replace_children_html_by_semantics",
+                    "semantics": self.mount_id,
+                    "html": rendered.body_html
+                },
+                {
+                    "op": "set_attr_by_semantics",
+                    "semantics": self.mount_id,
+                    "name": "data-fission-island-loaded",
+                    "value": "true"
                 }
-            ],
+            ]
+        })];
+        for command in navigation {
+            messages.extend(browser_navigation_messages(command));
+        }
+        messages.extend(capability_requests);
+        Ok(json!({
+            "messages": messages,
             "bindings": []
         })
         .to_string())
@@ -323,16 +391,184 @@ where
         self.runtime.absorb_registry(registry);
     }
 
-    fn finish_browser_dispatch(&mut self, dispatch: Result<()>) -> Result<()> {
+    fn take_browser_capability_requests(&mut self) -> Result<Vec<Value>> {
+        let effects = std::mem::take(&mut self.runtime.pending_effects);
+        let mut requests = Vec::with_capacity(effects.len());
+
+        for envelope in effects {
+            let EffectEnvelope {
+                req_id,
+                effect,
+                on_ok,
+                on_err,
+                service_bindings,
+                resource,
+            } = envelope;
+            let Effect::Capability(CapabilityInvocationPayload::Operation(operation)) = effect
+            else {
+                return self.reject_unsupported_browser_effect(EffectEnvelope {
+                    req_id,
+                    effect,
+                    on_ok,
+                    on_err,
+                    service_bindings,
+                    resource,
+                });
+            };
+            if service_bindings.is_some() || resource.is_some() {
+                return self.reject_unsupported_browser_effect(EffectEnvelope {
+                    req_id,
+                    effect: Effect::Capability(CapabilityInvocationPayload::Operation(operation)),
+                    on_ok,
+                    on_err,
+                    service_bindings,
+                    resource,
+                });
+            }
+
+            let kind = match operation.capability_name.as_str() {
+                name if name == WRITE_CLIPBOARD_TEXT.name => "clipboard_write_text",
+                name if name == READ_CLIPBOARD_TEXT.name => "clipboard_read_text",
+                _ => {
+                    return self.reject_unsupported_browser_effect(EffectEnvelope {
+                        req_id,
+                        effect: Effect::Capability(CapabilityInvocationPayload::Operation(
+                            operation,
+                        )),
+                        on_ok,
+                        on_err,
+                        service_bindings: None,
+                        resource: None,
+                    });
+                }
+            };
+            let payload: Value = serde_json::from_slice(&operation.request)
+                .context("browser island capability request is not valid JSON")?;
+            if kind == "clipboard_write_text"
+                && !payload.get("text").and_then(Value::as_str).is_some()
+            {
+                anyhow::bail!("browser island clipboard write request is missing text");
+            }
+            if self
+                .pending_capabilities
+                .insert(
+                    req_id,
+                    PendingBrowserCapability {
+                        capability_name: operation.capability_name,
+                        on_ok,
+                        on_err,
+                    },
+                )
+                .is_some()
+            {
+                anyhow::bail!("browser island capability request id {req_id} is already pending");
+            }
+            requests.push(json!({
+                "type": "request",
+                "request_id": req_id,
+                "kind": kind,
+                "payload": payload
+            }));
+        }
+
+        Ok(requests)
+    }
+
+    fn reject_unsupported_browser_effect<T>(&mut self, effect: EffectEnvelope) -> Result<T> {
+        self.runtime.pending_effects.push(effect);
         let discarded_effects = self.runtime.discard_pending_effects();
-        dispatch?;
-        if discarded_effects > 0 {
-            anyhow::bail!(
-                "browser island `{}` reducer queued unsupported effects; discarded {discarded_effects} effect envelope(s) and completion callback(s)",
-                self.id
-            );
+        self.pending_capabilities.clear();
+        anyhow::bail!(
+            "browser island `{}` reducer queued unsupported effects; discarded {discarded_effects} effect envelope(s) and completion callback(s)",
+            self.id
+        )
+    }
+
+    fn dispatch_browser_response(&mut self, message: &Value) -> Result<()> {
+        let request_id = message
+            .get("request_id")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow!("browser island response is missing request_id"))?;
+        let pending = self
+            .pending_capabilities
+            .remove(&request_id)
+            .ok_or_else(|| {
+                anyhow!("browser island response references unknown request {request_id}")
+            })?;
+        let ok = message
+            .get("ok")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| anyhow!("browser island response is missing ok"))?;
+
+        let (action, input) = if ok {
+            let payload = if pending.capability_name == WRITE_CLIPBOARD_TEXT.name {
+                serde_json::to_vec(&())?
+            } else {
+                serde_json::to_vec(message.get("payload").unwrap_or(&Value::Null))?
+            };
+            (
+                pending.on_ok,
+                ActionInput::CapabilityOk {
+                    capability: pending.capability_name,
+                    req_id: request_id,
+                    payload,
+                },
+            )
+        } else {
+            let error = message
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("clipboard request failed")
+                .to_string();
+            let payload = serde_json::to_vec(&ClipboardError::new("browser_error", &error))?;
+            (
+                pending.on_err,
+                ActionInput::CapabilityErr {
+                    capability: pending.capability_name,
+                    req_id: request_id,
+                    payload: Some(payload),
+                    message: Some(error),
+                },
+            )
+        };
+
+        if let Some(action) = action {
+            self.runtime
+                .dispatch_with_input(action, WidgetId::from_u128(0), &input)?;
         }
         Ok(())
+    }
+}
+
+struct PendingBrowserCapability {
+    capability_name: String,
+    on_ok: Option<ActionEnvelope>,
+    on_err: Option<ActionEnvelope>,
+}
+
+fn browser_navigation_messages(command: NavigationCommand) -> Vec<Value> {
+    match command {
+        NavigationCommand::Push(url) => vec![json!({
+            "type": "navigate",
+            "url": url,
+            "mode": "full_document"
+        })],
+        NavigationCommand::Replace(url) => vec![
+            json!({ "type": "navigate", "url": url, "mode": "replace" }),
+            json!({ "type": "navigate", "url": url, "mode": "full_document" }),
+        ],
+        NavigationCommand::Open(link) if matches!(link.target, LinkTarget::Current) => {
+            vec![json!({
+                "type": "navigate",
+                "url": link.href,
+                "mode": "full_document"
+            })]
+        }
+        NavigationCommand::Open(_) => Vec::new(),
+        NavigationCommand::Back
+        | NavigationCommand::Forward
+        | NavigationCommand::Go(_)
+        | NavigationCommand::Reload => Vec::new(),
     }
 }
 
@@ -415,8 +651,8 @@ fn compose_browser_island_portals(
 /// Runs or initializes a named browser island instance.
 ///
 /// Call this from the island entry function compiled into the route-local WASM
-/// artifact. Boot messages reset the named island instance; event messages reuse
-/// the existing instance so reducer state is retained across browser events.
+/// artifact. Boot messages reset the named island instance; event and response
+/// messages reuse it so reducer state and pending effect completions are retained.
 pub fn run_browser_island<S, W, F>(id: &str, input: &str, create: F) -> String
 where
     S: GlobalState + 'static,
@@ -424,10 +660,10 @@ where
     F: FnOnce() -> BrowserIslandApp<S, W>,
 {
     let message = parse_bridge_message(input);
-    let reset = !message
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|kind| kind == "event");
+    let reset = !matches!(
+        message.get("type").and_then(Value::as_str),
+        Some("event" | "response")
+    );
 
     let result = BROWSER_ISLANDS.with(|instances| {
         let mut instances = instances.borrow_mut();
@@ -468,7 +704,18 @@ fn is_action_event(message: &Value) -> bool {
                         .get("fission_browser_text_action")
                         .and_then(Value::as_bool)
                         .unwrap_or(false)
+                    || action
+                        .get("fission_browser_range_action")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
             })
+}
+
+fn is_browser_response(message: &Value) -> bool {
+    message
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == "response")
 }
 
 fn is_browser_text_action(message: &Value) -> bool {
@@ -476,6 +723,15 @@ fn is_browser_text_action(message: &Value) -> bool {
         .get("binding")
         .and_then(|binding| binding.get("message"))
         .and_then(|action| action.get("fission_browser_text_action"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn is_browser_range_action(message: &Value) -> bool {
+    message
+        .get("binding")
+        .and_then(|binding| binding.get("message"))
+        .and_then(|action| action.get("fission_browser_range_action"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
@@ -523,10 +779,10 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::ui::TextInput;
+    use fission_core::ui::{SemanticsRegion, Slider, TextInput};
     use fission_core::{
         reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button,
-        ReducerContext, StateField, Text,
+        ClipboardWriteTextRequest, Column, ReducerContext, StateField, Text,
     };
     use fission_ir::{semantics::TextInputType, Role};
 
@@ -572,6 +828,66 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct SliderState {
+        capacity: f32,
+    }
+    impl Default for SliderState {
+        fn default() -> Self {
+            Self { capacity: 10.0 }
+        }
+    }
+    impl GlobalState for SliderState {}
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct SetCapacity {
+        value: f32,
+    }
+    impl Action for SetCapacity {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.set-capacity")
+        }
+    }
+
+    fn set_capacity(
+        state: &mut SliderState,
+        action: SetCapacity,
+        _ctx: &mut ReducerContext<SliderState>,
+    ) {
+        state.capacity = action.value;
+    }
+
+    #[derive(Clone)]
+    struct SliderIsland;
+
+    impl From<SliderIsland> for Widget {
+        fn from(_component: SliderIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<SliderState>();
+            Column {
+                children: vec![
+                    Slider {
+                        id: Some(WidgetId::from_u128(910)),
+                        value: view.state().capacity,
+                        min: 1.0,
+                        max: 20.0,
+                        step: Some(1.0),
+                        on_change: Some(ctx.bind(
+                            SetCapacity {
+                                value: view.state().capacity,
+                            },
+                            reduce_with!(set_capacity),
+                        )),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Text::new(format!("capacity={}", view.state().capacity)).into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
     #[derive(Clone)]
     struct LocaleIsland;
 
@@ -579,6 +895,18 @@ mod tests {
         fn from(_component: LocaleIsland) -> Widget {
             let (_, view) = fission_core::build::current::<CounterState>();
             Text::new(format!("locale:{}", view.env().locale.0)).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct RouteLinkIsland;
+
+    impl From<RouteLinkIsland> for Widget {
+        fn from(_component: RouteLinkIsland) -> Widget {
+            SemanticsRegion::new(Text::new("Get started"))
+                .identifier("site-link:/get-started/")
+                .role(Role::Link)
+                .into()
         }
     }
 
@@ -799,6 +1127,90 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default, Clone)]
+    struct ClipboardState {
+        status: String,
+    }
+    impl GlobalState for ClipboardState {}
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct CopyText;
+    impl Action for CopyText {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.copy-text")
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct CopyFinished;
+    impl Action for CopyFinished {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.copy-finished")
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct CopyFailed;
+    impl Action for CopyFailed {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.copy-failed")
+        }
+    }
+
+    fn copy_text(
+        state: &mut ClipboardState,
+        _action: CopyText,
+        ctx: &mut ReducerContext<ClipboardState>,
+    ) {
+        let on_ok = ctx.effects.bind(CopyFinished, reduce_with!(copy_finished));
+        let on_err = ctx.effects.bind(CopyFailed, reduce_with!(copy_failed));
+        ctx.effects
+            .clipboard()
+            .write_text(ClipboardWriteTextRequest {
+                text: "licence-key".into(),
+            })
+            .on_ok(on_ok)
+            .on_err(on_err);
+        state.status = "Copying".into();
+    }
+
+    fn copy_finished(
+        state: &mut ClipboardState,
+        _action: CopyFinished,
+        ctx: &mut ReducerContext<ClipboardState>,
+    ) {
+        assert_eq!(ctx.input.capability_ok(WRITE_CLIPBOARD_TEXT), Some(()));
+        state.status = "Copied".into();
+    }
+
+    fn copy_failed(
+        state: &mut ClipboardState,
+        _action: CopyFailed,
+        ctx: &mut ReducerContext<ClipboardState>,
+    ) {
+        let error = ctx
+            .input
+            .capability_error(WRITE_CLIPBOARD_TEXT)
+            .expect("clipboard error is typed");
+        state.status = format!("Copy failed: {}", error.message);
+    }
+
+    #[derive(Clone)]
+    struct ClipboardIsland;
+
+    impl From<ClipboardIsland> for Widget {
+        fn from(_component: ClipboardIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<ClipboardState>();
+            Button {
+                id: Some(WidgetId::from_u128(906)),
+                on_press: Some(ctx.bind(CopyText, reduce_with!(copy_text))),
+                child: Some(Text::new(view.state().status.clone()).into()),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
     impl From<NonDispatchableFieldIsland> for Widget {
         fn from(component: NonDispatchableFieldIsland) -> Widget {
             let (ctx, view) = fission_core::build::current::<FieldState>();
@@ -835,6 +1247,40 @@ mod tests {
     }
 
     #[test]
+    fn browser_island_native_range_updates_typed_action_and_sibling_content() {
+        let id = format!("slider-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, || {
+            BrowserIslandApp::new(&id, "slider-mount", SliderState::default(), SliderIsland)
+        });
+        assert!(boot.contains("data-fission-browser-range-action"));
+        assert!(boot.contains("capacity=10"));
+
+        let event = r#"{"type":"event","sequence":2,"binding":{"event":"input","message":{"fission_browser_range_action":true,"target_node":"910"}},"value":"11.4"}"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "slider-mount", SliderState::default(), SliderIsland)
+        });
+        assert!(update.contains("capacity=11"));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<SliderState, SliderIsland>>()
+                })
+                .unwrap();
+            assert_eq!(
+                island
+                    .runtime
+                    .get_global_state::<SliderState>()
+                    .unwrap()
+                    .capacity,
+                11.0
+            );
+        });
+    }
+
+    #[test]
     fn browser_island_uses_seed_and_state_synchronized_environment() {
         let id = format!("locale-{}", std::process::id());
         let mut env = Env::default();
@@ -850,6 +1296,21 @@ mod tests {
         });
 
         assert!(boot.contains("locale:es-MX"));
+    }
+
+    #[test]
+    fn browser_island_resolves_links_from_the_boot_route() {
+        let id = format!("route-link-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot","route":"/indexing/json/"}"#, || {
+            BrowserIslandApp::new(
+                &id,
+                "route-link-mount",
+                CounterState::default(),
+                RouteLinkIsland,
+            )
+        });
+
+        assert!(boot.contains("href=\\\"../../get-started/\\\""));
     }
 
     #[test]
@@ -1187,6 +1648,140 @@ mod tests {
         let second = island.handle(&event).unwrap_err().to_string();
         assert!(second.contains("discarded 2 effect envelope(s) and completion callback(s)"));
         assert_eq!(island.runtime.discard_pending_effects(), 0);
+    }
+
+    #[test]
+    fn browser_island_clipboard_effect_round_trips_through_typed_completion() {
+        let mut island = BrowserIslandApp::new(
+            "clipboard-island",
+            "clipboard-mount",
+            ClipboardState::default(),
+            ClipboardIsland,
+        );
+        let action_id = CopyText::static_id().as_u128();
+        let payload_hex = test_hex_encode(&CopyText.encode());
+        let event = format!(
+            r#"{{"type":"event","sequence":4,"binding":{{"message":{{"fission_browser_action":true,"action_id":"{action_id}","target_node":"906","payload_hex":"{payload_hex}"}}}}}}"#
+        );
+
+        let request: Value = serde_json::from_str(&island.handle(&event).unwrap()).unwrap();
+        assert!(request.to_string().contains("Copying"));
+        let request = request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["type"] == "request")
+            .unwrap();
+        assert_eq!(request["request_id"], 0);
+        assert_eq!(request["kind"], "clipboard_write_text");
+        assert_eq!(request["payload"]["text"], "licence-key");
+
+        let completion = island
+            .handle(r#"{"type":"response","request_id":0,"ok":true,"payload":{}}"#)
+            .unwrap();
+        assert!(completion.contains("Copied"));
+        assert!(island.pending_capabilities.is_empty());
+    }
+
+    #[test]
+    fn run_browser_island_preserves_clipboard_completion_across_response() {
+        let id = format!("clipboard-wrapper-{}", std::process::id());
+        let create = || {
+            BrowserIslandApp::new(
+                &id,
+                "clipboard-mount",
+                ClipboardState::default(),
+                ClipboardIsland,
+            )
+        };
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, create);
+        assert!(boot.contains("data-fission-browser-action"));
+
+        let action_id = CopyText::static_id().as_u128();
+        let payload_hex = test_hex_encode(&CopyText.encode());
+        let event = format!(
+            r#"{{"type":"event","sequence":4,"binding":{{"message":{{"fission_browser_action":true,"action_id":"{action_id}","target_node":"906","payload_hex":"{payload_hex}"}}}}}}"#
+        );
+        let request = run_browser_island(&id, &event, create);
+        assert!(request.contains("clipboard_write_text"));
+        assert!(request.contains("Copying"));
+
+        let completion = run_browser_island(
+            &id,
+            r#"{"type":"response","request_id":0,"ok":true,"payload":{}}"#,
+            create,
+        );
+        assert!(completion.contains("Copied"));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<ClipboardState, ClipboardIsland>>()
+                })
+                .unwrap();
+            assert_eq!(
+                island
+                    .runtime
+                    .get_global_state::<ClipboardState>()
+                    .unwrap()
+                    .status,
+                "Copied"
+            );
+            assert!(island.pending_capabilities.is_empty());
+        });
+    }
+
+    #[test]
+    fn browser_island_clipboard_failure_dispatches_typed_error() {
+        let mut island = BrowserIslandApp::new(
+            "clipboard-island",
+            "clipboard-mount",
+            ClipboardState::default(),
+            ClipboardIsland,
+        );
+        let action_id = CopyText::static_id().as_u128();
+        let payload_hex = test_hex_encode(&CopyText.encode());
+        let event = format!(
+            r#"{{"type":"event","binding":{{"message":{{"fission_browser_action":true,"action_id":"{action_id}","target_node":"906","payload_hex":"{payload_hex}"}}}}}}"#
+        );
+        island.handle(&event).unwrap();
+
+        let completion = island
+            .handle(
+                r#"{"type":"response","request_id":0,"ok":false,"payload":null,"error":"permission denied"}"#,
+            )
+            .unwrap();
+        assert!(completion.contains("Copy failed: permission denied"));
+        assert!(island.pending_capabilities.is_empty());
+    }
+
+    #[test]
+    fn browser_island_navigation_requests_reload_the_server_route() {
+        assert_eq!(
+            browser_navigation_messages(NavigationCommand::Push("/account".into())),
+            vec![json!({
+                "type": "navigate",
+                "url": "/account",
+                "mode": "full_document"
+            })]
+        );
+        assert_eq!(
+            browser_navigation_messages(NavigationCommand::Replace("/signed-in".into())),
+            vec![
+                json!({
+                    "type": "navigate",
+                    "url": "/signed-in",
+                    "mode": "replace"
+                }),
+                json!({
+                    "type": "navigate",
+                    "url": "/signed-in",
+                    "mode": "full_document"
+                }),
+            ]
+        );
     }
 
     fn test_hex_encode(bytes: &[u8]) -> String {

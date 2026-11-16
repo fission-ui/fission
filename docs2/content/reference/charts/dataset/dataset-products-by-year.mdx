@@ -1,0 +1,59 @@
+---
+title: Products by year dataset
+sidebar_label: Products by year dataset
+description: Keep annual product counts in one dataset and select named measures.
+---
+
+# Products by year dataset
+
+![Products by year dataset screenshot](/img/charts/dataset-products-by-year.png)
+
+An annual comparison answers a different question from a trend: which products grew, and by how much? Keep one row per product with the two annual counts, then encode each year as a separate bar series. This avoids relying on the order of unrelated vectors.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, Series};
+
+#[derive(Clone)]
+pub struct AnnualProductOrders {
+    pub product_label: String,
+    pub previous: u32,
+    pub current: u32,
+}
+
+fission_component! {
+    pub AnnualProductComparison<()> {
+        props {
+            title: String,
+            previous_year_label: String,
+            current_year_label: String,
+            products: Vec<AnnualProductOrders>,
+        }
+    }
+    view(report, _state, _cx) {
+        let dataset = Dataset::new()
+            .dimensions(vec!["product".into(), "previous".into(), "current".into()])
+            .source(report.products.iter().map(|product| vec![
+                DataValue::from(product.product_label.clone()),
+                DataValue::from(product.previous as f32),
+                DataValue::from(product.current as f32),
+            ]).collect());
+    } => Chart(
+        title: Some(report.title.clone()),
+        dataset: Some(dataset),
+        x_axis: Some(Axis::category(Vec::new())),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&report.previous_year_label)
+                .encode(Encode::new().x("product").y("previous"))),
+            Series::Bar(BarSeries::new(&report.current_year_label)
+                .encode(Encode::new().x("product").y("current"))),
+        ],
+    )
+}
+```
+
+The year labels are translated presentation inputs; `previous` and `current` are stable schema keys. Do not compare a partial current year against a complete previous year without saying so. Validate the reporting windows and product identity before projection, and retain the integer counts for exact values. A product missing from the source needs an explicit absence policy, not an accidental zero. The gallery screenshot is a separate example, not a rendering of these inputs.
+
+[Dataset family overview](./overview)

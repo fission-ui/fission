@@ -1,0 +1,51 @@
+---
+title: Builder
+description: Define a small inline widget from a pure build closure.
+slug: /widgets/builder
+---
+# Builder
+
+`Builder` is for a small inline fragment when naming a separate Compose
+component would add more ceremony than clarity.
+
+Keep screens and reusable product concepts as named `fission_component!`
+components. `Builder` fits short local conditionals and test helpers.
+
+The closure receives scoped build handles and returns a `Widget`. It is still part of the normal build model: read state through `view`, bind actions through `ctx`, and return a widget tree. Do not fetch data, mutate state, or perform outside work from the closure.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let greeting = Builder::<MyState>::new(|_ctx, view| {
+    let key = if view.state().is_signed_in {
+        "session.welcome_back"
+    } else {
+        "session.sign_in"
+    };
+
+    Text::new(TextContent::Key(key.into())).into()
+});
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Builder::new(...)` | `Fn(BuildCtxHandle<S>, ViewHandle<S>) -> Widget` | Creates the inline widget from a pure build closure. | The closure must be `Send + Sync + 'static`. |
+
+## When to use it
+
+Use `Builder` when the closure is small and local. If the closure starts to contain product logic, several branches, or repeated layout, move that code into a named component. The named component path is the primary API and is what examples should use for production structure.
+
+## Production checklist
+
+- Verify the closure stays read-only and does not start work on every rebuild.
+- Do not retain the build/view handles in a service or future.
+- Extract a named component when the fragment acquires its own state, identity
+  or reusable product meaning.
+
+## Related
+
+[`LayoutBuilder`](/reference/widgets/layout-builder), [`Widget`](/reference/core/widget-authoring-boundary), and [`State system`](/reference/core/state-system).

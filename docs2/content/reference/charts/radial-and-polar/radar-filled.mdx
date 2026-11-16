@@ -1,0 +1,61 @@
+---
+title: Filled radar
+sidebar_label: Filled radar
+description: Fission Charts reference for Filled radar.
+---
+
+# Filled radar
+
+![Filled radar screenshot](/img/charts/radar-filled.png)
+
+Filled profiles make overlap visible, but overlap alone does not explain the dimensions or distinguish one assessment from another. A reader still needs names, dates and the underlying values. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Compare the same service's current and previous capability assessments on an unchanged 0–100 scale. Use the view to identify changed dimensions, not to claim that the larger filled area represents a quantifiable improvement.
+
+## Data model
+
+`RadarSeries` already fills and outlines each value row; there is no separate fill-style field on this series. Rows do not carry individual names, and the renderer does not draw spoke labels. Keep a consistent dimension order and explain which row is current.
+
+## Authoring from a Fission component
+
+The component receives two fixed-length assessments and a localized explanation. The parent owns assessment calculation and any unavailable-state handling.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CapabilityReviewComparison<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            previous_scores: [f32; 4],
+            current_scores: [f32; 4],
+            comparison_description: TextContent,
+        }
+    }
+    view(review, _state, _cx) => Column(children: [
+        Text(review.comparison_description.clone()),
+        Chart(
+            title: Some(review.chart_title.clone()),
+            series: vec![RadarSeries::new(&review.series_label)
+                .data(vec![
+                    review.previous_scores.to_vec(),
+                    review.current_scores.to_vec(),
+                ])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test identical and overlapping profiles and one changed dimension. Check the view without relying on palette differences, and provide a named previous/current value table. Do not substitute zero for an unassessed dimension or infer an aggregate score from the filled shape.
+
+Tags: `radar`, `profile`.
+
+[Radial and polar family overview](./overview)

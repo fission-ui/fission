@@ -9,6 +9,7 @@ use fission_theme::ResolvedComponentStyle;
 use std::sync::Arc;
 
 /// Controlled page-number navigation with previous and next controls.
+#[derive(Default)]
 pub struct Pagination {
     /// Current one-based page number.
     pub current_page: usize,

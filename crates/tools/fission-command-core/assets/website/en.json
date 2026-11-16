@@ -1,0 +1,19 @@
+{
+  "brand": "Your website",
+  "nav.home": "Home",
+  "nav.label": "Site navigation",
+  "nav.about": "About",
+  "home.eyebrow": "A place to begin",
+  "home.title": "Make room for your next idea.",
+  "home.body": "This is a starter website. Replace this introduction with a clear description of your project and who it helps.",
+  "home.link": "Explore the starter",
+  "home.note": "Two pages, one shared design system. Built from Rust components with Fission.",
+  "about.eyebrow": "About this starter",
+  "about.title": "Tell your story, in your own words.",
+  "about.body": "Use this page to explain your work, your approach, and how visitors can learn more. These are placeholder words, not business claims.",
+  "about.link": "Return home",
+  "about.note": "No account service, contact form, payment flow, or backend is connected. Add real details only when they are ready.",
+  "footer.attribution": "Built with Fission",
+  "footer.note": "A website starter. Ready for your content.",
+  "not_found": "Page not found. Use the navigation to return home."
+}

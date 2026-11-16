@@ -1,0 +1,340 @@
+---
+layout: goal
+title: Build a single-page website in Rust
+description: Build a responsive Rust landing page with a clear hero, useful page sections, anchor navigation, accessible calls to action and a static production build.
+goal: Publish a focused one-page Rust website that guides visitors to a useful next step
+path: /blog/build-a-single-page-website-in-rust/
+order: 2
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission site serve --project-dir ."
+app: single-page-rust-website
+outcomes:
+  - Write a clear hero and page outline
+  - Connect section navigation and the call to action
+  - Check phone and desktop layouts
+---
+
+A one-page site still has a navigation problem: visitors need to understand the subject, inspect the relevant detail and decide what to do next. Hiding each section behind application state makes that path harder to share and removes content from the initial document.
+
+We will build Fieldnotes as a real Static site. All sections are present together, and fragment links move between them. There is no sign-up backend in this lesson: the action takes visitors to an explanation rather than pretending to create an account.
+
+## Create the project
+
+```sh
+cargo install cargo-fission
+fission init fieldnotes-site --template website
+cd fieldnotes-site
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs`, which calls `fieldnotes_site::build_site()`. Replace the configuration with the complete small example below; change the reserved example.com origin before publishing.
+
+<!-- fission:step id="start-screen" -->
+## Put the whole reading path in the document
+
+The useful behaviour here is the reading path, not a state transition. It does not need retained state, a reducer or an effect. The embedded preview is generated from these actual project files.
+
+The active Fission theme supplies spacing, colours and typography. The stylesheet only limits the document width and makes keyboard focus explicit. Translation keys belong to meaning rather than page position; fragment anchors stay unchanged when the wording changes.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "fieldnotes-site"
+app_id = "rs.example.fieldnotes.site"
+
+[site]
+routes = []
+entry = "crate::site_app"
+title = "Fieldnotes project planning"
+description = "Plan projects with clear ownership and explicit next steps."
+base_url = "https://fieldnotes-site.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+asset_dirs = ["assets"]
+css_files = ["assets/landing.css"]
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod page;
+mod navigation;
+mod section;
+mod translations;
+
+pub fn site_app() -> fission::site::FissionSite {
+    fission::site::FissionSite::new().with_env(translations::create_env())
+        .route_widget::<(), _>("/", "Fieldnotes project planning",
+            Some("Plan a small project with named owners and visible next steps.".into()),
+            page::LandingPage::new())
+}
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+
+<TabItem label="src/page.rs">
+<!-- fission:file path="src/page.rs" -->
+```rust
+use crate::{navigation::SectionNavigation, section::LandingSection};
+use fission::prelude::*;
+fission_component! {
+    pub LandingPage<()> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.xl, children: [
+        SectionNavigation(),
+        SemanticsRegion(identifier: Some("site-main".into()), child:
+            Column(gap: tokens.spacing.xl, children: [
+                SemanticsRegion(identifier: Some("site-section:overview".into()), child:
+                    Column(gap: tokens.spacing.m, children: [
+                        SemanticsRegion(identifier: Some("site-heading-1:top".into()), child:
+                            Text(cx.tr("hero.title")).size(tokens.typography.heading1_size)),
+                        Text(cx.tr("hero.description")),
+                        Link::to(cx.tr("hero.action"), "#features"),
+                    ])),
+                LandingSection("features", "section.features.title", "section.features.description"),
+                LandingSection("questions", "section.questions.title", "section.questions.description"),
+            ])),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/navigation.rs">
+<!-- fission:file path="src/navigation.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub SectionNavigation<()> {}
+    view(_nav, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(identifier: Some("site-navigation".into()), label: Some(cx.tr("navigation.label")), child:
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+            Link::to(cx.tr("brand"), "#top"),
+            Link::to(cx.tr("nav.features"), "#features"),
+            Link::to(cx.tr("nav.questions"), "#questions"),
+        ]))
+}
+```
+</TabItem>
+
+<TabItem label="src/section.rs">
+<!-- fission:file path="src/section.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub LandingSection<()> {
+        props { anchor: &'static str, title_key: &'static str, body_key: &'static str }
+    }
+    view(section, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(identifier: Some(format!("site-section:{}", section.anchor)), child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            SemanticsRegion(identifier: Some(format!("site-heading-2:heading-{}", section.anchor)), child:
+                Text(cx.tr(section.title_key)).size(tokens.typography.heading2_size)),
+            Text(cx.tr(section.body_key)),
+        ])).padding_all(tokens.spacing.l).bg(tokens.colors.surface))
+}
+```
+</TabItem>
+
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in translations must be valid YAML");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+brand: "Fieldnotes"
+navigation.label: "Page sections"
+nav.features: "How it works"
+nav.questions: "Questions"
+hero.title: "Keep a small project understandable"
+hero.description: "Fieldnotes keeps a task, its owner and the next decision together. A team can see what needs attention without reconstructing the plan from several conversations."
+hero.action: "See the planning process"
+section.features.title: "A task needs an owner and a next step"
+section.features.description: "Start with one project. Write down the outcome, assign each task and record what is blocking progress. Review the blocked work before adding another status meeting."
+section.questions.title: "Does every project need a new process?"
+section.questions.description: "No. Keep the steps the team already uses when they work. Add a field or review stage only when it answers a question someone actually needs to ask."
+section.pricing.title: "What would a trial cost?"
+section.pricing.description: "This is a fictional product page, not an offer or checkout. A real pricing section needs an actual price, billing period and limits before visitors can compare it."
+nav.pricing: "Trial terms"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+brand: "Fieldnotes"
+navigation.label: "Secciones de la página"
+nav.features: "Cómo funciona"
+nav.questions: "Preguntas"
+hero.title: "Mantén claro un proyecto pequeño"
+hero.description: "Fieldnotes reúne una tarea, su responsable y la siguiente decisión. El equipo puede ver qué necesita atención sin reconstruir el plan a partir de varias conversaciones."
+hero.action: "Ver el proceso de planificación"
+section.features.title: "Una tarea necesita responsable y siguiente paso"
+section.features.description: "Empieza con un proyecto. Define el resultado, asigna cada tarea y anota qué impide avanzar. Revisa los bloqueos antes de añadir otra reunión."
+section.questions.title: "¿Necesita cada proyecto un proceso nuevo?"
+section.questions.description: "No. Conserva los pasos que ya funcionan. Añade un campo o una revisión solo cuando responda a una pregunta que alguien necesite hacer."
+section.pricing.title: "¿Cuánto costaría una prueba?"
+section.pricing.description: "Esta es una página de producto ficticio, no una oferta ni una tienda. Un precio real necesita importe, periodo de facturación y límites."
+nav.pricing: "Condiciones de prueba"
+```
+</TabItem>
+
+<TabItem label="assets/landing.css">
+<!-- fission:file path="assets/landing.css" -->
+```css
+[data-fission-semantics="site-main"] { max-width: 68rem; margin-inline: auto; }
+[data-fission-semantics^="site-section:"] { scroll-margin-block-start: 1.5rem; }
+a:focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Follow How it works and Questions. Each link should scroll to content already in the document. Use Back to return to the previous fragment.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Add a section without adding navigation state
+
+A fragment is the part of a URL after #. The browser follows it to the element with that id. Fission's `site-section:` identifier emits the destination, while `Link::to` emits the link. There is no active_section field to synchronise with the address bar.
+
+Add trial terms and a navigation link. The reusable section owns its presentation; the parent supplies its meaning and stable anchor.
+
+<Tabs>
+<TabItem label="src/page.rs">
+<!-- fission:file path="src/page.rs" -->
+```rust
+use crate::{navigation::SectionNavigation, section::LandingSection};
+use fission::prelude::*;
+fission_component! {
+    pub LandingPage<()> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.xl, children: [
+        SectionNavigation(),
+        SemanticsRegion(identifier: Some("site-main".into()), child:
+            Column(gap: tokens.spacing.xl, children: [
+                SemanticsRegion(identifier: Some("site-section:overview".into()), child:
+                    Column(gap: tokens.spacing.m, children: [
+                        SemanticsRegion(identifier: Some("site-heading-1:top".into()), child:
+                            Text(cx.tr("hero.title")).size(tokens.typography.heading1_size)),
+                        Text(cx.tr("hero.description")),
+                        Link::to(cx.tr("hero.action"), "#features"),
+                    ])),
+                LandingSection("features", "section.features.title", "section.features.description"),
+                LandingSection("pricing", "section.pricing.title", "section.pricing.description"),
+                LandingSection("questions", "section.questions.title", "section.questions.description"),
+            ])),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/navigation.rs">
+<!-- fission:file path="src/navigation.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub SectionNavigation<()> {}
+    view(_nav, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(identifier: Some("site-navigation".into()), label: Some(cx.tr("navigation.label")), child:
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+            Link::to(cx.tr("brand"), "#top"),
+            Link::to(cx.tr("nav.features"), "#features"),
+            Link::to(cx.tr("nav.pricing"), "#pricing"),
+            Link::to(cx.tr("nav.questions"), "#questions"),
+        ]))
+}
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open Trial terms and confirm the URL ends in #pricing. Change the heading's translated wording and rebuild: #pricing must still work.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the document at the sizes people use
+
+Navigation can wrap at a narrow width instead of hiding destinations behind a mouse-only control. Test long translations, keyboard navigation and JavaScript disabled. The browser still owns focus, fragment history and document scrolling; increasing a heading's text size alone would not create its HTML heading semantics.
+
+<Tabs>
+<TabItem label="assets/landing.css">
+<!-- fission:file path="assets/landing.css" -->
+```css
+[data-fission-semantics="site-main"] { max-width: 68rem; margin-inline: auto; }
+[data-fission-semantics^="site-section:"] { scroll-margin-block-start: 1.5rem; }
+a:focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+@media (max-width: 40rem) {
+  [data-fission-semantics="site-main"] { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+At phone width, reach every link with Tab and activate it. At desktop width, check the line length. Reload a #questions URL with JavaScript disabled: the section must remain present.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Build and inspect
+
+```sh
+fission site build --project-dir .
+fission site check --project-dir .
+fission site serve --project-dir . --port 8123
+curl http://127.0.0.1:8123/
+```
+
+The response should contain the heading, every section and links to their fragment IDs. A Static site has no submission handler; add a real SSR or API boundary if a later action needs to save visitor data.
+
+- [Static sites](/docs/guides/static-sites/)
+- [SEO metadata](/blog/build-an-seo-friendly-website-in-rust/)

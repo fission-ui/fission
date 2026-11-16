@@ -1,0 +1,77 @@
+---
+title: Package Docker images
+sidebar_position: 22
+description: Build and publish Docker images for Fission server apps and static sites.
+---
+
+# Package Docker images
+
+Fission can package both SSR applications and Static sites as Docker images.
+The distinction matters inside the image: an SSR app runs its server binary;
+a Static site runs a generated file server over already-rendered output.
+Container packaging does not turn a static page into a request-time app.
+
+## 1. Add Docker package settings
+
+```toml
+
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/my-app:1.0.0"]
+```
+
+For static sites, you can choose the Rust server adapter used inside the image:
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/my-docs:1.0.0"]
+```
+
+`adapter` accepts `axum` or `actix`. Server-rendered apps do not use this field because the app binary itself is the server.
+
+## 2. Run readiness
+
+```sh
+fission readiness package --project-dir . --target ssr --format docker-image
+```
+
+Readiness checks that Docker and Cargo are available, that the target exists in [`fission.toml`](/reference/config/fission-toml/), and that server apps have `[server].entry` configured.
+
+## 3. Package the image
+
+Server app:
+
+```sh
+fission package --project-dir . --target ssr --format docker-image --release
+```
+
+Static site:
+
+```sh
+fission package --project-dir . --target static-site --format docker-image --release
+```
+
+By default, Fission runs `docker build` and applies the configured tags. Set `build = false` if CI should build the generated context itself.
+
+## 4. Publish to a registry
+
+```toml
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/my-app:1.0.0"]
+```
+
+```sh
+docker login ghcr.io
+fission publish \
+  --project-dir . \
+  --provider docker-registry \
+  --artifact target/fission/release/ssr/docker-image/artifact-manifest.json \
+  --site production
+```
+
+Fission tags and pushes through the Docker CLI. The receipt ties the publish
+operation to the package manifest; verify the remote image digest before
+promoting it. The example uses a versioned tag. A mutable alias such as `latest`
+is useful for discovery, not as the authority for the bytes qualified for a release.

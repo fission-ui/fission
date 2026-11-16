@@ -1,0 +1,70 @@
+---
+title: Min/max band
+sidebar_label: Min/max band
+description: Fission Charts reference for Min/max band.
+---
+
+# Min/max band
+
+![Min/max band screenshot](/img/charts/line-minmax-band.png)
+
+Upper and lower guides make an operating interval visible alongside the measured values. In a cold-room dashboard, the important comparison is whether the recorded temperature stayed inside the declared limits. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The limits are configuration supplied by the application, not the minimum and maximum observed samples. Confusing those definitions would make every dataset appear to stay inside its own operating range.
+
+## Data model
+
+Pass measured temperatures and ordered limits in the same unit. MarkLine uses the value axis, so the guides remain tied to degrees Celsius when the plot size changes. Resolve sensor failures before constructing the numeric series.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkLine};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MinMaxBandChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            secondary_annotation_label: String,
+            labels: Vec<String>,
+            temperature_c: Vec<f32>,
+            minimum_c: f32,
+            maximum_c: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            mark_lines: vec![
+                MarkLine::y(&report.annotation_label, report.minimum_c).color(colors.primary),
+                MarkLine::y(&report.secondary_annotation_label, report.maximum_c).color(colors.primary),
+            ],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.temperature_c.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test measurements exactly on each limit, values outside the range and an invalid reversed range. Keep exact temperatures and a readable status available; the colour of a line alone is insufficient for an operating decision.
+
+Tags: `line`, `bounds`.
+
+[Line family overview](./overview)

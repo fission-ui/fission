@@ -37,7 +37,8 @@ use jni::objects::{
 };
 use jni::sys::{jint, jlong, jobject, jshort, JNI_TRUE};
 use jni::{errors::Result as JniResult, JNIEnv, JavaVM};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use winit::platform::android::activity::AndroidApp;
 
 const ANDROID_PERMISSION_GRANTED: i32 = 0;
@@ -57,6 +58,12 @@ const PERMISSION_BLUETOOTH_CONNECT: &str = "android.permission.BLUETOOTH_CONNECT
 const PERMISSION_CAMERA: &str = "android.permission.CAMERA";
 const PERMISSION_RECORD_AUDIO: &str = "android.permission.RECORD_AUDIO";
 
+fn pending_android_notification_schedules() -> &'static notifications::PendingNotificationSchedules
+{
+    static SCHEDULES: OnceLock<notifications::PendingNotificationSchedules> = OnceLock::new();
+    SCHEDULES.get_or_init(Default::default)
+}
+
 pub(crate) fn register_android_operation_capabilities(
     async_registry: &mut AsyncRegistry,
     app: &AndroidApp,
@@ -70,6 +77,11 @@ pub(crate) fn register_android_operation_capabilities(
         async_registry,
         context.clone(),
     );
+    crate::android_file_picker::register_android_file_picker_capabilities(
+        async_registry,
+        context.clone(),
+    );
+    crate::android_print::register_android_print_capability(async_registry, context.clone());
 
     clipboard::register_clipboard_capabilities(
         async_registry,
@@ -652,6 +664,7 @@ impl NotificationHost for AndroidNotificationHost {
                 "Android notification permission is not granted",
             ));
         }
+        pending_android_notification_schedules().cancel(&request.id);
         self.context
             .with_env(|env, activity| {
                 let sdk = env
@@ -760,39 +773,18 @@ impl NotificationHost for AndroidNotificationHost {
         match request.schedule {
             NotificationSchedule::Immediate => self.show(request),
             NotificationSchedule::AfterMillis(ms) => {
-                let mut deliver = request.clone();
-                deliver.schedule = NotificationSchedule::Immediate;
-                let host = AndroidNotificationHost::new(self.context.clone());
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(ms));
-                    let _ = host.show(deliver);
-                });
-                Ok(NotificationReceipt {
-                    id: request.id,
-                    scheduled: true,
-                    delivered: false,
-                })
+                self.schedule_after(request, Duration::from_millis(ms))
             }
             NotificationSchedule::AtUnixMillis(ms) => {
                 let now_ms = current_unix_ms();
                 let delay = ms.saturating_sub(now_ms);
-                let mut deliver = request.clone();
-                deliver.schedule = NotificationSchedule::Immediate;
-                let host = AndroidNotificationHost::new(self.context.clone());
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(delay));
-                    let _ = host.show(deliver);
-                });
-                Ok(NotificationReceipt {
-                    id: request.id,
-                    scheduled: true,
-                    delivered: false,
-                })
+                self.schedule_after(request, Duration::from_millis(delay))
             }
         }
     }
 
     fn cancel(&self, request: CancelNotificationRequest) -> Result<(), NotificationError> {
+        pending_android_notification_schedules().cancel(&request.id);
         self.context
             .with_env(|env, activity| {
                 let manager = system_service(env, activity, "notification")?;
@@ -808,6 +800,7 @@ impl NotificationHost for AndroidNotificationHost {
     }
 
     fn cancel_all(&self) -> Result<(), NotificationError> {
+        pending_android_notification_schedules().cancel_all();
         self.context
             .with_env(|env, activity| {
                 let manager = system_service(env, activity, "notification")?;
@@ -830,6 +823,41 @@ impl NotificationHost for AndroidNotificationHost {
 
     fn unregister_push(&self) -> Result<(), NotificationError> {
         Err(NotificationError::unsupported("unregister_push"))
+    }
+}
+
+impl AndroidNotificationHost {
+    fn schedule_after(
+        &self,
+        mut request: NotificationRequest,
+        delay: Duration,
+    ) -> Result<NotificationReceipt, NotificationError> {
+        if self.notification_settings()?.permission != NotificationPermission::Granted {
+            return Err(NotificationError::new(
+                "permission_denied",
+                "Android notification permission is not granted",
+            ));
+        }
+
+        let id = request.id.clone();
+        let schedules = pending_android_notification_schedules();
+        let cancellation = schedules.replace(id.clone());
+        request.schedule = NotificationSchedule::Immediate;
+        let host = AndroidNotificationHost::new(self.context.clone());
+        std::thread::spawn(move || {
+            if cancellation.wait(delay) {
+                return;
+            }
+            if schedules.finish(&request.id, &cancellation) {
+                let _ = host.show(request);
+            }
+        });
+
+        Ok(NotificationReceipt {
+            id,
+            scheduled: true,
+            delivered: false,
+        })
     }
 }
 

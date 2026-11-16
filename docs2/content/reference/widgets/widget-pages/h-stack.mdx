@@ -1,0 +1,62 @@
+---
+title: HStack
+description: Convenience wrapper for a horizontal row with optional spacing.
+slug: /widgets/h-stack
+---
+# HStack
+
+`HStack` is a shorter way to lay children out left to right with optional
+spacing.
+
+Use it when `Row`'s defaults are enough. Choose
+[`Row`](/reference/widgets/row) when you need custom cross-axis alignment,
+wrapping, or semantics.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub RequiredFieldCaption<()> {
+        props { label: String }
+    }
+
+    view(caption, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        HStack(
+            spacing: spacing.s,
+            children: [
+                Text(caption.label.clone()),
+                Text(cx.tr("form.required")),
+            ],
+        )
+}
+```
+
+The parent supplies an already-localised field label. This example is a caption,
+not a replacement for `FormControl`'s input relationships and validation semantics.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `children` | `Vec<Widget>` | Child widgets laid out horizontally. | Defaults to an empty list. |
+| `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Row.gap`. |
+
+## Behavior and advice
+
+`HStack` simply builds a `Row` with the provided `children` and `spacing`. That means it inherits `Row` defaults, including centered cross-axis alignment and no wrapping.
+
+The convenience is helpful when that is exactly what you want. If you catch yourself wishing you could tweak `align_items`, `justify_content`, `wrap`, or semantics, switch to `Row` rather than trying to bend `HStack` beyond its purpose.
+
+## Production checklist
+
+- Test long labels without assuming a horizontal stack will wrap.
+- Keep required/validation relationships on the actual FormControl.
+- Switch to Row when alignment or wrapping differs from its defaults.
+
+## Related
+
+[`Row`](/reference/widgets/row), [`VStack`](/reference/widgets/v-stack), and [`Spacer`](/reference/widgets/spacer).

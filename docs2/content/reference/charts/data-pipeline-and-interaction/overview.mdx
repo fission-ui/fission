@@ -1,0 +1,37 @@
+---
+title: Data pipeline and interaction
+sidebar_label: Overview
+description: Separate authoritative reporting data, chart encodings and visual emphasis.
+---
+
+# Data pipeline and interaction
+
+A chart consumes a projection of application data. The projection may bind named columns, map a numeric value to colour or turn term counts into display weights, but it should not become a second authority for the report.
+
+Keep fetching, validation and aggregation in ordinary Rust and the existing effect/reducer flow. Compose then connects the ready snapshot to the chart.
+
+![Encoded dataset screenshot](/img/charts/dataset-encoded.png)
+
+## Variants
+
+| Example | Mechanism | Question it answers |
+| --- | --- | --- |
+| [Encoded dataset](./dataset-encoded) | Dataset rows and explicit line/bar encodings. | How can related measures share one aligned source projection? |
+| [Visual map](./visual-map) | Numeric heatmap values mapped to a declared colour scale. | What does a cell's intensity mean across comparable views? |
+| [Word cloud](./wordcloud) | Pre-aggregated terms with display weights. | Which terms deserve attention, without implying sentiment or exact visual ratios? |
+
+## Typed values do not eliminate schema checks
+
+`Dataset` stores optional dimension names and rows of `DataValue`. `Encode` selects dimensions by string name. Those names are runtime schema keys, not Rust struct fields checked by the compiler.
+
+The current numeric extraction can turn absent, null or unparseable cells into zero. Build a validated projection with complete numeric values rather than allowing invalid source records to appear as successful zero observations. The encoded example shows the actual supported line/bar path instead of assuming every series consumes datasets.
+
+## Preserve meaning through presentation
+
+Use stable internal keys and translated visible labels. Keep source money, counts and domain IDs in their proper types, converting only final display values where the chart needs `f32`.
+
+A colour scale must explain its endpoints and saturation policy. A word cloud's layout weights are not its authoritative term counts. Neither presentation is an adequate substitute for exact values in accessible text or tables.
+
+## Verify both sides of the boundary
+
+Test row alignment, dimension names, aggregation and missing-data rules before inspecting the chart. Then use LiveTest for the actual responsive rendering and any required interaction. Gallery screenshots identify a presentation, not correctness, accessibility or performance of application data.

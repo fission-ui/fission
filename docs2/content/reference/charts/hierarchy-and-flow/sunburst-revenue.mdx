@@ -1,0 +1,92 @@
+---
+title: Revenue sunburst
+sidebar_label: Revenue sunburst
+description: Fission Charts reference for Revenue sunburst.
+---
+
+# Revenue sunburst
+
+![Revenue sunburst screenshot](/img/charts/sunburst-revenue.png)
+
+A revenue sunburst puts each contribution inside its parent category. This is useful when the question is how revenue is composed, rather than whether it is rising over time. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example uses net revenue in GBP for one reporting period. Keep currency, period and refund treatment consistent throughout the hierarchy. Mixing monthly subscriptions with annual services would produce plausible-looking parts of an invalid total.
+
+## Data model
+
+Build nested TreemapNode records from the financial aggregate, not from formatted currency strings. The root equals the sum of its children here. Keep the exact monetary values in the source model and use the chart's f32 values for presentation only.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SunburstSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Revenue".into(),
+    value: 120000.0,
+    children: vec![
+        TreemapNode {
+            name: "Subscriptions".into(),
+            value: 90000.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Services".into(),
+            value: 30000.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Net revenue by product line (GBP)")
+    .series(vec![SunburstSeries::new("Net revenue (GBP)")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RevenueSunburstChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![SunburstSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Reconcile child totals against the report and test refunds or adjustments before mapping them to a part-to-whole visual. Keep an exact-value table available; a radial segment is not a substitute for a financial total.
+
+Tags: `sunburst`, `revenue`.
+
+[Hierarchy and flow family overview](./overview)

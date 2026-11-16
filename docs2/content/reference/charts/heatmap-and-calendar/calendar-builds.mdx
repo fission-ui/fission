@@ -1,0 +1,56 @@
+---
+title: Build calendar
+sidebar_label: Build calendar
+description: Show confirmed daily build totals using an actual calendar series.
+---
+
+# Build calendar
+
+![Build calendar screenshot](/img/charts/calendar-builds.png)
+
+A build calendar can reveal which days carry the most pipeline work. It does not explain build quality by itself: ten failed builds and ten successful builds have the same volume.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct DailyBuildTotal {
+    pub date: String,
+    pub completed_builds: u32,
+}
+
+fission_component! {
+    pub BuildActivityCalendar<()> {
+        props {
+            title: String,
+            builds_label: String,
+            summary: TextContent,
+            start_date: String,
+            end_date: String,
+            days: Vec<DailyBuildTotal>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.summary.clone()),
+        Chart(
+            title: Some(report.title.clone()),
+            visual_map: Some(report.colour_scale.clone()),
+            series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries::new(&report.builds_label)
+                .range(&report.start_date, &report.end_date)
+                .data(report.days.iter().map(|day|
+                    (day.date.as_str(), day.completed_builds as f32)
+                ).collect()))],
+        ),
+    ])
+}
+```
+
+Put this in `widgets/build_activity_calendar.rs`. Supply validated ISO dates, one total per day and a complete reporting range. Aggregate build timestamps into an explicit reporting timezone before projection; midnight depends on that choice.
+
+The calendar currently treats dates without values as zero and duplicate dates overwrite earlier values. Therefore validate completeness and aggregate duplicates before rendering. A telemetry outage is not a quiet day; use a separate incomplete-report state rather than letting the default conceal it.
+
+Translate title, series caption and summary in the parent. The renderer's own weekday captions are currently fixed English, an existing localisation limit. Use a consistent colour scale for comparison, and retain exact counts and outcomes nearby. Test date boundaries, duplicates and incomplete data. The gallery fixture is independent.
+
+[Heatmap and calendar family overview](./overview)

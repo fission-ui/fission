@@ -1,0 +1,316 @@
+---
+layout: goal
+title: Package and prepare a Fission Android app for release
+description: "Configure Android signing and versions, verify the exact APK you install, and keep a Play AAB test separate from a local release build."
+goal: "Prepare signed Android release inputs and verify the identity, hash, signature and installation of the intended APK before testing an AAB through Play."
+path: /blog/package-and-prepare-a-fission-android-app-for-release/
+order: 63
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-package-and-prepare-a-fission-android-app-for-release
+outcomes:
+  - "Configure one application ID and intentional Android version values"
+  - "Keep keystore passwords out of source and release logs"
+  - "Verify and install the exact APK rather than rebuild a different candidate"
+  - "Distinguish APK checks, app-signing identity and Play internal-test delivery"
+---
+
+A release is an artifact you can identify and verify, not merely a successful build command. An APK installed on a phone and an AAB uploaded to Play are different outputs. Testing one does not automatically qualify the other, especially if another command rebuilt the app in between.
+
+Here, we configure Android packaging, keep signing inputs outside source control and collect evidence for exact files. The small review app records checks you performed; it does not pretend that ticking a box verifies a signature or that Fission readiness guarantees Play acceptance.
+
+## Prepare the Android project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) and [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) for the appropriate checks.
+
+```sh
+cargo install cargo-fission
+fission init android-package-and-prepare-a-fission-android-app-for-release
+cd android-package-and-prepare-a-fission-android-app-for-release
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+For an existing product, work in that product's checkout instead of generating another app. Keep the generated `src/main.rs`; the library below makes the review screen the app on native and Web targets.
+
+<!-- fission:step id="field-check-preview" -->
+## Record evidence without inventing verification
+
+The worksheet accepts an artifact digest and explicit self-reported checks. Its unit test validates only the digest's shape, not the file or signature. Notes are retained in this screen only; keep the actual package, manifest and verification results together outside the app.
+
+<Tabs>
+<TabItem label="src/validation.rs">
+<!-- fission:file path="src/validation.rs" -->
+```rust
+pub fn valid_artifact_digest(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn digest_entry_requires_a_complete_hex_digest() {
+        assert!(valid_artifact_digest(&"a".repeat(64)));
+        assert!(!valid_artifact_digest("not a digest"));
+        assert!(!valid_artifact_digest(&"z".repeat(64)));
+        assert!(!valid_artifact_digest(&"a".repeat(63)));
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::validation::valid_artifact_digest;
+
+fission_component! {
+    pub ReleaseReview<()> {
+        state {
+            digest: String = String::new(),
+            signature_checked: bool = false,
+            phone_checked: bool = false,
+            notes: String = String::new(),
+        }
+    }
+    view(review, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let valid_digest = valid_artifact_digest(review.digest.trim());
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        child: Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("release.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("release.context")),
+            TextInput(
+                label: Some(cx.tr("release.digest").into()),
+                helper_text: Some(cx.tr("release.digest_help").into()),
+                bind: review.digest,
+                semantics_identifier: "release.digest".to_string(),
+            ),
+            Checkbox(
+                label: Some(cx.tr("release.signature")),
+                checked: review.signature_checked,
+                bind(on_toggle): to(review.signature_checked),
+            ),
+            Checkbox(
+                label: Some(cx.tr("release.phone")),
+                checked: review.phone_checked,
+                bind(on_toggle): to(review.phone_checked),
+            ),
+            TextInput(
+                label: Some(cx.tr("release.notes").into()),
+                helper_text: Some(cx.tr("release.notes_help").into()),
+                multiline: true,
+                bind: review.notes,
+            ),
+            Text(cx.tr(if valid_digest && review.signature_checked && review.phone_checked {
+                "release.reported"
+            } else { "release.incomplete" })),
+            Text(cx.tr("release.not_verified")),
+        ]),
+    ).padding_all(tokens.spacing.l)))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+release.title: "Review one Android release artifact"
+release.context: "Record checks you performed on one exact APK or AAB. This worksheet does not inspect, sign, upload or publish a package."
+release.digest: "Artifact SHA-256"
+release.digest_help: "Enter the 64-character hash computed from the file you actually checked, not a different rebuild."
+release.signature: "I checked this artifact's signature and expected certificate."
+release.phone: "I completed the relevant phone test for this candidate."
+release.notes: "Verification notes"
+release.notes_help: "Record the source revision, version, format, device and result. Never enter passwords, keystore contents or private keys."
+release.reported: "The required checks are recorded for this worksheet."
+release.incomplete: "A complete artifact hash and both reported checks are still needed."
+release.not_verified: "These are your notes, not automated verification or Play approval. They are kept in this screen's memory only."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+release.title: "Revisar un artefacto de publicación Android"
+release.context: "Registra comprobaciones realizadas sobre un APK o AAB concreto. Esta hoja no inspecciona, firma, sube ni publica paquetes."
+release.digest: "SHA-256 del artefacto"
+release.digest_help: "Introduce el hash de 64 caracteres del archivo que comprobaste, no el de otra compilación."
+release.signature: "Comprobé la firma de este artefacto y el certificado esperado."
+release.phone: "Completé la prueba correspondiente en un teléfono para este candidato."
+release.notes: "Notas de verificación"
+release.notes_help: "Registra la revisión de código, versión, formato, dispositivo y resultado. Nunca introduzcas contraseñas, claves privadas ni el contenido del almacén de claves."
+release.reported: "Se registraron las comprobaciones necesarias en esta hoja."
+release.incomplete: "Todavía faltan un hash completo y ambas comprobaciones declaradas."
+release.not_verified: "Estas son tus notas, no una verificación automática ni una aprobación de Play. Solo permanecen en la memoria de esta pantalla."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod validation;
+mod translations;
+
+use app::ReleaseReview;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(ReleaseReview::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), ReleaseReview> {
+    let app = MobileApp::<(), _>::new(ReleaseReview::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(ReleaseReview::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod validation;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ReleaseReview::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Record a non-sensitive note about the candidate you intend to verify. Do not enter a keystore password or key material. Leave the checks clear until you have evidence from the real artifact and device.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Configure identity, version and signing sources
+
+Update the existing tables in `fission.toml`; do not append a second `[app]` table. Replace the example package namespace with one you own. Keep a released package's identity stable so the next package can be an update rather than a different app.
+
+```toml
+[app]
+name = "Delivery Notes"
+app_id = "com.yourcompany.deliverynotes"
+
+[package.android]
+package_name = "com.yourcompany.deliverynotes"
+version_code = 1
+version_name = "1.0.0"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+```
+
+This example makes the Android-specific version fields authoritative for Android. Do not accidentally retain a conflicting stale override whilst changing an app-wide version elsewhere. Increase the Android version code for successive releases; a user-facing version name alone does not establish update ordering. See [Android's versioning rules](https://developer.android.com/studio/publish/versioning).
+
+Keep the keystore outside the repository, restrict access to its owner or signing service and back it up according to the product's key-management policy. Supply its path and passwords from a secure local or CI secret source. Do not put passwords in TOML, shell history, screenshots, logs or this worksheet. The generated release build fails when required signing inputs are missing.
+
+For Google Play, an upload key and the key used for delivered APKs can be different under Play App Signing. Follow [Android's app-signing guidance](https://developer.android.com/studio/publish/app-signing) when generating or registering keys; do not replace an existing product's signing identity just to make a local installation succeed.
+
+Run readiness separately for each format, then package that format:
+
+```sh
+fission readiness package --project-dir . --target android --format apk
+fission package --project-dir . --target android --format apk --release
+fission readiness package --project-dir . --target android --format aab
+fission package --project-dir . --target android --format aab --release
+```
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Keep both package outputs and their emitted artifact manifests. Record the source revision, package/version, target, format and file digest for each candidate. A readiness result identifies configured inputs; it does not establish a correct signature, a successful phone test or Play approval.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify the exact APK, then test the Play-delivered build
+
+Use the artifact manifest emitted by `fission package` to locate the candidate. Do not guess an output path from a different Fission version, and do not call a later rebuild the same file merely because it has the same version name.
+
+Inspect the actual APK with Android build-tools and install that file:
+
+```sh
+apksigner verify --verbose --print-certs /absolute/path/to/candidate.apk
+adb devices -l
+adb -s <adb-serial> install -r /absolute/path/to/candidate.apk
+```
+
+Compare the reported certificate fingerprint with the expected certificate from your signing policy, and compare the file's SHA-256 with the manifest. On Linux use `sha256sum`; on macOS use `shasum -a 256`. Record the digest of the checked file, not one copied from another build.
+
+Launch the installed app and run the critical user journey, including a restart and any required permission path. A signature conflict is not a reason to uninstall a data-bearing app automatically; use a dedicated test device or resolve the signing mismatch deliberately.
+
+`fission run --release` is useful for building and launching a release, but it can rebuild. It does not establish that the exact previously packaged APK was installed.
+
+For the AAB, create an internal testing release in Play Console, upload the candidate, complete the required setup and signing steps, select authorised testers and share the opt-in link. Install through that test track on a phone and repeat the critical flow. The [official internal-testing guide](https://support.google.com/googleplay/android-developer/answer/9845334) describes the current process; do not confuse internal testing with a public production rollout.
+
+Keep release test control disabled. The example configures the Android control port only for debug builds, and release environments must not set `FISSION_TEST_CONTROL_PORT`.
+
+<!-- fission:checkpoint -->
+You have separate evidence for package configuration, artifact identity, APK signature, direct installation and Play delivery. The worksheet can record that evidence, but it is not its authority. Nothing on this page uploads or publishes a release automatically.
+
+### Current references
+
+- [Fission package command and release options](/reference/cli/overview/)
+- [Fission project configuration](/reference/config/fission-toml/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

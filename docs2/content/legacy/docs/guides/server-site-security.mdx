@@ -1,0 +1,185 @@
+---
+title: Server security
+description: Understand the server-shell protections Fission applies automatically and the configuration and lifecycle hooks you can use for production hardening.
+---
+
+# Server security
+
+Fission server apps are Rust HTTP services. Fission renders widget routes, drains jobs, signs server actions, manages the route-local browser bridge, and serves generated assets. You still choose the HTTP server, reverse proxy, authentication layer, database, and operational controls around it.
+
+Keep this distinction clear: Fission protects its framework boundary; your app protects its product boundary. Fission can reject a forged action token. It can’t know whether a user may buy a card, edit an order, or open an admin page unless your reducer, service, or HTTP stack checks that rule.
+
+## What Fission protects automatically
+
+Fission applies these protections to generated code and incoming requests:
+
+| Area | Automatic behavior |
+| --- | --- |
+| Server action signing | Action tokens are signed over the route, target node, typed action id, payload bytes, expiry, and nonce. Tampered tokens are rejected. |
+| Replay protection | `verify_once` stores recently used action token identities and rejects replay of the same token. |
+| Expiry | Server action tokens are short lived. Expired tokens are rejected before reducer dispatch. |
+| Body size | The renderer rejects action bodies larger than `MAX_SERVER_ACTION_BODY_BYTES`. HTTP adapters must also bound body collection before dispatch. |
+| Origin checks | `ServerRenderer::with_allowed_action_origin` rejects a supplied origin outside the allow-list. Requests without `Origin` need a separate host policy if you want to reject them. |
+| Private route caching | `ServerPrivate` routes are not inserted into the public full-page cache. |
+| Revalidated action safety | A revalidated page that renders signed action forms fails the render instead of caching request-specific tokens. |
+| Cache keys | Revalidated page cache keys include normalized query data, app identity, locale, theme fingerprint, build id, and declared vary headers. |
+| Asset paths | Generated asset serving rejects path traversal and serves only project/static/generated asset roots. |
+| Worker DOM policy | Browser workers can mutate only allowed nodes or semantic targets through the generated bridge. Unsafe URLs and inline event attributes are rejected. |
+| Island DOM replacement | Fission widget islands render HTML through the Fission HTML renderer; replacement operations are still checked by the bridge protocol before application. |
+| Session cookies | Session cookies are `HttpOnly`. When `signing_key_env` is set, cookie values are signed and tampered cookies are rejected. |
+
+These are framework guard rails, not a replacement for your product’s authorization rules. Test permissions, tenant isolation, payment rules, inventory transitions, and provider-specific calls from jobs and services.
+
+## Configure sessions deliberately
+
+`ServerPrivate` routes receive an opaque session ID through `ctx.session.id()`. Use it to look up data in your server-side store. Don’t put user data in the cookie.
+
+```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
+
+For local HTTP development, `secure = false` is fine. In production over HTTPS, set `secure = true` and provide `SHOP_SESSION_SECRET` through your process manager, container platform, or CI secret store. Use `same_site = "strict"` if the app never needs cross-site form or identity-provider flows. Use `same_site = "none"` only when cross-site embedding or auth redirects need it; Fission requires `secure = true` in that mode.
+
+## Restrict action origins
+
+Action tokens prevent forgery and tampering. An origin allow-list adds another useful check when you know which public origins should submit actions.
+
+```rust
+let renderer = ServerRenderer::configured(app)?
+    .with_allowed_action_origin("https://cards.example")
+    .with_allowed_action_origin("https://www.cards.example");
+```
+
+Requests without `Origin` are accepted even when an allow-list is configured.
+Some command-line clients omit it. If the product requires that header, reject
+its absence in HTTP middleware as a separate policy; the renderer's allow-list
+does not promise that check.
+
+## Use the existing Rust HTTP ecosystem
+
+You don’t need a new middleware ecosystem for Fission. The server shell has adapters that let you run `ServerRenderer` inside the HTTP stack you already use.
+
+Hyper is available with the normal `server` feature:
+
+```toml
+[dependencies]
+fission = { version = "0.16.0", features = ["server"] }
+```
+
+Axum and Actix adapters are feature-gated to avoid pulling those dependencies into projects that do not use them:
+
+```toml
+[dependencies]
+fission = { version = "0.16.0", features = ["server", "server-axum"] }
+axum = "0.8"
+```
+
+A small Axum host can wrap the Fission handler with ordinary middleware:
+
+```rust
+use axum::{
+    extract::Request, http::HeaderValue,
+    middleware::{self, Next}, routing::any, Router,
+};
+use fission::server::{axum_adapter, ServerRenderer};
+use std::sync::Arc;
+
+let renderer = Arc::new(ServerRenderer::configured(pokemon_card_store_server())?);
+let app: Router = Router::new()
+    .fallback(any(axum_adapter::handle))
+    .with_state(renderer)
+    .layer(middleware::from_fn(|request: Request, next: Next| async move {
+        let mut response = next.run(request).await;
+        response.headers_mut().insert(
+            "x-content-type-options",
+            HeaderValue::from_static("nosniff"),
+        );
+        response
+    }));
+```
+
+Use the same pattern for authentication, tracing, request IDs, compression, timeouts, body limits, CORS, and provider-specific middleware. Keep cross-cutting HTTP policy in the HTTP framework and typed product behaviour in Fission reducers, jobs, and services.
+
+This middleware example adds one response header; it is not an authentication
+or rate-limit implementation. Configure those policies deliberately. In
+particular, inspect the chosen adapter's oversized-body response: an adapter
+may reject or replace a body before the renderer sees it, so not every host
+will expose the renderer's `413` response unchanged.
+
+## Use hooks at the right layer
+
+There are three useful hook points.
+
+| Hook point | Use it for | Where it lives |
+| --- | --- | --- |
+| HTTP middleware | Rate limits, auth sessions, request logging, CORS, compression, TLS/proxy policy, body limits | Axum, Actix, Hyper, or your chosen Rust HTTP stack |
+| Server renderer builder | Action origin allow-list, cache provider, action signer, viewport defaults, render pass limit | `ServerRenderer` configuration before serving |
+| App model | Permission checks, tenant checks, cart rules, inventory updates, cache invalidation requests | Fission reducers, jobs, and services |
+
+Don’t enforce product authorization only by hiding a button. That improves the UI, but the reducer or service performing the mutation must still check whether the current session or user is allowed to do it.
+
+## Harden cache behavior
+
+Public cache entries must never contain private data. Use `ServerPrivate` for routes that depend on a session, account, tenant, cart, or permission. Use `Revalidated` only for pages safe to share.
+
+For shared deployments, prefer a cache pipeline:
+
+```toml
+[server.cache]
+provider = "pipeline"
+
+[[server.cache.layers]]
+name = "hot"
+provider = "moka"
+policy = "hot-only"
+max_capacity = 2048
+
+[[server.cache.layers]]
+name = "shared"
+provider = "redis"
+policy = "write-through"
+url_env = "REDIS_URL"
+prefix = "cards"
+```
+
+The route still owns its tags and vary fields. If changing a product should invalidate catalogue pages, tag those pages with `catalog` or `product:<id>` and invalidate that tag from the service that applies the product update.
+
+## Configure proxy-aware URLs only behind a trusted proxy
+
+Use `[server.http].base_url` when the public origin is stable:
+
+```toml
+[server.http]
+base_url = "https://cards.example"
+```
+
+If the same binary serves multiple hostnames behind infrastructure that sets forwarded headers, you can enable proxy-derived canonical URLs:
+
+```toml
+[server.http]
+trust_proxy_headers = true
+```
+
+Only enable this when your proxy overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`. Never trust forwarded headers sent directly from the public internet.
+
+## Test security paths explicitly
+
+Test the cases attackers and operational mistakes are likely to trigger:
+
+| Test | Expected result |
+| --- | --- |
+| Tampered action token | `403` and no reducer dispatch |
+| Replayed action token | First request succeeds, second request is rejected |
+| Oversized action body | Renderer returns `413`; verify the HTTP adapter's body collection policy separately. |
+| Wrong origin | `403` when an origin allow-list is configured |
+| Revalidated page with action form | Render fails before cache write |
+| Private route | No public full-page cache entry is written |
+| Path traversal asset request | `400` |
+| Worker operation outside policy | Bridge validation rejects the operation |
+| Tampered signed session cookie | New session is created and the tampered value is ignored |
+
+The server shell tests these framework behaviours. Your app still needs tests for product rules the framework can’t infer.

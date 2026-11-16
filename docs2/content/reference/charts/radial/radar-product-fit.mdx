@@ -1,0 +1,57 @@
+---
+title: Product fit radar
+sidebar_label: Product fit radar
+description: Fission Charts reference for Product fit radar.
+---
+
+# Product fit radar
+
+![Product fit radar screenshot](/img/charts/radar-product-fit.png)
+
+Product fit is an assessment against a defined user's needs, not a property a chart can calculate. The criteria and evidence have to precede the score. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This profile records four agreed evaluation dimensions on a 0–100 scale. Keep the user segment and scoring rule stable when comparing alternatives; different assumptions produce incomparable shapes.
+
+## Data model
+
+`RadarSeries` takes same-length value rows and uses a fixed percentage-like radius. The current renderer does not draw named spokes or per-row profile names. A four-element array fixes the component's dimension count, whilst surrounding text supplies their meaning.
+
+## Authoring from a Fission component
+
+The parent supplies the assessed scores and localized dimension explanation. Evidence and unavailable assessments remain in the evaluation model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductRequirementFit<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: [f32; 4],
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![RadarSeries::new(&report.series_label)
+                .data(vec![report.scores.to_vec()])
+                .into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test unknown scores and criteria-order changes. Provide all named values and supporting observations outside the image. A larger polygon does not establish a better product or a statistically measured probability of adoption.
+
+Tags: `radar`, `profile`.
+
+[Radial family overview](./overview)

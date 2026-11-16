@@ -1,0 +1,92 @@
+---
+title: Customer segment sunburst
+sidebar_label: Customer segment sunburst
+description: Fission Charts reference for Customer segment sunburst.
+---
+
+# Customer segment sunburst
+
+![Customer segment sunburst screenshot](/img/charts/sunburst-customer-segments.png)
+
+A customer-segment sunburst keeps a segment inside its parent grouping whilst showing its contribution to the total. That is useful when an account belongs to one primary reporting segment. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, each active account belongs to one plan at the reporting date. If accounts can appear in several overlapping segments, their counts do not form parts of one total; use separate comparisons instead of pretending the groups partition the customer base.
+
+## Data model
+
+Supply nested TreemapNode records with account counts as values. The root total matches the child counts in this example. Resolve the reporting-date and account-activity definitions before constructing the hierarchy.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SunburstSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Accounts".into(),
+    value: 250.0,
+    children: vec![
+        TreemapNode {
+            name: "Starter".into(),
+            value: 180.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Team".into(),
+            value: 70.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Active accounts by plan")
+    .series(vec![SunburstSeries::new("Active accounts")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CustomerSegmentSunburstChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![SunburstSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test plan changes and accounts inactive at the reporting date. Check that every counted account appears once, and keep exact counts in text when small segments matter.
+
+Tags: `sunburst`, `customer`.
+
+[Hierarchy family overview](./overview)

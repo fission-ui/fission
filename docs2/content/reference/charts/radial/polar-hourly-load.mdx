@@ -1,0 +1,57 @@
+---
+title: Hourly load polar bars
+sidebar_label: Hourly load polar bars
+description: Fission Charts reference for Hourly load polar bars.
+---
+
+# Hourly load polar bars
+
+![Hourly load polar bars screenshot](/img/charts/polar-hourly-load.png)
+
+A daily load pattern can reveal recurring busy hours. Keeping the hours in order preserves the cycle; sorting them by utilisation would remove the relationship this layout is meant to show. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This report uses mean CPU utilisation by hour for one worker pool. It is not request count or peak utilisation. State the aggregation and timezone before comparing days.
+
+## Data model
+
+`PolarBarSeries` assigns equal angular slots in input order and scales radial extent to the largest supplied value, not a fixed 100% radius. Labels are copied from the supplied pairs; the renderer does not parse hours.
+
+## Authoring from a Fission component
+
+Supply one validated value per reporting hour, with unavailable intervals handled by the report model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarBarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub WorkerPoolHourlyLoad<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            mean_cpu_percent_by_hour: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.mean_cpu_percent_by_hour.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PolarBarSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test daylight-saving days and missing hours. A full-height bar means the largest supplied value, not necessarily 100% CPU, so retain exact percentages outside the image and avoid comparing radius across separately scaled charts.
+
+Tags: `polar`, `bar`.
+
+[Radial family overview](./overview)

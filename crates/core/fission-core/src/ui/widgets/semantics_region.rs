@@ -55,6 +55,10 @@ pub struct SemanticsRegion {
     /// Current position within the range.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_value: Option<f32>,
+    /// Positive increment for a discrete numeric range. Leave unset for a
+    /// continuous range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_value: Option<f32>,
     /// Validation state for form-like composite controls.
     #[serde(default)]
     pub validation_state: TextFieldValidationState,
@@ -67,6 +71,11 @@ pub struct SemanticsRegion {
     /// Semantic nodes whose content or visibility this region controls.
     #[serde(default)]
     pub controls: Vec<WidgetId>,
+    /// Widget regions that receive pointer input through this semantic overlay.
+    ///
+    /// Useful for dismissal backdrops around popovers with multiple anchors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointer_passthrough: Vec<WidgetId>,
     /// Semantic nodes that provide this region's accessible label.
     #[serde(default)]
     pub labelled_by: Vec<WidgetId>,
@@ -246,6 +255,12 @@ impl SemanticsRegion {
         self
     }
 
+    /// Lets pointer events pass through this overlay over the listed widgets.
+    pub fn pointer_passthrough(mut self, targets: impl IntoIterator<Item = WidgetId>) -> Self {
+        self.pointer_passthrough = targets.into_iter().collect();
+        self
+    }
+
     /// Sets the semantic nodes that provide this region's accessible label.
     pub fn labelled_by(mut self, labelled_by: Vec<WidgetId>) -> Self {
         self.labelled_by = labelled_by;
@@ -325,10 +340,12 @@ impl Default for SemanticsRegion {
             min_value: None,
             max_value: None,
             current_value: None,
+            step_value: None,
             validation_state: TextFieldValidationState::Unvalidated,
             validation_message: None,
             modal: false,
             controls: Vec::new(),
+            pointer_passthrough: Vec::new(),
             labelled_by: Vec::new(),
             described_by: Vec::new(),
             active_descendant: None,
@@ -371,10 +388,14 @@ impl Lower for SemanticsRegion {
                 min_value: self.min_value,
                 max_value: self.max_value,
                 current_value: self.current_value,
+                step_value: self
+                    .step_value
+                    .filter(|step| step.is_finite() && *step > 0.0),
                 validation_state: self.validation_state,
                 validation_message: self.validation_message.clone(),
                 modal: self.modal,
                 controls: self.controls.clone(),
+                pointer_passthrough: self.pointer_passthrough.clone(),
                 labelled_by: self.labelled_by.clone(),
                 described_by: self.described_by.clone(),
                 active_descendant: self.active_descendant,
@@ -469,6 +490,7 @@ mod tests {
             "validation_message",
             "modal",
             "controls",
+            "pointer_passthrough",
             "labelled_by",
             "described_by",
             "active_descendant",
@@ -476,6 +498,7 @@ mod tests {
         ];
         let mut region = SemanticsRegion::default();
         region.validation_message = Some("Choose a supported file".to_string());
+        region.pointer_passthrough = vec![WidgetId::from_u128(1)];
         let mut encoded = serde_json::to_value(region).unwrap();
         let object = encoded.as_object_mut().unwrap();
         for field in added_fields {
@@ -495,6 +518,7 @@ mod tests {
         assert_eq!(decoded.validation_message, None);
         assert!(!decoded.modal);
         assert!(decoded.controls.is_empty());
+        assert!(decoded.pointer_passthrough.is_empty());
         assert!(decoded.labelled_by.is_empty());
         assert!(decoded.described_by.is_empty());
         assert_eq!(decoded.active_descendant, None);

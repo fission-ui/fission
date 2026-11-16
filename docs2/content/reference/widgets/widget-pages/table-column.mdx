@@ -1,0 +1,51 @@
+---
+title: TableColumn
+description: Describe one column inside a DataTable.
+slug: /widgets/table-column
+---
+# TableColumn
+
+`TableColumn` is the column-definition record used by [`DataTable`](/reference/widgets/data-table).
+
+It describes what a column represents, how wide it is, and whether the table
+should show that it can be sorted.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view setup: sort_updated is a bound action for this column.
+let column = TableColumn {
+    id: "updated_at".into(),
+    title: cx.tr("invoices.updated"),
+    width: 140.0,
+    sortable: true,
+    on_sort: Some(sort_updated),
+    sorted_ascending: Some(state.sort_ascending),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `String` | Stable application-level column identifier. | Required. Useful for your own sort and visibility logic. |
+| `title` | `String` | Header label shown at the top of the column. | Required. |
+| `width` | `f32` | Display width for the column. | Required. Choose widths deliberately for the data shape. |
+| `sortable` | `bool` | Whether the header exposes sorting affordance. | A sortable column with no action is disabled, not a working sort. |
+| `on_sort` | `Option<ActionEnvelope>` | Action dispatched when a sortable header is activated. | The app sorts its authoritative typed records. |
+| `sorted_ascending` | `Option<bool>` | Current active sort direction. | `None` means this column is not the active sort. |
+
+## Specific advice
+
+Keep ids stable even if titles are localized or renamed. Product logic should usually sort or hide columns by id, not by user-facing text.
+
+## Check the columns in context
+
+- Keep each column id stable if app state uses it for sorting or visibility; do not key that logic off a localized title.
+- Choose widths for the real headers and cell values, including longer translations.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`TableRow`](/reference/widgets/table-row), [`Text`](/reference/widgets/text), and [`Pagination`](/reference/widgets/pagination).

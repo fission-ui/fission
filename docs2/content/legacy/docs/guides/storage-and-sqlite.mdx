@@ -1,0 +1,242 @@
+---
+title: Storage and SQLite
+description: Persist typed values, run SQLite queries, compose transactions across modules, and replace Fission's default store provider.
+---
+
+# Storage and SQLite
+
+Fission uses one storage API on desktop, mobile, Web, Terminal, and SSR, with SQLite as the default provider. Native targets use an application-data file. Web runs the official SQLite WebAssembly build in a worker and persists through the Origin Private File System (OPFS). SSR uses a server-side database. Static sites have no runtime store, so these APIs aren’t available in a site-only build.
+
+Storage is opt-in. Apps that don’t use it don’t compile SQLite or ship its Web worker and Wasm binary. In a CLI-managed project, enable it with:
+
+```console
+fission add-capability storage --project-dir .
+```
+
+Keep the capability declaration even if you manage Cargo yourself: it also installs the Web worker, bridge, and SQLite WASM assets. Fission’s build commands check the resolved Web dependency graph and stop before compilation if `store-sqlite-web` and the `storage` capability disagree. The command above is safe to rerun. It enables `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the selected target features.
+
+Saving a preference has two separate outcomes: the interface can accept a new
+value immediately, but storage may still fail. Request storage through an
+effect and retain that distinction in app state. Reducers stay synchronous;
+completion returns through another action instead of blocking the interface.
+
+## Typed values in Fission's table
+
+The high-level API uses a Fission-owned table named `fission`. Keys are namespaced and typed in Rust. Fission serializes values, so providers receive an opaque `StoreValue` rather than depending on your Rust types.
+
+```rust
+// This excerpt belongs to an AppState with theme: String,
+// saving_theme: bool, and storage_error: Option<String>.
+
+#[fission_reducer(SaveTheme)]
+fn save_theme(
+    state: &mut AppState,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    if state.saving_theme { return; }
+    state.storage_error = None;
+    let saved = ctx.effects.bind(ThemeSaved, reduce!(theme_saved));
+    let failed = ctx.effects.bind(StorageFailed, reduce!(storage_failed));
+    let key = StoreKey::<String>::new("settings", "theme");
+    match ctx.effects.store().set(key, &state.theme) {
+        Ok(effect) => {
+            state.saving_theme = true;
+            effect.on_ok(saved).on_err(failed);
+        }
+        Err(error) => state.storage_error = Some(error.to_string()),
+    }
+}
+
+#[fission_reducer(ThemeSaved)]
+fn theme_saved(state: &mut AppState) {
+    state.saving_theme = false;
+}
+
+#[fission_reducer(StorageFailed)]
+fn storage_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.saving_theme = false;
+    state.storage_error = Some(ctx.input.store_error()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "Storage operation failed without a typed error".into()));
+}
+```
+
+The Compose view binds `SaveTheme` and disables another save while
+`saving_theme` is true. It renders pending and failure state explicitly.
+`set` can fail before queueing an operation while serialising a value; the
+error completion handles failures from the provider afterwards. Do not show
+Saved when only the in-memory preference has changed.
+
+Use `get`, `set`, `contains`, `remove`, `list_prefix`, or `batch`. A batch applies all of its sets and removals atomically.
+
+```rust
+let mut batch = StoreBatch::new();
+batch
+    .set(StoreSet::typed(StoreKey::new("draft", "title"), &title)?)
+    .set(StoreSet::typed(StoreKey::new("draft", "body"), &body)?)
+    .remove(StoreRemove {
+        address: StoreAddress::new("draft", "legacy-format"),
+    });
+
+// draft_saved and storage_failed are completion envelopes bound by the caller.
+ctx.effects.store().batch(batch)
+    .on_ok(draft_saved)
+    .on_err(storage_failed);
+```
+
+`StoreScope::Application` is the default. Use session, user, or named scopes when values belong to a different session or signed-in user. That gives you the right ownership without inventing key prefixes.
+
+In the callback reducer, `ctx.input.store_value::<T>()` decodes a successful
+`get`. An absent key is an `InvalidRequest` result, not `Some(T::default())`.
+Use `contains` first when initialising missing preferences is a normal path,
+then inspect `ctx.input.store_contains()` in its completion. `store_error()`
+returns typed provider failures; `store_removed()` reports whether removal
+found a value. Handle decoding failures as well as provider failures.
+
+Hydrate preferences once through the shell's `.with_startup_action(...)`,
+not during view construction. Keep the app pending until hydration completes.
+The startup action only queues a value: its reducer must be bound
+unconditionally by the initial component tree or registered on the shell.
+`#[fission_reducer]` generates the action and handler but does not register it.
+If edits and loads can overlap, attach operation identity so an old load cannot
+overwrite a newer edit.
+
+## Use SQLite without hiding SQLite
+
+The portable value API is convenient, but it doesn’t replace relational storage. Use `ctx.effects.sql()` for parameterized statements, queries, transactions, and migrations.
+
+```rust
+let statement = SqlStatement::new(
+    "INSERT INTO projects(name, archived) VALUES (:name, :archived)",
+)
+.bind_named(":name", project.name.clone())
+.bind_named(":archived", i64::from(project.archived));
+
+// The application defines and registers both completion handlers here.
+let inserted = ctx.effects.bind(ProjectInserted, reduce!(project_inserted));
+let failed = ctx.effects.bind(DatabaseFailed, reduce!(database_failed));
+ctx.effects
+    .sql()
+    .execute(statement)
+    .on_ok(inserted)
+    .on_err(failed);
+```
+
+Queries return `SqlRows`. Read a column by name or index with a target type
+implementing `FromSqlValue`. This decoding excerpt belongs in a fallible Rust
+helper; a synchronous reducer cannot use `?` unless it handles that helper's
+`Result` explicitly.
+
+```rust
+if let Some(rows) = ctx.input.sql_rows() {
+    for row in rows {
+        let id: i64 = row.get("id")?;
+        let name: String = row.get("name")?;
+        // Update application state with id and name.
+    }
+}
+```
+
+Always bind application data. Don’t interpolate values into the SQL string.
+
+## Build one transaction across modules
+
+`SqlTransaction` owns its statements and can be passed between modules. Its mutation methods take `&mut self`, so the code that starts the transaction doesn’t need to know every query another module will add.
+
+```rust
+fn add_audit_write(transaction: &mut SqlTransaction, message: String) {
+    transaction.execute(
+        SqlStatement::new("INSERT INTO audit(message) VALUES (?1)").bind(message),
+    );
+}
+
+let mut transaction = SqlTransaction::new();
+transaction.execute(
+    SqlStatement::new("UPDATE projects SET name = ?1 WHERE id = ?2")
+        .bind(new_name)
+        .bind(project_id),
+);
+add_audit_write(&mut transaction, "Project renamed".to_string());
+transaction.query(
+    SqlStatement::new("SELECT id, name FROM projects WHERE id = ?1").bind(project_id),
+);
+
+ctx.effects
+    .sql()
+    .transaction(transaction)
+    .on_ok(project_committed)
+    .on_err(database_failed);
+```
+
+Here `project_committed` and `database_failed` are bound completion envelopes.
+The provider runs every step in one SQLite transaction and returns one ordered
+result per step. If a step fails, SQLite rolls the whole transaction back.
+
+## Migrations
+
+Migrations use integer versions. Fission applies versions newer than SQLite’s `user_version`, updates the version in the same transaction, and rolls back the migration set if any script fails.
+
+```rust
+let mut migrations = SqlMigrations::new();
+migrations.add(SqlMigration::new(
+    1,
+    "create projects",
+    "CREATE TABLE projects(id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+))?;
+migrations.add(SqlMigration::new(
+    2,
+    "add project status",
+    "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+))?;
+
+ctx.effects.sql().migrate(migrations)
+    .on_ok(migrations_ready)
+    .on_err(database_failed);
+```
+
+The setup helper above returns `Result` because constructing the migration set
+can fail. Queue it from a startup reducer, bind both completion envelopes,
+and do not load tables until migration success. Migration execution is still
+asynchronous even though its description was assembled synchronously.
+
+## Providers and compile-time target support
+
+The storage capability selects the provider for each configured target. Native targets use `store-sqlite-native`; Web uses `store-sqlite-web`. The CLI manages both in multi-target projects. `site` selects neither, so a static-site-only project can’t enable runtime storage through this capability.
+
+Before a Web run, build, test, or package, Fission checks that the capability, Cargo features, bootstrap, and generated SQLite assets agree. It restores missing generated assets when the capability is declared. If you enable the feature directly or transitively without the capability, the CLI stops before Rust compilation and tells you to run `fission add-capability storage`. A build outside the Fission CLI still gets a typed configuration error from the Web provider if the JavaScript bridge is missing; it won’t fail with a `wasm-bindgen` trap.
+
+Web SQLite uses SQLite’s `opfs-wl` VFS. Tabs and windows keep separate connections; Web Locks coordinate access to the same app database. The generated bridge is idempotent within a page, and the path comes from `app.app_id`, so two Fission apps on one origin don’t accidentally share a database. The first run after upgrading from the older SAH-pool implementation migrates the database automatically. Close pages still running the old build during that one-time migration.
+
+The Web host must enable cross-origin isolation because `opfs-wl` uses `SharedArrayBuffer` and `Atomics.waitAsync`. `fission run`, `fission serve-web`, and the generated browser test server set the required headers:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Production hosting must set the same headers for the app and its same-origin assets. If the headers or browser APIs are missing, Fission reports a storage initialization error. It won’t silently fall back to non-persistent or single-tab storage.
+
+Applications can replace the default while keeping the same API:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_sql_store_provider(MyCompanyStore::new())
+    .run()
+```
+
+A key/value-only provider uses `with_store_provider` and implements `StoreProvider`. A provider passed to `with_sql_store_provider` must implement `SqlStoreProvider`, so an app that needs SQL can’t accidentally receive a provider without it.
+
+Provider selection is build configuration. If the app chooses a provider dynamically, Fission can’t verify that choice ahead of time. The shell will fail at startup or return a typed `Unavailable` error rather than silently dropping the operation.
+
+## Target behavior
+
+| Target | Default persistence | SQL | Notes |
+|---|---|---:|---|
+| macOS, Windows, Linux | SQLite application-data file | Yes | Override the file with `FISSION_STORE_PATH`. |
+| Android, iOS | SQLite application-data file | Yes | Uses the same native provider contract. |
+| Web | Official SQLite WASM in a worker, persisted with OPFS | Yes | Requires a browser with OPFS and WebAssembly support. Storage is scoped to the origin. |
+| Terminal | SQLite application-data file | Yes | Completion actions are delivered through the terminal event loop. |
+| SSR | Server-side SQLite application-data file | Yes | This is server state, not browser `localStorage` or cookies. Derive a session or user `StoreScope` from request state when records need per-request ownership. |
+| Static site | Unsupported | No | Rendering happens at build time and produces files with no runtime storage authority. |
+
+The `fission` table belongs to the high-level Store API. Application SQL should use application-owned table names. Fission may evolve its reserved schema independently of application migrations.

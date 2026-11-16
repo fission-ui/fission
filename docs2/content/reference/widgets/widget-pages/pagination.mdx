@@ -1,0 +1,88 @@
+---
+title: Pagination
+description: Let users move through multiple pages of results with explicit page state.
+slug: /widgets/pagination
+---
+# Pagination
+
+`Pagination` moves through a long result set one page at a time.
+
+Use it for search results, logs, invoices, or tables when people need to know
+where they are and move back and forth predictably. For continuous browsing,
+use an infinite-scroll pattern instead.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use std::sync::Arc;
+
+fission_component! {
+    pub InvoicePages<()> {
+        props {
+            page: usize,
+            page_count: usize,
+            select_page: Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+        }
+    }
+
+    view(pages, _state, _cx) =>
+        if pages.page_count > 0 {
+            Pagination(
+                current_page: pages.page,
+                total_pages: pages.page_count,
+                on_change: pages.select_page.clone(),
+            )
+        } else {
+            Spacer()
+        }
+}
+```
+
+The parent binds a page-selection factory and owns the invoice query. Empty
+results have no pager; show the actual empty state beside this component rather
+than inventing page one. For non-empty results, validate `1 <= page <= page_count`
+again when filters or the underlying count change.
+
+The reducer usually stores the current page and then refreshes the data set through a selector or follow-up effect.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `current_page` | `usize` | Currently selected page number. | The checked-in widget behaves as a 1-based pager. |
+| `total_pages` | `usize` | Total number of available pages. | Provide a value of at least `1` for normal use. |
+| `on_change` | `Option<Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a chosen page. | Called for previous, next, and numbered page buttons. |
+
+## State ownership and behavior
+
+The widget does not calculate paging for you. It only renders page controls from the current state. The reducer still decides what page data to load and how page numbers map to queries or offsets.
+
+The widget shows a sliding window of page buttons with ellipses when needed.
+Previous and next buttons disable themselves at the ends of the range. Their
+icons follow `Env::layout_direction`, so the same logical actions point in the
+correct physical direction in right-to-left layouts.
+
+The active `theme.components.pagination` recipe owns control geometry,
+typography, icon size, current-page treatment, ellipsis treatment, and spacing.
+Ordinary hover, pressed, focus, and disabled feedback comes from the active
+button recipe rather than a second interaction implementation.
+
+Directional controls use localized accessibility labels. Numbered controls use
+their visible number as the label, and the current page exposes selected state;
+disabled previous and next controls remain non-activatable at their respective
+boundaries.
+
+## Specific advice
+
+Use pagination only if the product already benefits from discrete pages. If users mostly scan continuously through a stream, pagination can feel like unnecessary friction.
+
+## Production checklist
+
+- Test empty, first, middle, and last pages after a filter/count change.
+- Reject stale page-load completions before replacing the visible query results.
+- Verify the selected-page semantics and directional controls in both layout directions.
+
+## Related
+
+[`DataTable`](/reference/widgets/data-table), [`Scroll`](/reference/widgets/scroll), [`LazyColumn`](/reference/widgets/lazy-column), and [`EmptyState`](/reference/widgets/empty-state).

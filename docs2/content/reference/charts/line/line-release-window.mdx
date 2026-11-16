@@ -1,0 +1,69 @@
+---
+title: Release window annotation
+sidebar_label: Release window annotation
+description: Fission Charts reference for Release window annotation.
+---
+
+# Release window annotation
+
+![Release window annotation screenshot](/img/charts/line-release-window.png)
+
+A release note gives readers context for a metric change without claiming the values explain themselves. It can identify a deployment window or a change in collection that matters to the report. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The note is explanatory context, not proof that a release caused the change. This plot-relative annotation does not automatically attach to a timestamp; use a MarkPoint when the event must stay tied to a particular sample.
+
+## Data model
+
+Pass the prepared response-time values and a short, already-resolved note. ChartGraphic uses fractional plot coordinates, and the example sets fractional text bounds explicitly. Keep a longer release explanation outside the chart.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching reporting labels. Keep loading and calculation errors in that parent workflow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ChartGraphic, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ReleaseWindowAnnotationChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            response_ms: Vec<f32>,
+            release_note: String,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+        let release_note = ChartGraphic {
+            width: 0.60,
+            height: 0.12,
+            ..ChartGraphic::text(0.05, 0.05, report.release_note.clone(), colors.text_primary)
+        };
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            graphics: vec![release_note],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.response_ms.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check the longest translated note at mobile width and after changing the visible data range. Ensure the text stays legible and preserve the full explanation as normal accessible content.
+
+Tags: `line`, `annotation`.
+
+[Line family overview](./overview)

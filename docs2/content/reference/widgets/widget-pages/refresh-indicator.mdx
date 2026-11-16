@@ -1,0 +1,91 @@
+---
+title: RefreshIndicator
+description: Add a pull-to-refresh affordance above scrollable content.
+slug: /widgets/refresh-indicator
+---
+# RefreshIndicator
+
+`RefreshIndicator` adds pull-to-refresh to scrollable content.
+
+The app owns the refresh status and pulled distance. Reducers update them from
+drag events, and `on_refresh` starts the refresh work.
+
+## Basic shape
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub RefreshableCatalog<()> {
+        props {
+            products: Widget,
+            status: RefreshIndicatorStatus,
+            pulled_extent: f32,
+            start_pull: ActionEnvelope,
+            update_pull: ActionEnvelope,
+            cancel_pull: ActionEnvelope,
+            refresh: ActionEnvelope,
+        }
+    }
+
+    view(catalog, _state, _cx) =>
+        RefreshIndicator(
+            catalog.products.clone(),
+            id: WidgetId::explicit("catalog.refresh"),
+            status: catalog.status,
+            pulled_extent: catalog.pulled_extent,
+            on_pull_start: catalog.start_pull.clone(),
+            on_pull_update: catalog.update_pull.clone(),
+            on_pull_cancel: catalog.cancel_pull.clone(),
+            on_refresh: catalog.refresh.clone(),
+        )
+}
+```
+
+The parent supplies one owned scrollable catalog and actions bound to its
+refresh lifecycle. The refresh reducer guards duplicate requests, marks
+`Refreshing`, and queues a job; both completion paths settle the indicator and
+preserve existing data on failure. A retry remains available without a pull gesture.
+
+`on_pull_update` receives pointer drag data through the reducer context. Store the accumulated pulled distance in state. When the user releases after crossing `trigger_distance`, `on_refresh` fires.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the refresh indicator and its progress animation. | Set this explicitly when a screen has more than one refresh region. |
+| `child` | `Widget` | Content being refreshed. | Usually a scrollable list or grid. |
+| `status` | `RefreshIndicatorStatus` | Current visual and interaction state. | Defaults to `Inactive`. |
+| `pulled_extent` | `f32` | Current pull distance in logical points. | Stored in app state. |
+| `trigger_distance` | `f32` | Pull distance needed to trigger refresh. | Defaults to `80.0`. |
+| `displacement` | `f32` | How far the child content is visually displaced. | Defaults to `40.0`. |
+| `edge_offset` | `f32` | Extra top offset before the indicator appears. | Defaults to `0.0`. |
+| `color` | `Option<Color>` | Progress arc color override. | Defaults to theme primary. |
+| `background_color` | `Option<Color>` | Indicator container background override. | Defaults to theme surface. |
+| `track_color` | `Option<Color>` | Progress track color override. | Defaults to theme border. |
+| `stroke_width` | `Option<f32>` | Progress stroke width. | `None` uses twice the theme's thick border width. |
+| `indicator_size` | `Option<f32>` | Inner progress indicator size. | `None` uses the refresh-indicator recipe. |
+| `on_pull_start` | `Option<ActionEnvelope>` | Action dispatched when dragging starts. | Usually sets status to `Drag`. |
+| `on_pull_update` | `Option<ActionEnvelope>` | Action dispatched for drag movement. | Usually updates `pulled_extent` and arms the refresh. |
+| `on_pull_cancel` | `Option<ActionEnvelope>` | Action dispatched when release does not refresh. | Usually resets status and pull distance. |
+| `on_refresh` | `Option<ActionEnvelope>` | Action dispatched when the pull is released while armed. | Usually starts a job/resource refresh. |
+
+## Status values
+
+| Status | Meaning |
+| --- | --- |
+| `Inactive` | No pull is active and the indicator is hidden. |
+| `Drag` | The user is pulling but has not crossed the trigger distance. |
+| `Armed` | The pull distance is enough to refresh if released. |
+| `Refreshing` | Refresh work is running. The indicator uses indeterminate progress. |
+| `Done` | Refresh has completed and the indicator can settle. |
+
+## Production checklist
+
+- Test sub-threshold cancellation, armed release, duplicate refresh, success, and failure.
+- Keep a labelled refresh action available without dragging.
+- Verify the indicator settles without discarding existing catalog data on a failed refresh.
+
+## Related
+
+[`FutureBuilder`](/reference/widgets/future-builder), [`CircularProgress`](/reference/widgets/circular-progress), [`Scroll`](/reference/widgets/scroll), and [Resources and async](/docs/guides/resources-and-async).

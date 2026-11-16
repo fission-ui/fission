@@ -1,0 +1,41 @@
+---
+title: Dynamic score gauge
+sidebar_label: Dynamic score gauge
+description: Update an explicitly defined 0–100 score through ordinary component inputs.
+---
+
+# Dynamic score gauge
+
+![Dynamic score gauge screenshot](/img/charts/dynamic-gauge-score.png)
+
+A changing score needs the same calculation rule on every update. Otherwise the dial can move even though the underlying condition has not improved or deteriorated.
+
+For setup completion, reuse `SetupCompletionScore` from [analytics score gauge](../analytics/analytics-gauge-score), placed in `widgets/setup_completion_score.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::setup_completion_score::SetupCompletionScore;
+
+fission_component! {
+    pub AccountSetupScore<()> {
+        props {
+            title: String,
+            completion_label: String,
+            completed_percent: f32,
+        }
+    }
+    view(setup, _state, _cx) => SetupCompletionScore {
+        title: setup.title.clone(),
+        score_label: setup.completion_label.clone(),
+        score_percent: setup.completed_percent,
+    }
+}
+```
+
+The current gauge renderer uses its first value on a fixed 0–100 dial. Validate finite in-range percentages and retain the numerator, denominator and definition in the report. No eligible tasks is an unavailable calculation, not automatically zero completion.
+
+Translate visible labels in the parent and update source state through reducers. Do not start a request from component conversion or assume the word dynamic enables streaming.
+
+Test a changed denominator, an unavailable refresh and exact completion, as well as the actual rendered update. Keep exact task counts accessible; the screenshot is a gallery fixture.
+
+[Dataset and dynamic family overview](./overview)

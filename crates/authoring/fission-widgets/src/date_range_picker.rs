@@ -33,6 +33,24 @@ pub struct DateRangePicker {
     pub on_close_end: Option<ActionEnvelope>,
 }
 
+impl Default for DateRangePicker {
+    fn default() -> Self {
+        Self {
+            id_start: WidgetId::from_u128(0),
+            id_end: WidgetId::from_u128(0),
+            start: None,
+            end: None,
+            is_start_open: false,
+            is_end_open: false,
+            on_change: None,
+            on_toggle_start: None,
+            on_toggle_end: None,
+            on_close_start: None,
+            on_close_end: None,
+        }
+    }
+}
+
 impl std::fmt::Debug for DateRangePicker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DateRangePicker")
@@ -43,7 +61,11 @@ impl std::fmt::Debug for DateRangePicker {
 }
 
 impl From<DateRangePicker> for Widget {
-    fn from(component: DateRangePicker) -> Self {
+    fn from(mut component: DateRangePicker) -> Self {
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id_start = WidgetId::derived(id.as_u128(), &[0]);
+            component.id_end = WidgetId::derived(id.as_u128(), &[1]);
+        }
         let (_, view) = fission_core::build::current::<()>();
         let this = &component;
         let gap = view.env().theme.tokens.spacing.s;

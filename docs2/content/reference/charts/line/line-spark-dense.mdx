@@ -1,0 +1,62 @@
+---
+title: Dense spark line
+sidebar_label: Dense spark line
+description: Fission Charts reference for Dense spark line.
+---
+
+# Dense spark line
+
+![Dense spark line screenshot](/img/charts/line-spark-dense.png)
+
+A dense telemetry line puts many regular observations into a limited space. Its purpose is to expose changes worth investigating, not to make every sample individually readable at once. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, regularly sampled CPU utilisation is shown with a window focused on the latest history. The normal chart still has axes; the gallery's spark-line name does not imply a separate axis-free control.
+
+## Data model
+
+Supply percent values and ordered sample labels. The current line renderer thins dense drawn paths to the plot width and hides point symbols when they would overlap. That is a display optimisation, not a substitute for keeping the source history or deciding how to aggregate it.
+
+## Authoring from a Fission component
+
+Prepare the source aggregate before building the chart. The component receives labels and values as props, with no asynchronous work hidden in the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DenseSparkLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            cpu_percent: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0).max(100.0)),
+            data_zoom: Some(DataZoom::new().start_percent(70.0).end_percent(100.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.cpu_percent.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a narrow chart, a single-sample spike and a long history. Verify the visible zoom range and preserve exact measurements for drill-down; do not claim a performance limit from this example without measuring representative data.
+
+Tags: `line`, `large`.
+
+[Line family overview](./overview)

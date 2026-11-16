@@ -13,7 +13,7 @@
 //! let dark = Theme::dark();
 //! ```
 
-pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
+pub use fission_ir::op::{BoxShadow, Color, Fill, GradientExtend, LineCap, LineJoin, Stroke};
 use fission_ir::LayoutDirection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

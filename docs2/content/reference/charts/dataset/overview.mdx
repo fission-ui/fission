@@ -1,0 +1,51 @@
+---
+title: Dataset
+sidebar_label: Overview
+description: Choose dataset projections and explicit update flows for coherent chart reports.
+---
+
+# Dataset
+
+A reporting table and a chart are different representations of the same facts. Keep the typed records as the authority, then choose a projection that answers the user's question. Replacing a projection when new data arrives does not require moving fetching or persistence into the widget.
+
+![Brush telemetry screenshot](/img/charts/dynamic-brush-telemetry.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Brush telemetry](./dynamic-brush-telemetry) | Point samples with brush selection. | Use it for interactive telemetry exploration. |
+| [Calendar dataset activity](./dataset-calendar-activity) | Date/value rows mapped to a calendar. | Use it when dates are a first-class data field. |
+| [Coverage dataset map](./dataset-map-coverage) | Region/value rows. | Use it when geographic views come from named records. |
+| [Dataset visual heatmap](./dataset-visual-heatmap) | Typed grid cells with values. | Use it when heatmaps come from generic records. |
+| [Filtered composition](./dataset-filtered-pie) | Filtered label/value rows. | Use it when the chart represents a selected dataset slice. |
+| [Flow dataset sankey](./dataset-flow-sankey) | Vertex and edge records. | Use it when flow data is modeled explicitly. |
+| [Live activation funnel](./dynamic-funnel-activation) | Changing stage values. | Use it when pipeline stages update during the session. |
+| [Live alert scatter](./dynamic-alert-scatter) | Highlighted alert points. | Use it for active events and outliers. |
+| [Live bar update](./dynamic-live-bars) | Changing category values. | Use it for updating status summaries. |
+| [Live line update](./dynamic-live-line) | Append-like ordered telemetry samples. | Use it for live monitoring views. |
+| [Live radar score](./dynamic-radar-score) | Changing dimension vectors. | Use it for live multidimensional scorecards. |
+| [Live status gauge](./dynamic-status-gauge) | Single changing status value. | Use it when a live number needs a strong visual shape. |
+| [Product trend dataset](./dataset-product-trends) | Tabular data encoded into line series. | Use it when named fields should drive series values. |
+| [Products by year dataset](./dataset-products-by-year) | Tabular product/year/value records. | Use it when several chart views should share one dataset. |
+| [Quality dataset parallel](./dataset-parallel-quality) | Rows with several numeric dimensions. | Use it when the same table powers multidimensional analysis. |
+| [Quarter timeline](./dynamic-timeline-quarters) | Period labels switching chart state. | Use it for period-over-period analysis. |
+| [Ranked dataset bars](./dataset-ranked-bars) | Rows sorted into category/value pairs. | Use it when rank comes from data transformation. |
+| [Risk bubbles dataset](./dataset-risk-bubbles) | Typed rows projected into x, y, and size. | Use it when one table feeds bubble visualization. |
+| [Stacked revenue dataset](./dataset-stacked-revenue) | Multiple encoded measures over one category axis. | Use it when stack series share the same source table. |
+| [Telemetry toolbox](./dynamic-toolbox-telemetry) | Telemetry report with application actions. | Use it when live charts need controlled exploration. |
+
+
+## Where the transformations happen
+
+Use the [products by year](./dataset-products-by-year) example for a complete Compose chart with an actual named-column dataset. The current resolver supports dataset encoding for bar and line series. Other examples deliberately project typed rows into their series' data types; a generic dataset does not automatically bind every chart family.
+
+Sorting, filtering and joining belong before rendering. For example, [ranked bars](./dataset-ranked-bars) sort whole records so labels do not become detached from values, whilst the [coverage map](./dataset-map-coverage) joins stable region IDs to supplied geometry. Invalid or missing records need an explicit policy: a numeric fallback to zero is not validation.
+
+## What live means here
+
+A live component receives completed snapshots from application state. Effects obtain external data; reducers accept the current completion and update that state. Keep request generations when a late response could overwrite newer results. The chart itself is not a transport, scheduler or persistence layer.
+
+Choose [brushing](./dynamic-brush-telemetry) for inspecting points, [quarter navigation](./dynamic-timeline-quarters) for selecting a report, and [application commands](./dynamic-toolbox-telemetry) for real export/reset behavior. Visual timeline or toolbox configuration alone does not implement those workflows.
+
+Translate visible titles, series names, units and summaries in the parent. Keep exact values available without relying only on colour, and test the source-to-projection mapping independently from screenshots. Gallery images use separate fixture data; they do not qualify the examples' interactions.

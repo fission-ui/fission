@@ -1,0 +1,62 @@
+---
+title: Capacity gauge
+sidebar_label: Capacity gauge
+description: Fission Charts reference for Capacity gauge.
+---
+
+# Capacity gauge
+
+![Capacity gauge screenshot](/img/charts/monitoring-capacity-gauge.png)
+
+A capacity gauge answers a narrow question: what proportion of the available capacity is currently occupied? It does not show whether the value is rising, how long it has been high or what caused it. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a gauge for one current utilisation percentage, such as occupied storage capacity. Keep a trend nearby if the rate of change matters. A large occupied quantity alone is not a high utilisation rate unless the available capacity is also known.
+
+## Data model
+
+`GaugeSeries` accepts labelled values as `Vec<(String, f32)>`; its `data` builder takes `Vec<(&str, f32)>`. The renderer uses only the first entry and maps its value onto a fixed 0–100 arc. Do not pass raw bytes or several independent capacity values and expect a multi-dial chart. Calculate the percentage in the data layer and handle zero capacity explicitly.
+
+## Authoring from a Fission component
+
+Pass one validated percentage from the current capacity snapshot. The accompanying text preserves the reported value even when it exceeds 100: the gauge arc clamps at its limits, so the arc alone cannot communicate over-allocation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StorageUtilisationGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            summary_pattern: String, // Contains the {value} placeholder.
+            value_label: String,
+            utilisation_percent: f32,
+        }
+    }
+    view(capacity, _state, _cx) => Column(
+        children: [
+            Text(
+                    capacity.summary_pattern.replace("{value}", &format!("{:.1}", capacity.utilisation_percent)),
+                ),
+            Chart(
+                title: Some(capacity.chart_title.clone()),
+                series: vec![GaugeSeries::new(&capacity.series_label)
+                    .data(vec![(&capacity.value_label, capacity.utilisation_percent)])
+                    .into()],
+            ),
+        ],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test empty data, zero utilisation, full capacity and an over-capacity value. Validate finite values and reject a negative used quantity before constructing the component. Provide occupied and available quantities, the observation time and the percentage as accessible content; do not rely on the needle angle or colour to explain a capacity problem.
+
+Tags: `monitoring`, `gauge`.
+
+[Monitoring family overview](./overview)

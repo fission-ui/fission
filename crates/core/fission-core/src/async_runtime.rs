@@ -18,6 +18,100 @@ pub trait JobSpec {
     const NAME: &'static str;
 }
 
+/// A component-owned, one-shot asynchronous operation whose executable
+/// handler accompanies its in-process job request.
+pub trait AppEffect: Send + Sync + 'static {
+    type Request: Serialize + DeserializeOwned + Send + 'static;
+    type Ok: Serialize + DeserializeOwned + Send + 'static;
+    type Err: Serialize + DeserializeOwned + Send + 'static;
+
+    const NAME: &'static str;
+
+    fn run(request: Self::Request, ctx: JobCtx) -> BoxFuture<Result<Self::Ok, Self::Err>>;
+}
+
+#[derive(Debug)]
+pub struct AppEffectJob<E>(PhantomData<fn() -> E>);
+
+impl<E: AppEffect> JobSpec for AppEffectJob<E> {
+    type Request = E::Request;
+    type Ok = E::Ok;
+    type Err = E::Err;
+
+    const NAME: &'static str = E::NAME;
+}
+
+#[derive(Debug)]
+pub struct InlineJobError {
+    pub payload: Option<Vec<u8>>,
+    pub message: Option<String>,
+}
+
+trait ErasedInlineJob: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>>;
+}
+
+struct TypedInlineJob<E>(PhantomData<fn() -> E>);
+
+impl<E: AppEffect> ErasedInlineJob for TypedInlineJob<E> {
+    fn name(&self) -> &'static str {
+        E::NAME
+    }
+
+    fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>> {
+        Box::pin(async move {
+            let request =
+                serde_json::from_slice::<E::Request>(&payload).map_err(|error| InlineJobError {
+                    payload: None,
+                    message: Some(error.to_string()),
+                })?;
+            match E::run(request, ctx).await {
+                Ok(value) => serde_json::to_vec(&value).map_err(|error| InlineJobError {
+                    payload: None,
+                    message: Some(error.to_string()),
+                }),
+                Err(error) => {
+                    let payload = serde_json::to_vec(&error).ok();
+                    Err(InlineJobError {
+                        message: payload
+                            .is_none()
+                            .then(|| "app effect error serialization failed".to_string()),
+                        payload,
+                    })
+                }
+            }
+        })
+    }
+}
+
+/// Type-erased executable attached to an in-process app-effect request.
+#[derive(Clone)]
+pub struct InlineJob(Arc<dyn ErasedInlineJob>);
+
+impl InlineJob {
+    pub fn for_effect<E: AppEffect>() -> Self {
+        Self(Arc::new(TypedInlineJob::<E>(PhantomData)))
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    pub fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>> {
+        self.0.run(payload, ctx)
+    }
+}
+
+impl std::fmt::Debug for InlineJob {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("InlineJob")
+            .field(&self.name())
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct JobRef<J: JobSpec> {
     pub name: &'static str,
@@ -109,11 +203,24 @@ impl<S: ServiceSpec> Clone for ServiceSlot<S> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobRequestPayload {
     pub job_name: String,
     pub payload: Vec<u8>,
+    #[serde(skip)]
+    pub inline: Option<InlineJob>,
 }
+
+impl PartialEq for JobRequestPayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.job_name == other.job_name
+            && self.payload == other.payload
+            && self.inline.as_ref().map(InlineJob::name)
+                == other.inline.as_ref().map(InlineJob::name)
+    }
+}
+
+impl Eq for JobRequestPayload {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ServiceStartPayload {
@@ -166,9 +273,19 @@ impl JobCtx {
         }
     }
 
+    /// Registers a one-shot stream produced by this job.
+    ///
+    /// Return the resulting [`DataStreamId`] from the job, then pass it to a
+    /// capability or another job that consumes the stream. This keeps large
+    /// generated outputs out of serialized job results and action payloads.
+    pub fn register_data_stream(&self, stream: BoxFissionDataStream) -> DataStreamId {
+        self.data_streams.register(stream)
+    }
+
     /// Opens a runtime-owned data stream for this job.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -176,9 +293,26 @@ impl JobCtx {
         self.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
+    }
+}
+
+#[cfg(test)]
+mod job_context_tests {
+    use super::JobCtx;
+    use crate::data_stream::{empty_data_stream, DataStreamRegistry};
+
+    #[test]
+    fn job_can_register_a_stream_for_a_later_capability() {
+        let streams = DataStreamRegistry::new();
+        let job = JobCtx::new_runtime(1, streams.clone());
+        let stream_id = job.register_data_stream(empty_data_stream());
+
+        let capability = JobCtx::new_runtime(2, streams);
+        assert!(capability.open_data_stream(stream_id).is_ok());
+        assert!(capability.open_data_stream(stream_id).is_err());
     }
 }
 
@@ -258,7 +392,8 @@ impl<S: ServiceSpec> ServiceCtx<S> {
 
     /// Opens a runtime-owned data stream for this service.
     ///
-    /// Streams are one-shot by default; opening consumes the stream handle.
+    /// Streams are one-shot by default. The stream's registry entry is released
+    /// when the returned stream is dropped.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -266,7 +401,7 @@ impl<S: ServiceSpec> ServiceCtx<S> {
         self.inner.data_streams.open(id)
     }
 
-    /// Releases a stream without consuming it.
+    /// Releases a stream that will not be opened.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.inner.data_streams.release(id)
     }

@@ -1,0 +1,49 @@
+---
+title: Brush telemetry
+sidebar_label: Brush telemetry
+description: Resolve brushed telemetry against the snapshot that produced the marks.
+---
+
+# Brush telemetry
+
+![Brush telemetry screenshot](/img/charts/dynamic-brush-telemetry.png)
+
+Brushing is useful when an operator wants to inspect a cluster of unusual telemetry rather than read every sample. It creates a selection over the displayed snapshot; it does not turn plot indices into durable event IDs.
+
+The [brush inspector](../components-and-interaction/brush-select) owns the selection count and decodes the action input. Put it in `widgets/brush_inspector.rs`, then select a rectangular brush for two-dimensional telemetry:
+
+```rust
+use fission::prelude::*;
+use fission::charts::ChartBrush;
+use crate::widgets::brush_inspector::BrushInspector;
+
+fission_component! {
+    pub TelemetrySelection<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            samples_label: String,
+            latency_label: String,
+            payload_label: String,
+            selection_pattern: String,
+            samples: Vec<(f32, f32)>,
+        }
+    }
+    view(panel, _state, _cx) => BrushInspector {
+        chart_id: panel.chart_id,
+        title: panel.title.clone(),
+        orders_label: panel.samples_label.clone(),
+        value_axis_label: panel.payload_label.clone(),
+        item_axis_label: panel.latency_label.clone(),
+        summary_pattern: panel.selection_pattern.clone(),
+        samples: panel.samples.clone(),
+        brush: ChartBrush::rect(),
+    }
+}
+```
+
+Supply translated labels and a translated summary pattern containing `{count}`. That text makes the result visible without relying only on the shaded region. The helper's historic `orders_label` property is a series caption, not a restriction on the records it can display.
+
+When new telemetry arrives, either hold the report still whilst inspecting it or version the snapshot used to resolve selected items. Looking up the same indices in a newly sorted vector could inspect different events. Test selection, clearing, empty samples and replacement during a drag. Brushing does not itself fetch or persist telemetry, and the gallery uses its own data.
+
+[Dataset family overview](./overview)

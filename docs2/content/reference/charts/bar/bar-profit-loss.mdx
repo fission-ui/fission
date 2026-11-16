@@ -1,0 +1,65 @@
+---
+title: Profit and loss bars
+sidebar_label: Profit and loss bars
+description: Compare signed period results against the same zero baseline.
+---
+
+# Profit and loss bars
+
+![Profit and loss bars screenshot](/img/charts/bar-profit-loss.png)
+
+Profit and loss share a reference point: zero. A positive bar represents profit for a reporting period, whilst a negative bar represents loss. Keeping them on one scale makes the direction and size of each result visible without treating losses as positive magnitudes in another chart.
+
+Define the accounting measure before presenting it. Operating profit, gross profit and cash movement are not interchangeable simply because each can be positive or negative.
+
+## Compose example
+
+The parent supplies net results calculated by its accounting model, converted into one display unit. Do not use the chart's `f32` values as the authoritative money representation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct PeriodResult {
+    pub period: String,
+    pub net_result: f32,
+}
+
+fission_component! {
+    pub PeriodResultsChart<()> {
+        props {
+            title: String,
+            result_label: String,
+            unit_label: String,
+            rows: Vec<PeriodResult>,
+        }
+    }
+    view(results, _state, _cx) {
+        let periods = results.rows.iter().map(|row| row.period.as_str()).collect();
+        let amounts: Vec<f32> = results.rows.iter().map(|row| row.net_result).collect();
+        let bound = amounts.iter()
+            .fold(1.0_f32, |bound, amount| bound.max(amount.abs()));
+    } => Chart(
+        title: Some(results.title.clone()),
+        x_axis: Some(Axis::category(periods)),
+        y_axis: Some(Axis::value().min(-bound).max(bound)
+            .name(results.unit_label.clone())),
+        series: vec![
+            Series::Bar(BarSeries::new(&results.result_label).data(amounts)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. Signed `BarSeries::data` values cross the zero baseline without a separate loss-series type. The explicit symmetric limits avoid giving equal profit and loss amounts different visual weight.
+
+## Checks
+
+Validate finite amounts and a consistent reporting period before rendering. An incomplete period or unavailable result needs an explicit qualification; inserting zero would imply a known break-even result.
+
+Provide the numeric results and accounting measure in accessible text or a table. Direction should remain understandable without a red/green colour distinction. Test positive, negative and break-even results and inspect the rendered baseline with the intended currency-unit labels. The gallery screenshot uses sample data.
+
+Tags: `bar`, `negative`.
+
+[Bar family overview](./overview)

@@ -1,0 +1,107 @@
+---
+title: Resolution path sankey
+sidebar_label: Resolution path sankey
+description: Fission Charts reference for Resolution path sankey.
+---
+
+# Resolution path sankey
+
+![Resolution path sankey screenshot](/img/charts/sankey-resolution-path.png)
+
+A support-resolution diagram explains where a ticket can go after triage. This is useful for describing a process even before reporting how often each path is taken. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The current Sankey implementation uses two columns and equal-width, unweighted bands. Keep this example to a single branching decision. It does not claim that the two routes handle equal numbers of tickets or take the same time.
+
+## Data model
+
+Represent triage and its destinations as identified GraphNode records, with GraphEdge source and target references. Resolution duration and ticket counts remain separate measures; neither is a field on these edges.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SankeySeries::nodes` | `Vec<GraphNode>` | Supplies stable IDs and readable labels. |
+| `SankeySeries::edges` | `Vec<GraphEdge>` | Connects source and target IDs. |
+| `Chart::series` | `Vec<Series>` | Presents the relationship series without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+let routes = SankeySeries::new("Support routes")
+    .nodes(vec![
+        GraphNode {
+            id: "triage".into(),
+            name: "Triage".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "self-service".into(),
+            name: "Self-service".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "specialist".into(),
+            name: "Specialist".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "triage".into(),
+            target: "self-service".into(),
+        },
+        GraphEdge {
+            source: "triage".into(),
+            target: "specialist".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Routes from support triage")
+    .series(vec![routes.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records before building the chart, then pass them into a presentation component. Loading and failure states belong to the parent workflow rather than an implicit request made during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ResolutionPathSankeyChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![SankeySeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that escalated and self-service routes remain distinct after labels change. If the app reports actual resolutions, test re-opened tickets and rerouting in the aggregation layer rather than inferring them from the diagram.
+
+Provide a readable connection list as an alternative to tracing lines. If a selection opens details, dispatch it through a reducer and identify the record by its current stable ID.
+
+Tags: `sankey`, `support`.
+
+[Hierarchy family overview](./overview)

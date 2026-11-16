@@ -1,0 +1,189 @@
+---
+title: Card
+description: Group related content in a design-system surface, from one padded child to a sectioned header, body, and footer.
+slug: /widgets/card
+---
+# Card
+
+`Card` is the compact one-child surface for related content. `CardLayout` is the
+sectioned form for product cards with a header, body, footer, and optional
+separator insets.
+
+Use a card to make a meaningful group easier to scan. Do not put every row in a
+card: when every element becomes a separate surface, hierarchy disappears.
+
+## Compact card
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub BillingSummary<()> {
+        props { next_invoice: String }
+    }
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Card(
+        child: Column(
+            gap: tokens.spacing.s,
+            children: [
+                Text(cx.tr("billing.title")),
+                Text(summary.next_invoice.clone()),
+            ],
+        ),
+        pattern: CardPattern::Plain,
+    )
+}
+```
+
+The parent supplies a localized invoice summary; the card owns only its
+presentation. `Card` applies the resolved surface padding around its single
+child, so a second padded container is unnecessary.
+
+## Sectioned card anatomy
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub NotificationSettingsCard<()> {
+        props {
+            form: Widget,
+            menu: Widget,
+            actions: Widget,
+        }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let header = CardHeader::new(CardTitle::new(cx.tr("notifications.title")))
+            .description(CardDescription::new(cx.tr("notifications.description")))
+            .action(card.menu.clone());
+        let content = CardContent::new(card.form.clone());
+        let footer = CardFooter::new(vec![card.actions.clone()]);
+    } =>
+    CardLayout(
+        header: Some(header),
+        content: Some(content),
+        footer: Some(footer),
+        separated: true,
+        size: ComponentSize::Md,
+        pattern: CardPattern::Raised,
+        separator_inset: tokens.spacing.m,
+    )
+}
+```
+
+The parent supplies the form and controls, including their state bindings and
+actions. Define the two `notifications.*` labels in the app's translation
+bundles. The card supplies the section layout, not another settings-state owner.
+`CardHeader`, `CardContent`, and `CardFooter` are typed region values with private
+layout fields, so construct those with their public Rust constructors in setup.
+`CardLayout` is the widget; its public fields use ordinary Compose syntax.
+
+| Type | Responsibility |
+| --- | --- |
+| `CardLayout` | Owns one card surface and arranges the optional regions in header, content, footer order. |
+| `CardHeader` | Arranges a flexible heading group beside an optional, top-aligned trailing action. Use `new`/`description` for standard regions or `custom`/`custom_description` for retained widgets. |
+| `CardTitle` | Applies the active primary text and medium-weight body typography to a standard title. |
+| `CardDescription` | Applies the active secondary text and regular body typography to supporting copy. |
+| `CardContent` | Applies the card's region padding without changing the supplied body widget. |
+| `CardFooter` | Applies region padding and arranges action children in a compact, end-aligned row beneath one optional top boundary. |
+
+Use `CardTitle` and `CardDescription` for the standard treatment. Start with
+`CardHeader::custom(...)` and use `.custom_description(...)` when the heading
+needs badges, status, richer text, or a different semantic heading structure.
+Regions own their padding so separators can span the complete surface width or
+use a consistent inset without negative margins or nested cards.
+
+## Field reference
+
+`Card` fields:
+
+| Field | Type | Meaning | Default |
+| --- | --- | --- | --- |
+| `child` | `Widget` | The one retained child inside the padded surface. | An empty row in `Default`. |
+| `pattern` | `CardPattern` | Design-system surface pattern. | `Raised`. |
+| `interactive` | `bool` | Allows the design system's real-hover recipe to appear. | `false`. It does not add an action or focus behavior. |
+| `selected` | `bool` | Applies the design system's controlled selected treatment. | `false`. It does not add selection behavior. |
+
+`CardLayout` fields and builders:
+
+| Field | Type | Meaning | Default |
+| --- | --- | --- | --- |
+| `header` | `Option<CardHeader>` | Optional heading and trailing-action region. | `None`. |
+| `content` | `Option<CardContent>` | Optional primary content region. | `None`. |
+| `footer` | `Option<CardFooter>` | Optional end-aligned action region. | `None`. |
+| `separated` | `bool` | Enables the shared divider between adjacent regions when no footer-specific boundary applies. | `true`; an explicit footer recipe boundary remains part of the footer treatment. |
+| `size` | `ComponentSize` | Shared density for region padding, gaps, and standard title/description typography. | `Md`; the default design also defines `Sm`, and unsupported slots fall back to `Md`. |
+| `pattern` | `CardPattern` | The same surface treatment used by `Card`. | `Raised`. |
+| `interactive` | `bool` | Allows the hover recipe while the card is actually hovered. | `false`. |
+| `selected` | `bool` | Applies the controlled selected recipe to the surface. | `false`. |
+| `separator_inset` | `Option<f32>` | Overrides every region boundary with one symmetric horizontal inset. | `None`; each boundary uses its design-system recipe margin. |
+
+`CardPattern` provides `Plain`, `Raised`, `Tinted`, and `Elevated`. The default
+design keeps `Raised` flat; choose `Elevated` when rest elevation is part of the
+intended hierarchy. A custom DSP can give any pattern a different recipe.
+
+## Design-system, interaction, and semantics
+
+Both APIs resolve the same `theme.components.card` recipe. Background, border,
+radius, padding, and every shadow layer come from the chosen pattern, with the
+hover recipe layered only while `interactive` is true and the pointer is really
+over the card. The selected recipe is layered independently when `selected` is
+true, so controlled selection remains visible during hover. Named-region
+background, gap, typography, padding, and separator recipes remain
+design-system controlled. The surface clips its content to the resolved radius.
+
+Each present region owns its density padding. Separator margins come from the
+active recipe unless `separator_inset` supplies one consistent layout-specific
+override. A footer recipe border is interpreted as one top boundary rather than
+a four-sided inset border. When that footer boundary is absent, a separated
+layout falls back to the shared section-separator recipe. This always produces
+exactly one boundary above the footer. With shared separators disabled,
+`CardLayout` uses the density gap between regions, preserves outer vertical
+padding, and keeps region-specific horizontal padding; an explicit footer
+boundary in the active recipe remains part of the footer treatment.
+
+`interactive` is visual feedback, not activation. A card does not become a
+button, receive focus, or dispatch an action merely because that flag is true.
+Likewise, `selected` is controlled presentation; the owner remains responsible
+for changing selection state.
+Compose it with `Pressable` or a more specific control when the whole surface
+represents an action, and give that control an
+accessible name. The card surface adds no semantic role of its own; text,
+controls, and any explicit semantic regions supplied inside it retain theirs.
+
+## Responsive and target behavior
+
+Cards impose no fixed width. They follow parent constraints, while their region
+padding remains design-system controlled. The standard footer remains a row;
+if actions need to stack on a narrow screen, pass a responsive retained layout
+as the footer's child rather than duplicating the card surface.
+
+The footer's End alignment is logical: it mirrors with the active layout
+direction while retained source and keyboard order remain unchanged. Paragraph
+bidi and shaping remain a separate `TextDirection` concern.
+
+Cards register no widget-owned motion. Any `Motion`, `Presence`, or ripple
+behavior composed around or inside one still follows the global
+`Env::motion_preference`, so a card does not need its own preference branch.
+Their layout and paint lower through the shared target model. Static site and
+SSR can render the same surface and content, while actions composed inside it
+still need the corresponding interactive runtime or browser island.
+
+## Production checklist
+
+- Choose the pattern from information hierarchy, not decoration alone.
+- Use `CardLayout` when regions need independent composition or separators; do
+  not nest several `Card` values to imitate one sectioned card.
+- Treat `interactive` as hover presentation only and add a semantic input
+  widget for activation.
+- Test long headings, translated descriptions, custom header actions, and
+  footer actions at the narrowest supported width.
+- Give repeated or reorderable cards a stable explicit widget identity derived
+  from durable data.
+
+## Related
+
+[`Container`](/reference/widgets/container), [`Button`](/reference/widgets/button), [`Alert`](/reference/widgets/alert), and [`EmptyState`](/reference/widgets/empty-state).

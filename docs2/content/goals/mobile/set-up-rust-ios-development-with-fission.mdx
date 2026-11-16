@@ -1,0 +1,293 @@
+---
+layout: goal
+title: "Set up Rust iOS development with Fission: Xcode, simulator and iPhone"
+description: "Set up Xcode, the iOS Simulator and Rust targets so you can build a Fission iOS app."
+goal: Select Xcode, install the Rust device and simulator targets, verify the iOS Simulator SDK, and distinguish simulator runs from signed iPhone builds.
+path: /blog/set-up-rust-ios-development-with-fission/
+order: 18
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: set-up-rust-ios-development-with-fission
+outcomes:
+  - Implement the feature in shared Rust application code
+  - Explain the state, component and host behaviour involved
+  - Verify both target workflows and follow physical-device checks when the task requires them
+---
+A simulator build and an iPhone build share application code but do not establish the same result. The simulator needs its own SDK and Rust target; a physical-device build also needs signing and a device installation path. Combining those into a single “iOS works” check makes failures harder to locate.
+
+We will first select the Xcode installation, verify the simulator SDK and install the matching Rust targets. Only after the app launches in the simulator will we consider the additional requirements for an iPhone.
+
+At the end, you should be able to launch the app in an iOS Simulator. Installing on a physical iPhone also needs Apple signing and Developer Mode. The browser preview cannot verify either path; use the terminal and Xcode checks in this guide.
+
+## Create the project and add the target
+
+Create a project and add iOS as a target. Fission generates the host; you do not need to create a second Xcode app by hand.
+
+```sh
+cargo install cargo-fission
+fission init set-up-rust-ios-development-with-fission
+cd set-up-rust-ios-development-with-fission
+fission add-target ios --project-dir .
+cargo add serde_yaml
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+```
+
+### Select Xcode and verify the simulator SDK
+
+Install Xcode from Apple, open it once to finish component setup, and select the Xcode installation that owns the simulator runtime.
+
+```sh
+xcode-select -p
+xcodebuild -version
+xcrun --sdk iphonesimulator --show-sdk-path
+xcrun simctl list devices available
+fission doctor ios --project-dir .
+```
+
+If `xcode-select -p` points at Command Line Tools instead of Xcode, select the installed Xcode app with `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`, then repeat the checks. If `simctl list devices available` shows no bootable iPhone, install a simulator runtime from Xcode's Platforms settings.
+
+### Run in the simulator and package for a phone
+
+```sh
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission package --project-dir . --target ios --format ipa --release
+```
+
+`fission run --target ios` launches a simulator; it does not install the app on a physical iPhone. For a phone, configure Apple development signing, enable Developer Mode, build the signed IPA above, then install it from Xcode's Devices and Simulators window. Passing `fission doctor` proves the local tools are present; a simulator launch does not prove phone signing works.
+
+
+## Files created by Fission
+
+This is the tree Fission creates. Shared app code lives in `src/`; the generated host in `platforms/ios/` handles launch and packaging.
+
+```text
+set-up-rust-ios-development-with-fission/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   ├── app.rs                 # Compose checklist
+│   └── translations.rs        # embedded language bundles
+└── platforms/
+    └── ios/                  # generated iOS host
+```
+
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a separate service or effect module only when the feature needs one, and name it for the job it does. The generated host handles iOS launch and packaging; shared components do not need to import iOS APIs.
+
+<!-- fission:step id="start-screen" -->
+## Create the app screen
+
+The screen gives the native build something concrete to launch. Its checkboxes record your review of terminal output; they cannot inspect Xcode or establish that signing worked. Replace both the component and normal `src/lib.rs` entrypoint below, keeping the generated `src/main.rs`.
+
+The three flags are retained interface memory, not application configuration. Reloading or restarting clears them. The app installs English and Spanish messages and starts explicitly in English.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub ToolchainChecklist<()> {
+        state {
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
+        }
+    }
+    view(setup, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::ToolchainChecklist> {
+    let app = MobileApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "iOS development checklist"
+setup.summary: "Keep track of the checks you have run in your own terminal."
+setup.manual: "Mark these only after reviewing the command output."
+setup.tools.check: "Xcode installation selected"
+setup.tools.detail: "Run xcode-select -p and xcodebuild -version on your Mac."
+setup.runtime.check: "Simulator runtime available"
+setup.runtime.detail: "Check xcrun simctl list devices available and the iphonesimulator SDK."
+setup.targets.check: "Rust targets installed"
+setup.targets.detail: "Check aarch64-apple-ios and aarch64-apple-ios-sim with rustup target list --installed."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This is a manual checklist, not a toolchain diagnostic. Your marks are local to this session; reloading clears them."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista de desarrollo para iOS"
+setup.summary: "Anota las comprobaciones que has ejecutado en tu propio terminal."
+setup.manual: "Marca cada casilla tras revisar la salida del comando."
+setup.tools.check: "Instalación de Xcode seleccionada"
+setup.tools.detail: "Ejecuta xcode-select -p y xcodebuild -version en tu Mac."
+setup.runtime.check: "Entorno del simulador disponible"
+setup.runtime.detail: "Comprueba xcrun simctl list devices available y el SDK iphonesimulator."
+setup.targets.check: "Destinos de Rust instalados"
+setup.targets.detail: "Comprueba aarch64-apple-ios y aarch64-apple-ios-sim con rustup target list --installed."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista es manual; no diagnostica las herramientas. Las marcas son locales a la sesión y se borran al recargar."
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::ToolchainChecklist)
+        .with_env(translations::create_env())
+        .with_title("Toolchain checklist")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Verify the iOS toolchain
+
+The browser preview does not inspect your Mac. First run `fission doctor` to confirm Xcode, the Simulator SDK and both Rust targets are discoverable. Then list the available simulators and launch the app:
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+```
+
+A successful `fission run` confirms the app builds and opens in the iOS Simulator. It does not verify signing or physical iPhone behaviour. `fission test` runs the generated host smoke test; `cargo test` only runs tests you have added to the project.
+
+
+To verify a signed physical-device build, choose an Apple development team in Xcode, use a unique bundle identifier, connect and trust the iPhone, enable Developer Mode when iOS asks, then install the signed IPA through Xcode Devices and Simulators. Keep signing keys and profiles outside source control. The simulator workflow remains the ordinary `fission run --target ios` path.
+
+
+### Current references
+
+These references explain the API contract behind the example and the target-specific behavior to verify:
+
+- [Fission iOS target guide](/reference/platform/targets/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:step -->

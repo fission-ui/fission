@@ -1,0 +1,98 @@
+---
+title: Resource saturation
+sidebar_label: Resource saturation
+description: Fission Charts reference for Resource saturation.
+---
+
+# Resource saturation
+
+![Resource saturation screenshot](/img/charts/heatmap-resource-saturation.png)
+
+A resource matrix places several utilisation measures on the same timeline. This helps show which resource approached its limit first, rather than treating every slow response as a CPU problem. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example uses hourly peak utilisation. Peaks and averages answer different questions; an average can hide a brief saturated period. Utilisation alone also does not prove contention, so inspect waiting or latency measurements before attributing a failure to it.
+
+## Data model
+
+The cell value is a utilisation percentage for a resource and hour. Normalise each resource against its own meaningful capacity before plotting. Raw bytes of memory and CPU percentages cannot share one numeric scale.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Resource utilisation by hour (%)")
+    .x_axis(Axis::category(vec!["09:00", "10:00", "11:00"]))
+    .y_axis(Axis::category(vec!["CPU", "Memory"]))
+    .visual_map(VisualMap::new().min(0.0).max(100.0))
+    .series(vec![HeatmapSeries::new("Utilisation (%)")
+        .data(vec![
+            (0, 0, 42.0),
+            (1, 0, 91.0),
+            (2, 0, 77.0),
+            (0, 1, 58.0),
+            (1, 1, 72.0),
+            (2, 1, 81.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ResourceSaturationChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test capacity changes and missing measurements. Verify that the aggregation preserves the intended peak rather than accidentally averaging it away, and provide exact values for near-limit cells.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `resource`.
+
+[Heatmap family overview](./overview)

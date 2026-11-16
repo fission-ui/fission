@@ -1,0 +1,36 @@
+---
+title: GoldenOptions
+description: Configure golden image comparisons for LiveTest screenshots.
+---
+
+# GoldenOptions
+
+`GoldenOptions` configures screenshot comparison for `fission-test-driver`.
+
+Use it when a visual output should remain stable across changes. The two limits
+answer different questions: how much may one colour channel differ, and how
+many pixels may exceed that tolerance? Raising the second limit can hide a small
+but important missing control, so review the difference rather than treating a
+passing percentage as design approval.
+
+```rust
+let report = client.compare_golden(
+    "tests/goldens/home-desktop.png",
+    Some(".artifacts/diffs/home-desktop.png"),
+    GoldenOptions {
+        channel_tolerance: 8,
+        max_changed_percent: 0.2,
+    },
+)?;
+assert!(report.changed_percent <= 0.2);
+```
+
+`max_changed_percent: 0.2` means 0.2%, not 20%. Defaults are a channel tolerance of
+2 and a changed-pixel budget of 0.1%. Images with different dimensions fail the
+comparison rather than being scaled to fit.
+
+`GoldenReport` contains `width`, `height`, `changed_pixels`, `total_pixels`,
+`changed_percent`, and `maximum_channel_delta`. Its `passed(options)` method
+compares the measured percentage with the budget. `compare_golden` already
+returns an error when that budget is exceeded, after writing the requested diff
+image; the extra assertion above only makes this test's chosen limit explicit.

@@ -1,0 +1,40 @@
+---
+title: Traffic lines
+sidebar_label: Traffic lines
+description: Compare link traffic measured over one reporting interval.
+---
+
+# Traffic lines
+
+![Traffic lines screenshot](/img/charts/lines-traffic.png)
+
+Traffic volume is only comparable when the unit and interval match. A link carrying bytes per second cannot be ranked against another carrying requests accumulated since startup.
+
+Use the typed connection model from [lines](../geographic-and-route/lines-basic) in `widgets/service_connections.rs`:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub struct LinkTraffic {
+    pub link_id: String,
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+    pub bytes: u64,
+    pub interval_seconds: u32,
+}
+
+pub fn bytes_per_second(link: &LinkTraffic) -> Option<ServiceConnection> {
+    (link.interval_seconds > 0).then(|| ServiceConnection {
+        id: link.link_id.clone(),
+        from: link.from,
+        to: link.to,
+        traffic: link.bytes as f32 / link.interval_seconds as f32,
+    })
+}
+```
+
+Pass valid projections to `ServiceConnections`, with translated labels explaining the rate and reporting window. A zero-length interval returns no value, not an invented zero throughput. Report missing samples separately.
+
+The renderer normalises intensity against the largest value, so a line with the same throughput may look different in another snapshot. Keep exact rates nearby and do not interpret line thickness as utilisation without dividing by the link's actual capacity. This is a fitted connection schematic, not a geographical overlay. Test zero bytes, absent intervals and rate changes; the gallery uses separate inputs.
+
+[Geo and route family overview](./overview)

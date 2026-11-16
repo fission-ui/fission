@@ -1,0 +1,45 @@
+---
+title: Timeline
+sidebar_label: Timeline
+description: Use ChartTimeline as an indicator driven by actual application snapshot selection.
+---
+
+# Timeline
+
+![Timeline screenshot](/img/charts/timeline-events.png)
+
+A timeline indicator can show which snapshot is being inspected, but it is not a dataset loader or playback engine. `ChartTimeline` currently stores labels, a current index and an optional interval; rendering the labels does not implement selection or timed playback.
+
+The [release snapshot example](./component-timeline-release) shows actual previous/next reducers. Put its `ReportSnapshot` and `SnapshotBrowser` definitions in `widgets/snapshot_browser.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::snapshot_browser::{ReportSnapshot, SnapshotBrowser};
+
+fission_component! {
+    pub IncidentSnapshotReview<()> {
+        props {
+            heading: TextContent,
+            previous_label: TextContent,
+            next_label: TextContent,
+            empty_label: TextContent,
+            jobs_label: String,
+            snapshots: Vec<ReportSnapshot>,
+        }
+    }
+    view(review, _state, _cx) => SnapshotBrowser {
+        heading: review.heading.clone(),
+        previous_label: review.previous_label.clone(),
+        next_label: review.next_label.clone(),
+        empty_label: review.empty_label.clone(),
+        measure_label: review.jobs_label.clone(),
+        snapshots: review.snapshots.clone(),
+    }
+}
+```
+
+For an incident review, snapshots can represent before, during and after measurements under the same queue-counting rule. Supply translated labels and explicit timestamps in the source report; equal spacing between stops does not imply equal elapsed time.
+
+The selected index must choose both the data and indicator. Do not change the highlight alone and call it scenario playback. Test first/last boundaries, empty data and a changed snapshot list using actual button activation. Provide exact snapshot values outside the graphic. The gallery image is not proof of an interaction contract.
+
+[Components and interaction family overview](./overview)

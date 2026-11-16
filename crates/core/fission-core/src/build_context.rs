@@ -83,6 +83,32 @@ impl<S: GlobalState> BuildCtx<S> {
         }
     }
 
+    /// Binds an action to one semantic control instance.
+    ///
+    /// The effective action identity includes the action type, owning widget,
+    /// and caller-supplied semantic name. This permits independently retained
+    /// component instances to bind different handlers for the same action
+    /// payload type without exposing a raw [`ActionId`] override.
+    pub fn bind_scoped<A: Action, H>(
+        &mut self,
+        owner: WidgetId,
+        name: &str,
+        action: A,
+        handler: H,
+    ) -> ActionEnvelope
+    where
+        H: IntoHandler<S, A> + Send + Sync + 'static,
+    {
+        let action_id = scoped_action_id::<A>(owner, name);
+        self.registry
+            .register_bound_scoped::<A, H>(action_id, handler);
+
+        ActionEnvelope {
+            id: action_id,
+            payload: action.encode(),
+        }
+    }
+
     pub fn register<A: Action, H>(&mut self, handler: H)
     where
         H: IntoHandler<S, A> + Send + Sync + 'static,
@@ -178,6 +204,16 @@ impl<S: GlobalState> BuildCtx<S> {
     }
 }
 
+fn scoped_action_id<A: Action>(owner: WidgetId, name: &str) -> ActionId {
+    ActionId::from_name(&format!(
+        "fission.scoped_action.v1:{}:{}:{}:{}",
+        A::static_id().as_u128(),
+        owner.as_u128(),
+        name.len(),
+        name,
+    ))
+}
+
 /// Moves each anchored portal after the portal whose tree contains its anchor.
 ///
 /// A popup's content is built, and any popup inside it registered, before the popup itself
@@ -210,5 +246,66 @@ fn order_nested_portals(entries: &mut Vec<PortalEntry>) {
         };
         let entry = entries.remove(index);
         entries.insert(host_index, entry);
+    }
+}
+
+#[cfg(test)]
+mod scoped_binding_tests {
+    use super::BuildCtx;
+    use crate::{Action, ActionId, ActionInput, GlobalState, WidgetId};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Default)]
+    struct State(Vec<&'static str>);
+
+    impl GlobalState for State {}
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct First;
+
+    impl Action for First {
+        fn static_id() -> ActionId {
+            ActionId::from_name("scoped_binding_tests::First")
+        }
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Second;
+
+    impl Action for Second {
+        fn static_id() -> ActionId {
+            ActionId::from_name("scoped_binding_tests::Second")
+        }
+    }
+
+    fn first(state: &mut State, _: First) {
+        state.0.push("first");
+    }
+
+    fn second(state: &mut State, _: Second) {
+        state.0.push("second");
+    }
+
+    #[test]
+    fn scoped_bindings_include_owner_name_and_action_type() {
+        let owner = WidgetId::explicit("owner");
+        let mut build = BuildCtx::<State>::new();
+        let first_a = build.bind_scoped(owner, "submit", First, first as fn(&mut State, First));
+        let first_b = build.bind_scoped(owner, "cancel", First, first as fn(&mut State, First));
+        let second_a = build.bind_scoped(owner, "submit", Second, second as fn(&mut State, Second));
+
+        assert_ne!(first_a.id, first_b.id);
+        assert_ne!(first_a.id, second_a.id);
+
+        let mut state = State::default();
+        build
+            .registry
+            .dispatch_with_input(&mut state, &first_a, owner, &ActionInput::None)
+            .unwrap();
+        build
+            .registry
+            .dispatch_with_input(&mut state, &second_a, owner, &ActionInput::None)
+            .unwrap();
+        assert_eq!(state.0, ["first", "second"]);
     }
 }

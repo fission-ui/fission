@@ -1,0 +1,94 @@
+---
+title: Org tree
+sidebar_label: Org tree
+description: Fission Charts reference for Org tree.
+---
+
+# Org tree
+
+![Org tree screenshot](/img/charts/tree-org.png)
+
+An organisation tree explains reporting relationships by preserving the parent of each team. It is useful when a reader needs to find where a team belongs, not just how many teams exist. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+A tree gives each child one parent. That is appropriate for a reporting line, but not for every form of ownership or collaboration. Use a graph if a team genuinely has several relationships that must be shown together.
+
+## Data model
+
+Supply nested TreemapNode records to TreeSeries. The values are structural placeholders here, not headcounts; the relationship comes from the children field. Keep headcount as a separately named measure if the report needs it.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreeSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Product".into(),
+    value: 2.0,
+    children: vec![
+        TreemapNode {
+            name: "Engineering".into(),
+            value: 1.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Design".into(),
+            value: 1.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Product team reporting structure")
+    .series(vec![TreeSeries::new("Reporting lines")
+        .data(nodes)
+        .radial(false)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub OrgTreeChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .radial(false)
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check reorganisations, empty teams and repeated team names. Give readers a text version of the reporting hierarchy, and avoid treating visual distance between branches as an organisational distinction.
+
+Tags: `tree`, `hierarchy`.
+
+[Hierarchy and flow family overview](./overview)

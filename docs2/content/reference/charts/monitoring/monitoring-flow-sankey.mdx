@@ -1,0 +1,56 @@
+---
+title: Operational flow sankey
+sidebar_label: Operational flow sankey
+description: Fission Charts reference for Operational flow sankey.
+---
+
+# Operational flow sankey
+
+![Operational flow sankey screenshot](/img/charts/monitoring-flow-sankey.png)
+
+An operational flow view can show which ingress routes lead to which processing queues. That relationship is useful even when the application is not trying to compare traffic quantities. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The current `SankeySeries` is a connection diagram, not a quantitative flow model. Its edges contain source and target IDs but no weight, and the renderer uses fixed-width links. A wider-looking route must not be presented as carrying more requests.
+
+## Data model
+
+Use `GraphNode` for the ingress and destination nodes and `GraphEdge` for each permitted route. The current layout arranges nodes in two columns; do not describe it as an automatic multi-stage processing pipeline. Keep request counts and rates in the operational model and present them in a separate labelled table or quantitative chart.
+
+## Authoring from a Fission component
+
+The component accepts a prepared two-stage routing topology. The parent remains responsible for validating IDs, keeping the reporting snapshot current and explaining whether a link is configured routing or observed traffic.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub IngressQueueRoutes<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            ingress_and_queues: Vec<GraphNode>,
+            configured_routes: Vec<GraphEdge>,
+        }
+    }
+    view(routes, _state, _cx) => Chart(
+        title: Some(routes.chart_title.clone()),
+        series: vec![SankeySeries::new(&routes.series_label)
+            .nodes(routes.ingress_and_queues.clone())
+            .edges(routes.configured_routes.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test missing endpoints, disconnected nodes and changes to the configured routes. Inspect a populated two-column view for crossed or hidden links, and provide the same connections as accessible text. If the requirement is to compare transferred bytes, request counts or conserved quantities, this unweighted API is not sufficient to make that claim.
+
+Tags: `monitoring`, `sankey`.
+
+[Monitoring family overview](./overview)

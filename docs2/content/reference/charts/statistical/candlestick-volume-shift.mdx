@@ -1,0 +1,67 @@
+---
+title: Volume shift candlestick
+sidebar_label: Volume shift candlestick
+description: Fission Charts reference for Volume shift candlestick.
+---
+
+# Volume shift candlestick
+
+![Volume shift candlestick screenshot](/img/charts/candlestick-volume-shift.png)
+
+A price candle can show directional movement and range, but it does not contain traded volume. The historical gallery name must not lead an application to infer a fifth encoded measure. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this component for price intervals. If an investigation needs volume shifts, add a separate volume report aligned to the same buckets; candle height and body width are not volume.
+
+## Data model
+
+The only rendered row values are `[open, close, low, high]`. Validate price bounds and interval alignment. Preserve no-trade buckets under an explicit policy rather than inserting fabricated movement.
+
+## Authoring from a Fission component
+
+The parent supplies exact-source price projections, localized labels and suitable theme colours.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PriceIntervalsForVolumeReview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test flat price with high volume and large price movement with low volume in the surrounding report. They must remain distinct facts. Keep exact price/volume values and timestamps accessible outside the chart.
+
+Tags: `candlestick`, `volume`.
+
+[Statistical family overview](./overview)

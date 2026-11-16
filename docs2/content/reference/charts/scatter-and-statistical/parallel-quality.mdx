@@ -1,0 +1,57 @@
+---
+title: Quality parallel coordinates
+sidebar_label: Quality parallel coordinates
+description: Fission Charts reference for Quality parallel coordinates.
+---
+
+# Quality parallel coordinates
+
+![Quality parallel coordinates screenshot](/img/charts/parallel-quality.png)
+
+Several quality checks may describe each production batch, but their raw measurements need not share a scale. A parallel view can compare prepared assessment scores whilst preserving each batch as one row. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use four clearly defined 0–100 scores with a consistent direction. Keep specification failures visible even when the remaining dimensions score well; an appealing profile does not establish compliance.
+
+## Data model
+
+`ParallelSeries` draws equal-length rows across a fixed 0–100 range. It does not provide per-axis labels or automatic dimension brushing/filtering. Supply those explanations and any working filters in the surrounding application.
+
+## Authoring from a Fission component
+
+The parent calculates scores and supplies localized dimension names in the explanation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BatchQualityParallel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores.iter().map(|row| row.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test missing measurements, a failed tolerance and changed dimension order. Offer exact named measurements and an accessible way to filter batches; the drawing alone is not a working quality-analysis interface.
+
+Tags: `parallel`, `quality`.
+
+[Scatter and statistical family overview](./overview)

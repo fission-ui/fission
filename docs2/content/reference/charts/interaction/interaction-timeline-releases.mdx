@@ -1,0 +1,96 @@
+---
+title: Timeline releases
+sidebar_label: Timeline releases
+description: Fission Charts reference for Timeline releases.
+---
+
+# Timeline releases
+
+![Timeline releases screenshot](/img/charts/interaction-timeline-releases.png)
+
+A release comparison should keep its benchmark workload stable whilst changing the release under review. That lets a developer compare the same endpoints rather than two unrelated sets of measurements. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The chart's timeline is an indicator, not a complete release selector. This component uses an actual Compose button and reducer to choose the snapshot, then supplies its index to ChartTimeline. The data change is explicit application behaviour.
+
+## Data model
+
+Supply comparable endpoint measurements for the earlier and later releases. Keep endpoint order, units and benchmark conditions aligned. A release label alone cannot make measurements from different workloads comparable.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartTimeline::new` | Labels | Defines the displayed periods. |
+| `ChartTimeline::current_index` | `usize` | Identifies the currently displayed period. |
+| `Chart::timeline` | `ChartTimeline` | Adds the visual period indicator. |
+
+`play_interval_ms` exists in the data type, but the current renderer does not run an automatic playback timer. Do not use it as a substitute for an application-controlled state transition.
+
+## Authoring from a Fission component
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, ChartTimeline};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TimelineReleasesChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            period_labels: Vec<String>,
+            show_earlier_label: String,
+            show_later_label: String,
+            earlier: Vec<f32>,
+            later: Vec<f32>,
+        }
+        state { latest: bool = true }
+    }
+    view(period, _state, _cx) {
+        let index = if period.latest { 1 } else { 0 };
+        let values = if period.latest {
+            period.later.clone()
+        } else {
+            period.earlier.clone()
+        };
+    } =>
+        Column(
+            children: [
+                Button(
+                    key: "change-period",
+                    child: Text(if period.latest {
+                        period.show_earlier_label.clone()
+                    } else {
+                        period.show_later_label.clone()
+                    }),
+                    on_press: reduce { period.latest = !period.latest; },
+                ),
+                Chart(
+                    title: Some(period.chart_title.clone()),
+                    x_axis: Some(Axis::category(
+                        period.category_labels.iter().map(String::as_str).collect(),
+                    )),
+                    y_axis: Some(Axis::value()),
+                    timeline: Some(ChartTimeline::new(period.period_labels.iter().map(String::as_str).collect())
+                        .current_index(index)),
+                    series: vec![BarSeries::new(&period.series_label)
+                        .data(values)
+                        .into()],
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Verify that selecting the other release updates every endpoint value and the visible period. Include missing benchmark results explicitly rather than shifting later endpoint values into the wrong positions.
+
+Use a normal semantic control for the period choice, as above, rather than treating painted timeline labels as buttons. Check the period names and values at both mobile and desktop widths.
+
+Tags: `timeline`, `release`.
+
+[Interaction family overview](./overview)

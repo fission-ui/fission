@@ -1,0 +1,44 @@
+---
+title: Toolbox actions
+sidebar_label: Toolbox actions
+description: Implement report commands with actual semantic buttons rather than painted toolbox labels.
+---
+
+# Toolbox actions
+
+![Toolbox actions screenshot](/img/charts/toolbox-actions.png)
+
+A chart utility operation is still an application operation. Resetting filters changes state; saving a report may write a file or start a download and can fail. Those behaviours need real commands, not only labels drawn near a plot.
+
+The current toolbox action list paints its labels but does not route their operations. Use ordinary Compose controls for the commands the report actually supports.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default)]
+pub struct OrdersReportState {
+    pub minimum_order_value: Option<f32>,
+}
+impl GlobalState for OrdersReportState {}
+
+fission_component! {
+    pub ResetOrderReport<OrdersReportState> {
+        props { label: TextContent }
+    }
+    view(reset, state, _cx) => Button(
+        child: Text(reset.label.clone()),
+        disabled: state.minimum_order_value.is_none(),
+        on_press: reduce {
+            state.minimum_order_value = None;
+        },
+    )
+}
+```
+
+The chart and result list should derive from the same report state, so this reset changes both. The parent supplies a translated label; no separate chart-specific command runtime is needed.
+
+For export, the [report commands example](../analytics/analytics-toolbox-report) demonstrates action props and pending state. Queue the operation through an effect with explicit success and failure handling rather than writing during component conversion.
+
+Test the action's effect on the report, not only its appearance. Enable real zoom and brush mechanisms through their own APIs, and do not call the decorative toolbox a working reset/save/zoom/brush set. The screenshot shows that decoration.
+
+[Components and interaction family overview](./overview)

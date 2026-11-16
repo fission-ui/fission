@@ -239,6 +239,37 @@ pub fn with_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Runs widget conversion without inheriting an enclosing explicit widget ID.
+///
+/// Authoring layers use this when a concrete widget already carries its own
+/// explicit ID. Structural identity remains active, while `current_widget_id`
+/// behaves exactly as it does for a directly converted widget value.
+#[doc(hidden)]
+pub fn without_widget_id<R>(f: impl FnOnce() -> R) -> R {
+    let saved = BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow_mut()
+            .last_mut()
+            .map(|scope| std::mem::take(&mut scope.widget_id_stack))
+    });
+
+    struct RestoreGuard(Option<Vec<crate::WidgetId>>);
+    impl Drop for RestoreGuard {
+        fn drop(&mut self) {
+            if let Some(saved) = self.0.take() {
+                BUILD_SCOPES.with(|scopes| {
+                    if let Some(scope) = scopes.borrow_mut().last_mut() {
+                        scope.widget_id_stack = saved;
+                    }
+                });
+            }
+        }
+    }
+
+    let _guard = RestoreGuard(saved);
+    f()
+}
+
 /// Runs child construction beneath an automatically derived structural scope.
 ///
 /// The scope participates in local-state identity but is not an explicit
@@ -605,6 +636,25 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         H: crate::registry::IntoHandler<S, A> + Send + Sync + 'static,
     {
         self.with_exact_ctx(|ctx| ctx.bind(action, handler))
+    }
+
+    /// Binds an action to one semantic control instance.
+    ///
+    /// Unlike [`Self::bind`], handlers with the same action payload type are
+    /// isolated by the owning widget and semantic name. The framework derives
+    /// the effective action ID and always includes the action type.
+    pub fn bind_scoped<A, H>(
+        &self,
+        owner: crate::WidgetId,
+        name: &str,
+        action: A,
+        handler: H,
+    ) -> crate::ActionEnvelope
+    where
+        A: crate::Action,
+        H: crate::registry::IntoHandler<S, A> + Send + Sync + 'static,
+    {
+        self.with_exact_ctx(|ctx| ctx.bind_scoped(owner, name, action, handler))
     }
 
     pub fn register<A, H>(&self, handler: H)

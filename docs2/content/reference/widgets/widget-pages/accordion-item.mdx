@@ -1,0 +1,53 @@
+---
+title: AccordionItem
+description: Describe one collapsible section inside an Accordion.
+slug: /widgets/accordion-item
+---
+# AccordionItem
+
+`AccordionItem` describes one section in an [`Accordion`](/reference/widgets/accordion).
+It does not render by itself: build the items and pass them to `Accordion`.
+Your app owns which sections are open and what happens when someone toggles one.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let item = AccordionItem {
+    title: cx.tr("search.advanced_filters"),
+    content: AdvancedFilters.into(),
+    is_expanded: view.state().advanced_filters_open,
+    on_toggle: Some(toggle_advanced_filters_action),
+};
+```
+
+This excerpt assumes an app `AdvancedFilters` component and a bound toggle
+action. `AccordionItem` is data passed to `Accordion`, not a widget with a
+`Default` implementation, so an ordinary Rust struct is the appropriate form.
+The toggle reducer still decides whether this section opens or closes.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Text shown in the accordion header. | Required. Keep titles short and scannable. |
+| `content` | `Widget` | Body content shown when the item is expanded. | Required. This can be any widget subtree. |
+| `is_expanded` | `bool` | Whether the content is currently visible. | Controlled by app state. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action fired when the header is pressed. | Defaults to `None`. Usually flips `is_expanded` in the reducer. |
+
+## Specific advice
+
+Keep `content` focused on one section's job. If the body becomes a whole screen or a deeply stateful workflow, it is usually clearer to move that work into a dedicated widget and use the accordion only as the disclosure shell.
+
+## Production checklist
+
+- Toggle from both pointer and keyboard input and check the reported expanded
+  state.
+- Give data-driven sections durable identities so a reordered section keeps
+  its own open state.
+- Verify focus when a section containing the focused control collapses.
+
+## Related
+
+[`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), [`Card`](/reference/widgets/card), and [`Tabs`](/reference/widgets/tabs).

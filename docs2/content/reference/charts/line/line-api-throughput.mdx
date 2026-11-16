@@ -1,0 +1,55 @@
+---
+title: API throughput line
+sidebar_label: API throughput line
+description: Fission Charts reference for API throughput line.
+---
+
+# API throughput line
+
+![API throughput line screenshot](/img/charts/line-api-throughput.png)
+
+Throughput measures work completed per unit of time. A service's cumulative request counter cannot be plotted as requests per second without first accounting for the elapsed interval and counter resets. The screenshot is from Fission's chart gallery.
+
+## Data model
+
+This example receives regularly sampled requests-per-second values. Compute the rate from the source counters before building the chart, and retain the measurement times in the same order as the values. A missed sample is not a measured rate of zero.
+
+## Authoring from a Fission component
+
+The parent supplies owned labels so the reporting window is not fixed inside the widget. Axis::category accepts borrowed labels and copies them into the axis model during construction.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub APIThroughputLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            times: Vec<String>,
+            requests_per_second: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let times = report.times.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(times)),
+            y_axis: Some(Axis::value().name(&report.series_label)),
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.requests_per_second.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test counter resets, irregular collection intervals and label/value length mismatches in the rate calculation. For a long history, window or aggregate the measurements deliberately; drawing fewer points should not silently change the rate's meaning. Keep a readable summary of the peak and current rate beside the visual.
+
+Tags: `line`, `large`.
+
+[Line family overview](./overview)

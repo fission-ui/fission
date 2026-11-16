@@ -1,0 +1,203 @@
+---
+title: Fission for Terminal UI developers
+description: Map terminal event loops, state, layout, logs and snapshot tests to Fission Compose and the Terminal shell.
+---
+
+# Fission for Terminal UI developers
+
+Keyboard-first interaction and deterministic output remain useful starting
+points. What changes in Fission is the boundary around them: Terminal is a
+shell for the shared app model, not a separate event loop which every product
+must implement again.
+
+This is not a claim that a terminal cell can reproduce every graphical effect.
+Keep the product state and user intent shared, and choose a target-appropriate
+presentation where the output differs.
+
+## The state ownership rule
+
+A terminal app struct often mixes current selection, loaded records and
+transient input. Separate them by ownership rather than move the whole struct
+into one widget.
+
+- `GlobalState` holds shared product records, route state and request status.
+- Component `state` holds isolated retained interaction memory.
+- `props` carries parent inputs.
+- Reducers change state; effects/jobs/services/capabilities do outside work.
+- The runtime handles focus, pointer and keyboard mechanics.
+
+For a full app organised into state, pages and widgets, see
+[the task app tutorial](/blog/build-a-single-page-web-app-in-rust/). A Terminal
+entrypoint can host that shared core where its chosen widgets are supported.
+
+## 1. Static UI
+
+Instead of writing directly into a terminal buffer, describe the content with
+ordinary widgets:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub RunSummary<()> {
+        props {
+            title: String,
+            details: String,
+        }
+    }
+    view(summary, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            Text(summary.title.clone()),
+            Text(summary.details.clone()),
+        ],
+    )
+}
+```
+
+The caller supplies real run results and translated presentation. No fixture
+command output is inserted into production state to make the screen look busy.
+
+## 2. Product state and interaction
+
+Raw keys should become intent rather than mutate data in an unrelated rendering
+branch. For an editable filter, the control can own its text-input behaviour
+and Compose can bind the value:
+
+```rust
+fission_component! {
+    pub LogFilter<()> {
+        state { query: String = String::new() }
+    }
+    view(filter, _state, cx) =>
+    TextInput(
+        label: Some(cx.tr("logs.filter").into()),
+        bind: filter.query,
+        semantics_identifier: Some("logs.filter".into()),
+    )
+}
+```
+
+This demonstrates the field's ownership; a real log view derives visible lines
+from the query without destroying the underlying bounded log buffer. Move the
+query to app state if several components need to share it.
+
+For an action such as Retry, use an inline `reduce`/`effect` handler or an
+existing reusable typed reducer. Do not keep a build handle or borrowed list
+row around for a later key event. Repeated stateful rows need durable data
+keys, not their current terminal line number.
+
+## 3. Outside work
+
+A synchronous repository read in a terminal event loop can freeze input just
+as it can freeze a native window. Queue the work through an effect, job,
+service, resource or capability and keep explicit loading, result and error
+states.
+
+A long-running build or log stream usually belongs to a service/resource, not
+a new process started on every conversion. Bound the retained log buffer and
+define what happens on cancellation, exit and failure. A scrolling widget
+does not itself make an unbounded string safe.
+
+For a one-shot component-owned async function, Compose requires `on_ok` and
+`on_err`. Show `Spinner` or progress while work is active. Use app-owned work
+when it must continue after the component unmounts.
+
+## 4. Styling and theme
+
+Use the active design-system tokens rather than duplicate a terminal-only
+palette and every dimension. The Terminal shell maps supported paint to cells;
+image, blur and overlay geometry may need explicit fallbacks.
+
+Prefer constraints and responsive composition to fixed 80-by-24 assumptions.
+Test compact terminals, longer translations and increased content. Use
+`LazyColumn` for large repeated lists and appropriate scroll widgets rather
+than render an unlimited history into one enormous column.
+
+A keyboard user still needs a visible focus indication and a clear accessible
+name. Decorative text which resembles a button does not provide activation
+behaviour.
+
+## 5. Routing
+
+A screen enum is one way to represent app navigation. Fission's native
+`Router` provides the shared route model used by other shells too:
+
+```rust
+fission_component! {
+    pub ToolRoutes<ToolState>
+    view(_routes, state, _cx) =>
+    Router::<ToolState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/runs", RunList)
+        .route_component("/runs/:id", RunRoute)
+        .route_component("/settings", SettingsScreen)
+}
+```
+
+This excerpt assumes `ToolState` and the named app screens. Install the normal
+route handler; navigation effects update shell history and app path through
+that contract. `RunRoute` reads and validates `RouteParams`. It does not need
+a second terminal-only record lookup model.
+
+A thin Terminal entrypoint hosts the shared root:
+
+```rust
+fission::terminal::TerminalApp::with_state(App, ToolState::default())
+    .with_env(create_env()?)
+    .with_title("Run monitor")
+    .run()
+```
+
+This assumes the app's `App` root and `create_env` translation/theme setup.
+Enable the Terminal target through the CLI; do not depend on an internal shell
+crate just to launch an app.
+
+## 6. Testing
+
+A cell snapshot proves output at a chosen size, not keyboard focus, editing or
+host integration. Use the narrowest meaningful surface:
+
+| Requirement | Fission test surface |
+| --- | --- |
+| Domain state rule | Pure transition/reducer test |
+| Layout, text and semantic tree | `TestHarness` |
+| Terminal frame at a fixed size | `TerminalApp::render_frame` |
+| Real key, pointer, focus and resize behaviour | LiveTest and `/cmd` in the actual shell |
+
+Use stable semantic identifiers instead of hard-coded cell positions for
+interaction. Follow [Terminal user interfaces](/docs/guides/terminal-user-interfaces/)
+and [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for the complete
+target and process setup.
+
+## Vocabulary map
+
+| Terminal UI concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| App struct | `GlobalState` plus local component state | Ownership follows each value's lifetime and readers. |
+| Event-loop match | Bound actions and reducers | Raw input becomes explicit product intent. |
+| Ratatui widget | Fission widget | A shared description lowers through the chosen shell. |
+| Style | Design-system tokens and widget fields | Terminal uses the target's supported paint representation. |
+| Screen enum | Native `Router` or app route state | Navigation can remain shared across targets. |
+| Snapshot test | Harness/frame test plus LiveTest | Output and actual interaction need different evidence. |
+
+## Common instincts to adjust
+
+Share product logic when the product is shared; do not force graphical
+behaviour into a terminal simply to claim identical screens. A target fallback
+should preserve the user's task.
+
+Keep the keyboard-first discipline. Check Tab order, disabled controls,
+scrolling and cleanup of running work. A successful screenshot is not evidence
+that those behaviours work.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Terminal user interfaces](/docs/guides/terminal-user-interfaces/)
+- [Compose API](/compose/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

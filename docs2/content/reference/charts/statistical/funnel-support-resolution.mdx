@@ -1,0 +1,57 @@
+---
+title: Support resolution funnel
+sidebar_label: Support resolution funnel
+description: Fission Charts reference for Support resolution funnel.
+---
+
+# Support resolution funnel
+
+![Support resolution funnel screenshot](/img/charts/funnel-support-resolution.png)
+
+A support-resolution funnel follows the same ticket cohort through response and resolution. Snapshot counts of tickets currently in each status answer a different question and should not be treated as successive stages. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Count tickets which reached acknowledgement, first response and confirmed resolution under a consistent policy. Reopened tickets need an explicit rule so a temporary closure is not silently presented as final resolution.
+
+## Data model
+
+Supply ordered non-negative counts for one received-ticket cohort and reporting horizon. `FunnelSeries` does not implement ticket state transitions, SLA calculation or reopening policy.
+
+## Authoring from a Fission component
+
+The parent aggregates the support records and supplies localized stage labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, FunnelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TicketResolutionStages<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            tickets_by_reached_stage: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.tickets_by_reached_stage.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![FunnelSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a reopened ticket, an unresolved recent ticket and repeated acknowledgements. Keep pending work distinct from failed service and provide exact counts and time-window definitions outside the chart.
+
+Tags: `funnel`, `support`.
+
+[Statistical family overview](./overview)

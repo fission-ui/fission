@@ -1,0 +1,51 @@
+---
+title: Smooth line
+sidebar_label: Smooth line
+description: Use temperature interpolation explicitly without presenting it as measured data.
+---
+
+# Smooth line
+
+![Smooth line screenshot](/img/charts/line-smooth.png)
+
+Smoothing changes the path between samples, not the samples themselves. For room temperature, a curve may make a broad trend easier to read, but the points between observations are still interpolated.
+
+Do not use a smooth curve to imply continuous change in a discrete value such as inventory or an account quota.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct TemperatureSample {
+    pub label: String,
+    pub celsius: f32,
+}
+
+fission_component! {
+    pub RoomTemperatureCurve<()> {
+        props {
+            title: String,
+            temperature_label: String,
+            samples: Vec<TemperatureSample>,
+        }
+    }
+    view(temperature, _state, _cx) {
+        let labels = temperature.samples.iter().map(|sample| sample.label.as_str()).collect();
+        let values = temperature.samples.iter().map(|sample| sample.celsius).collect();
+    } => Chart(
+        title: Some(temperature.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(temperature.temperature_label.clone())),
+        series: vec![Series::Line(
+            LineSeries::new(&temperature.temperature_label).smooth(true).data(values),
+        )],
+    )
+}
+```
+
+Supply translated unit labels, finite readings and a complete, evenly sampled window. Temperature can be negative, so forcing the numeric minimum to zero would be inappropriate here.
+
+Inspect abrupt changes: curve interpolation can imply intermediate values not justified by the readings. Keep raw values accessible and use a straight or step line when that better reflects the process. Test missing samples in the loading layer rather than making them equally spaced by omission. The image is a separate gallery fixture.
+
+[Cartesian family overview](./overview)

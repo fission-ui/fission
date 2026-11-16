@@ -1,0 +1,60 @@
+---
+title: LayoutBuilder
+description: Build a widget from current layout constraints when responsive branching is truly needed.
+slug: /widgets/layout-builder
+---
+# LayoutBuilder
+
+`LayoutBuilder` is the layout-aware counterpart to [`Builder`](/reference/widgets/builder).
+
+It gives your closure the current `BoxConstraints` so the output can change with available space. Use it for meaningful responsive structure, such as choosing between a one-column mobile layout and a two-pane desktop layout. Do not use it for every padding or gap change; ordinary composition is usually clearer for small visual adjustments.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// These are the application's named Compose components, not framework widgets.
+// Each conversion constructs its own independent tree.
+let workspace = LayoutBuilder::<WorkspaceState>::new(|_ctx, _view, constraints| {
+    if constraints.max_w >= WORKSPACE_SPLIT_MIN_WIDTH {
+        WideWorkspace.into()
+    } else {
+        CompactWorkspace.into()
+    }
+})
+.id(WidgetId::explicit("workspace.constraints"))
+.flex_grow(1.0);
+
+// Use workspace as an ordinary Rust expression in the parent Compose view.
+```
+
+This is a parent-view configuration excerpt: `WorkspaceState`,
+`WideWorkspace`, `CompactWorkspace`, and the named minimum-width constant
+belong to that application. The branches are unit Compose components; use fully
+specified props when the corresponding components require inputs. Prefer
+`Responsive` for ordinary viewport/capability cases; use `LayoutBuilder` when
+this region must branch on the actual parent constraints.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `LayoutBuilder::new(...)` | `Fn(BuildCtxHandle<S>, ViewHandle<S>, BoxConstraints) -> Widget` | Creates the responsive closure. | Required. Keep the closure pure and deterministic. |
+| `id` | `Option<WidgetId>` | Stable widget identity for reading constraints from the previous layout pass. | Defaults to `None`. When present, the result is wrapped in a `Container` with that id. |
+| `flex_grow` | `f32` | Extra space the wrapped result can absorb. | Defaults to `0.0`. Applied when `id` is set. |
+| `flex_shrink` | `f32` | How much the wrapped result may shrink. | Defaults to `1.0`. Applied when `id` is set. |
+
+## How constraint lookup works
+
+When `id` is set, `LayoutBuilder` reads the constraints recorded for that id during the previous layout pass. If no prior constraints exist yet, it falls back to loose constraints based on the current viewport. This keeps responsive branching deterministic while still letting a component react to real layout information.
+
+## Check the layout in context
+
+- Branch on constraints only when the overall structure needs to change; use normal layout properties for smaller spacing or sizing differences.
+- Build a fresh child tree for each branch. Do not reuse one retained widget value across responsive branches.
+- Test just below and above each breakpoint with the real parent constraints, and check any stateful children in both branches.
+
+## Related
+
+[`Builder`](/reference/widgets/builder), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), and [`SimpleGrid`](/reference/widgets/simple-grid).

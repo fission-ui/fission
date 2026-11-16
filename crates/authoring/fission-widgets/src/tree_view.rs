@@ -30,7 +30,7 @@ pub struct TreeItem {
 }
 
 /// Controlled hierarchical navigation or data browser.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct TreeView {
     /// Root items in display order.
     pub items: Vec<TreeItem>,

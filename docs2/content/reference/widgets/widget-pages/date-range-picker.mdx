@@ -1,0 +1,110 @@
+---
+title: DateRangePicker
+description: Coordinate two date pickers so the user can choose a start and end date.
+slug: /widgets/date-range-picker
+---
+# DateRangePicker
+
+`DateRangePicker` puts two [`DatePicker`](/reference/widgets/date-picker)
+controls together for choosing a start and end date. Use it for reporting
+ranges, booking windows, and date filters.
+
+## Example
+
+Both ends of the range use `chrono::NaiveDate`. Declare that dependency in the
+app rather than relying on Fission's transitive dependency:
+
+```bash
+cargo add chrono
+```
+
+```rust
+use chrono::NaiveDate;
+use fission::prelude::*;
+use std::sync::Arc;
+
+type ChangeRange =
+    Arc<dyn Fn(Option<NaiveDate>, Option<NaiveDate>) -> ActionEnvelope + Send + Sync>;
+
+fission_component! {
+    pub ReportingRange<()> {
+        props {
+            start: Option<NaiveDate>,
+            end: Option<NaiveDate>,
+            start_open: bool,
+            end_open: bool,
+            change_range: ChangeRange,
+            toggle_start: ActionEnvelope,
+            toggle_end: ActionEnvelope,
+            close_start: ActionEnvelope,
+            close_end: ActionEnvelope,
+        }
+    }
+
+    view(range, _state, cx) =>
+        Column(
+            children: [
+                Text(cx.tr("report.date_range")),
+                DateRangePicker(
+                    id_start: WidgetId::explicit("report.start"),
+                    id_end: WidgetId::explicit("report.end"),
+                    start: range.start,
+                    end: range.end,
+                    is_start_open: range.start_open,
+                    is_end_open: range.end_open,
+                    on_change: range.change_range.clone(),
+                    on_toggle_start: range.toggle_start.clone(),
+                    on_toggle_end: range.toggle_end.clone(),
+                    on_close_start: range.close_start.clone(),
+                    on_close_end: range.close_end.clone(),
+                ),
+            ],
+        )
+}
+```
+
+The parent supplies registered action factories, not serialization code inside
+the view. The range reducer receives both dates and owns their validation.
+Closing one popup should not accidentally open the other.
+
+This keeps the whole interaction inside the normal state loop: each side has explicit open state, and the reducer stays responsible for validating the final range.
+
+The gap between the fields and between wrapped lines comes from the active
+design system's small spacing token, so density and custom DSP packages remain
+authoritative.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id_start` | `WidgetId` | Stable identity for the start-date trigger. | Required. |
+| `id_end` | `WidgetId` | Stable identity for the end-date trigger. | Required. |
+| `start` | `Option<NaiveDate>` | Current start date. | Controlled by app state. |
+| `end` | `Option<NaiveDate>` | Current end date. | Controlled by app state. |
+| `is_start_open` | `bool` | Whether the start picker popup is open. | Controlled by app state. |
+| `is_end_open` | `bool` | Whether the end picker popup is open. | Controlled by app state. |
+| `on_change` | `Option<Arc<dyn Fn(Option<NaiveDate>, Option<NaiveDate>) -> ActionEnvelope + Send + Sync>>` | Closure that receives the updated pair. | Called when either side changes. |
+| `on_toggle_start` | `Option<ActionEnvelope>` | Action for opening or toggling the start picker. | Defaults to `None`. |
+| `on_toggle_end` | `Option<ActionEnvelope>` | Action for opening or toggling the end picker. | Defaults to `None`. |
+| `on_close_start` | `Option<ActionEnvelope>` | Explicit close action for the start picker. | Defaults to `None`. |
+| `on_close_end` | `Option<ActionEnvelope>` | Explicit close action for the end picker. | Defaults to `None`. |
+
+## Value model and validation
+
+The widget only helps present the two pickers together. It does not decide whether the end date must be after the start date, whether empty values are allowed, or whether the two dates should snap to preset windows. Those rules belong in your reducer or validation layer.
+
+A common pattern is to accept either side individually while the user is editing, then validate the pair before submitting or querying.
+
+## Specific advice
+
+Keep the real range in state as dates, not formatted strings. Also think about what should happen when a user picks an end date earlier than the start date. Some products swap them automatically. Others keep the invalid state visible until the user fixes it. Pick one behavior intentionally and test it.
+
+## Production checklist
+
+- Test each incomplete range and end-before-start without issuing an invalid query.
+- Check both popups, outside dismissal, and narrow layouts.
+- Distinguish calendar dates from timezone-aware report boundaries.
+
+## Related
+
+[`DatePicker`](/reference/widgets/date-picker), [`TimePicker`](/reference/widgets/time-picker), [`FormControl`](/reference/widgets/form-control), and [`Popover`](/reference/widgets/popover).

@@ -4,7 +4,7 @@ use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// Ordered progress indicator for a finite multi-step workflow.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Stepper {
     /// Step labels in workflow order.
     pub steps: Vec<String>,

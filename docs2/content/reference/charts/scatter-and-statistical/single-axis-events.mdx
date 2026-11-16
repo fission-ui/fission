@@ -1,0 +1,53 @@
+---
+title: Event single axis
+sidebar_label: Event single axis
+description: Fission Charts reference for Event single axis.
+---
+
+# Event single axis
+
+![Event single axis screenshot](/img/charts/single-axis-events.png)
+
+An event strip records when things happened rather than a continuously sampled trend. For a deployment report, position can show when restarts occurred after rollout began. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use elapsed minutes from an explicit rollout start and marker size for affected instances. A point does not mean the service remained unavailable until the next event.
+
+## Data model
+
+`SingleAxisSeries` takes `(position, size)` pairs. Its axis range is derived from the supplied values and vertical lanes are assigned by input index, not service ownership. Relative elapsed time avoids losing timestamp precision in f32.
+
+## Authoring from a Fission component
+
+The parent supplies validated restart-event projections and keeps exact event times and identities in the report.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SingleAxisSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RolloutRestartEvents<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            minutes_and_affected_instances: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![SingleAxisSeries::new(&report.series_label)
+            .data(report.minutes_and_affected_instances.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test simultaneous events, an event at time zero and one at the reporting boundary. Explain the origin and size measure outside the chart, with a chronological event list for precise or nonvisual inspection.
+
+Tags: `singleAxis`, `events`.
+
+[Scatter and statistical family overview](./overview)

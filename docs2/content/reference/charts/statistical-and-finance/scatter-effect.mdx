@@ -1,0 +1,57 @@
+---
+title: Effect scatter
+sidebar_label: Effect scatter
+description: Fission Charts reference for Effect scatter.
+---
+
+# Effect scatter
+
+![Effect scatter screenshot](/img/charts/scatter-effect.png)
+
+Emphasis rings can make a prepared set of observations easier to locate. For a maintenance report, flagged sensor readings can be shown at their physical positions without pretending every marked location is equally urgent. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the emphasis for a state already established by the monitoring policy. The series does not detect alarms, track acknowledgement or run an async effect despite the word “effect” in its name.
+
+## Data model
+
+`EffectScatterSeries` takes `(x, y)` pairs and draws layered emphasis marks at those positions. Define the coordinate frame and keep sensor IDs, values and alert states in the source model.
+
+## Authoring from a Fission component
+
+The parent supplies flagged sensor positions in one local coordinate system and localized chart/axis labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, EffectScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FlaggedSensorPositions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![EffectScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test no flagged sensors, overlapping positions and an alert cleared during a refresh. Provide an accessible sensor list with the reason for each flag; a halo is not a complete alarm workflow.
+
+Tags: `scatter`, `effect`.
+
+[Statistical and finance family overview](./overview)

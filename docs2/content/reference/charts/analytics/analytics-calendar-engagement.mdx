@@ -1,0 +1,62 @@
+---
+title: Engagement calendar
+sidebar_label: Engagement calendar
+description: Show a complete daily engagement window with CalendarHeatmapSeries and Compose.
+---
+
+# Engagement calendar
+
+![Engagement calendar screenshot](/img/charts/analytics-calendar-engagement.png)
+
+A weekly total can hide a product that is used heavily on one day and ignored for the rest of the week. An engagement calendar keeps each day visible, which makes that distinction much easier to see.
+
+Define engagement before counting it. This example expects daily active accounts, not raw events: one account opening a screen twenty times should not become twenty active accounts.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct EngagementDay {
+    pub date: String,
+    pub active_accounts: u32,
+}
+
+fission_component! {
+    pub EngagementCalendar<()> {
+        props {
+            title: String,
+            metric_label: String,
+            start_date: String,
+            end_date: String,
+            days: Vec<EngagementDay>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(calendar, _state, _cx) {
+        let values = calendar.days.iter()
+            .map(|day| (day.date.as_str(), day.active_accounts as f32))
+            .collect();
+    } => Chart(
+        title: Some(calendar.title.clone()),
+        visual_map: Some(calendar.colour_scale.clone()),
+        series: vec![Series::CalendarHeatmap(
+            CalendarHeatmapSeries::new(&calendar.metric_label)
+                .range(&calendar.start_date, &calendar.end_date)
+                .data(values),
+        )],
+    )
+}
+```
+
+Dates use `YYYY-MM-DD`. Aggregate in one declared reporting timezone, validate dates and reject duplicate days before passing the snapshot to the component. Supply a design-system-derived `VisualMap` whose range remains stable across the windows readers are comparing.
+
+## Missing days need attention
+
+The renderer fills an absent date within the range with zero. Therefore, only use this calendar once the interval is known to be complete; show a loading or incomplete-data state otherwise. Inserting unknown days and calling them inactive would change the meaning of the chart.
+
+Check month boundaries, leap days and the reporting timezone. Provide an accompanying daily list or summary because colour intensity alone does not expose exact counts. The gallery screenshot is a separate fixture.
+
+[Analytics family overview](./overview)

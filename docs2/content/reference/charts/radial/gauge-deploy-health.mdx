@@ -1,0 +1,54 @@
+---
+title: Deploy health gauge
+sidebar_label: Deploy health gauge
+description: Fission Charts reference for Deploy health gauge.
+---
+
+# Deploy health gauge
+
+![Deploy health gauge screenshot](/img/charts/gauge-deploy-health.png)
+
+Deployment health should describe an observable condition. A proportion of healthy rollout instances can be useful, provided the reader knows which instances are expected and what qualifies one as healthy. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example measures healthy expected instances during a rollout. It is not the percentage of rollout steps completed or a probability that the deployment will succeed. Keep failed, starting and unreachable instances visible in the associated report.
+
+## Data model
+
+Calculate healthy/expected instances as a percentage after applying the rollout's readiness policy. A zero expected count needs its own state. `GaugeSeries` renders only the first labelled value on its fixed 0–100 arc and does not evaluate instance health.
+
+## Authoring from a Fission component
+
+The parent refreshes the rollout report through effects and reducers. The component only presents the current prepared percentage and localized labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RolloutHealthyInstancesGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            value_label: String,
+            healthy_percent: f32,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![GaugeSeries::new(&report.series_label)
+            .data(vec![(&report.value_label, report.healthy_percent)])
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a partial rollout, a failed instance and stale health observations. A successful sample from an older deployment must not overwrite the current rollout report. Provide healthy/expected counts, rollout identity and observation time outside the gauge so the reader can assess the snapshot.
+
+Tags: `gauge`, `health`.
+
+[Radial family overview](./overview)

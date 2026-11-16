@@ -1,0 +1,55 @@
+---
+title: Cyclic polar bars
+sidebar_label: Cyclic polar bars
+description: Fission Charts reference for Cyclic polar bars.
+---
+
+# Cyclic polar bars
+
+![Cyclic polar bars screenshot](/img/charts/polar-cyclic-bar.png)
+
+A circular arrangement can preserve the idea that the final category leads back to the first. Hours of the day are one such cycle; a list of unrelated products is not. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this view to inspect the pattern of arrivals over a typical reporting day. Keep the hours in chronological order rather than sorting by value. The radial layout is less precise than a shared-baseline bar chart for comparing similar counts.
+
+## Data model
+
+`PolarBarSeries` takes labelled values and assigns equal angular slots. The radial extent is scaled to the largest value in the current series. Category position comes from input order, not parsing the hour label, and the rings are not independently labelled numeric axes.
+
+## Authoring from a Fission component
+
+The parent supplies hourly arrival totals with localized hour labels. The component uses a polar bar series, not a pie, because each hour has equal angular weight.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarBarSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub HourlyArrivalCycle<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            arrivals_by_hour: Vec<(String, f32)>,
+        }
+    }
+    view(day, _state, _cx) {
+        let hours = day.arrivals_by_hour.iter()
+            .map(|(hour, count)| (hour.as_str(), *count))
+            .collect();
+    } => Chart(
+        title: Some(day.chart_title.clone()),
+        series: vec![PolarBarSeries::new(&day.series_label).data(hours).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero arrivals, missing hours and daylight-saving days. If comparing several dates, remember that automatic rescaling can make different absolute counts occupy the same radius. Provide exact values and explain the reporting timezone; do not silently make a 23-hour day look like a complete 24-hour observation.
+
+Tags: `polar`, `bar`.
+
+[Pie and radial family overview](./overview)

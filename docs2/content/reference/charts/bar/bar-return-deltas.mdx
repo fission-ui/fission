@@ -1,0 +1,60 @@
+---
+title: Return deltas
+sidebar_label: Return deltas
+description: Compare changes in return rates around zero without confusing percentages and percentage points.
+---
+
+# Return deltas
+
+![Return deltas screenshot](/img/charts/bar-return-deltas.png)
+
+If the return rate rises from two percent to three percent, the increase is one percentage point, not one percent. Keeping that distinction visible prevents a small numerical label from saying something quite different to the underlying report.
+
+This view compares the current and previous return rate for each product category. Positive values mean returns became more frequent; that is not a favourable direction simply because the bar points upwards.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct CategoryReturnRate {
+    pub label: String,
+    pub previous_percent: f32,
+    pub current_percent: f32,
+}
+
+fission_component! {
+    pub ReturnRateChanges<()> {
+        props {
+            title: String,
+            change_label: String,
+            percentage_points_label: String,
+            categories: Vec<CategoryReturnRate>,
+        }
+    }
+    view(returns, _state, _cx) {
+        let labels = returns.categories.iter().map(|row| row.label.as_str()).collect();
+        let deltas = returns.categories.iter()
+            .map(|row| row.current_percent - row.previous_percent).collect();
+    } => Chart(
+        title: Some(returns.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(returns.percentage_points_label.clone())),
+        series: vec![Series::Bar(
+            BarSeries::new(&returns.change_label).data(deltas),
+        )],
+    )
+}
+```
+
+The zero baseline represents no change. Validate finite source percentages in 0–100 and calculate rates from comparable, sufficiently mature order cohorts before passing them in.
+
+## Keep the counts available
+
+A rate change based on two orders deserves different interpretation from the same change across ten thousand orders. Show both denominators and the period definitions in the report.
+
+Test increases, decreases and unchanged rates. Keep those meanings in labels or text rather than assigning red and green and expecting colour alone to carry the result. The image is a separate gallery fixture.
+
+[Bar family overview](./overview)

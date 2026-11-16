@@ -1,0 +1,72 @@
+---
+title: Product mix area
+sidebar_label: Product mix area
+description: Fission Charts reference for Product mix area.
+---
+
+# Product mix area
+
+![Product mix area screenshot](/img/charts/line-product-mix-area.png)
+
+A product-mix area shows both total volume and each product family's contribution. The stack is meaningful because the categories divide a single measure into parts. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example counts units sold, not revenue or orders. An order containing several products can contribute several units, so do not label the stacked total as an order count.
+
+## Data model
+
+Give both LineSeries the same stack key and supply aligned, non-negative counts for each family. Use area_style for the filled bands and a legend for the product names. The source aggregation must assign each unit to exactly one family.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductMixAreaChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            hardware_units: Vec<f32>,
+            accessory_units: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.hardware_units.clone())
+                    .stack("units-sold")
+                    .area_style(colors.primary.with_alpha(100))
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.accessory_units.clone())
+                    .stack("units-sold")
+                    .area_style(colors.text_secondary.with_alpha(80))
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Reconcile the stack with the total units sold and test returns under the application's declared policy. Offer exact values when comparing individual families, since upper bands do not share the zero baseline.
+
+Tags: `area`, `product`.
+
+[Line family overview](./overview)

@@ -1,49 +1,30 @@
 use crate::components::{EmailDetail, EmailList};
 use crate::model::InboxState;
-use fission::core::ui::{Text, Widget};
-use fission::widgets::{Route, Router};
-use std::sync::Arc;
+use fission::prelude::*;
 
-pub(crate) struct InboxRouter;
+fission_component! {
+    pub(crate) InboxRouter<InboxState> |_router, state, _cx| =>
+    Router::<InboxState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/inbox", EmailList::new("Inbox".into()))
+        .route_component("/:folder/:id", EmailDetailRoute)
+        .route_component("/:folder", EmailListRoute)
+        .not_found(|| Text::new("Folder not found"))
+}
 
-impl From<InboxRouter> for Widget {
-    fn from(_router: InboxRouter) -> Self {
-        let (_, view) = fission::build::current::<InboxState>();
+fission_component! {
+    EmailDetailRoute<InboxState> |_route, _state, _cx| {
+        let params = fission::build::read::<RouteParams>();
+    } =>
+    EmailDetail(
+        params["folder"].clone(),
+        params["id"].parse().unwrap_or(0),
+    )
+}
 
-        Router::<InboxState> {
-            current_path: view.state().current_path.clone(),
-            routes: vec![
-                Route {
-                    path: "/inbox".into(),
-                    builder: Arc::new(|_, _, _| {
-                        EmailList {
-                            folder: "Inbox".into(),
-                        }
-                        .into()
-                    }),
-                },
-                Route {
-                    path: "/:folder/:id".into(),
-                    builder: Arc::new(|_, _, params| {
-                        EmailDetail {
-                            folder: params["folder"].clone(),
-                            id: params["id"].parse().unwrap_or(0),
-                        }
-                        .into()
-                    }),
-                },
-                Route {
-                    path: "/:folder".into(),
-                    builder: Arc::new(|_, _, params| {
-                        EmailList {
-                            folder: params["folder"].clone(),
-                        }
-                        .into()
-                    }),
-                },
-            ],
-            not_found: Some(Arc::new(|_, _, _| Text::new("Folder not found").into())),
-        }
-        .into()
-    }
+fission_component! {
+    EmailListRoute<InboxState> |_route, _state, _cx| {
+        let params = fission::build::read::<RouteParams>();
+    } =>
+    EmailList(params["folder"].clone())
 }

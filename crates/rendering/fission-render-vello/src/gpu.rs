@@ -1,6 +1,10 @@
 //! Rendering scenes on the GPU.
 
-use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+use std::{collections::HashSet, sync::Arc};
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use anyhow::{anyhow, Result};
 use fission_render::{Color as RenderColor, RenderScene, Renderer};
@@ -10,10 +14,35 @@ use vello_cpu::PaintType;
 
 use crate::{GpuImageCache, GpuPainter, GpuUploader, Painter, VelloRenderer, VelloTextMeasurer};
 
-/// External GPU textures referenced by retained `DrawSurface` operations.
-pub type ExternalTextureBindings = vello_gpu::TextureBindings;
 /// Stable identifier connecting a retained surface operation to its texture.
 pub use vello_gpu::TextureId as ExternalTextureId;
+
+/// External GPU textures referenced by retained `DrawSurface` operations.
+#[derive(Debug, Default, Clone)]
+pub struct ExternalTextureBindings {
+    bindings: vello_gpu::TextureBindings,
+    ids: HashSet<ExternalTextureId>,
+}
+
+impl ExternalTextureBindings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, texture_id: ExternalTextureId, view: wgpu::TextureView) {
+        self.ids.insert(texture_id);
+        self.bindings.insert(texture_id, view);
+    }
+
+    pub fn remove(&mut self, texture_id: ExternalTextureId) -> Option<wgpu::TextureView> {
+        self.ids.remove(&texture_id);
+        self.bindings.remove(texture_id)
+    }
+
+    pub(crate) fn contains(&self, texture_id: ExternalTextureId) -> bool {
+        self.ids.contains(&texture_id)
+    }
+}
 
 /// Renders Fission scenes into wgpu textures.
 ///
@@ -99,6 +128,7 @@ impl GpuSceneRenderer {
         background: Option<RenderColor>,
         external_textures: &ExternalTextureBindings,
     ) -> Result<()> {
+        let trace_web = crate::web_test_trace_enabled();
         let width = target_dimension(width, "width")?;
         let height = target_dimension(height, "height")?;
         if self.scene.width() != width || self.scene.height() != height {
@@ -115,6 +145,7 @@ impl GpuSceneRenderer {
                 scene: &mut self.scene,
                 resources: &mut self.resources,
                 images: &mut self.images,
+                external_textures,
                 uploader: GpuUploader {
                     renderer: &mut self.renderer,
                     device,
@@ -136,7 +167,15 @@ impl GpuSceneRenderer {
                     &Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
                 );
             }
+            let recording_started = Instant::now();
+            if trace_web {
+                crate::trace_web_test_stage(380, 0);
+            }
             VelloRenderer::new(&mut painter, measurer, scale_factor).render_scene(scene)?;
+            if trace_web {
+                crate::trace_web_test_stage(381, recording_started.elapsed().as_millis() as u32);
+                crate::trace_web_test_stage(382, 0);
+            }
         }
         self.images
             .end_frame(&mut self.renderer, &mut self.resources, &mut encoder);
@@ -146,6 +185,7 @@ impl GpuSceneRenderer {
         } else {
             vello_gpu::TargetInit::SrcOver
         };
+        let renderer_started = Instant::now();
         self.renderer
             .render(
                 &self.scene,
@@ -156,11 +196,19 @@ impl GpuSceneRenderer {
                 &vello_gpu::RenderSize { width, height },
                 view,
                 None,
-                external_textures,
+                &external_textures.bindings,
                 target_init,
             )
             .map_err(|error| anyhow!("vello_gpu failed to render the scene: {error:?}"))?;
+        if trace_web {
+            crate::trace_web_test_stage(383, renderer_started.elapsed().as_millis() as u32);
+            crate::trace_web_test_stage(384, 0);
+        }
+        let submit_started = Instant::now();
         queue.submit([encoder.finish()]);
+        if trace_web {
+            crate::trace_web_test_stage(385, submit_started.elapsed().as_millis() as u32);
+        }
         Ok(())
     }
 }

@@ -135,6 +135,16 @@ fn text_scroll_nodes(ir: &CoreIR, root: WidgetId) -> Option<(WidgetId, WidgetId,
     None
 }
 
+pub(crate) fn text_input_scroll_node_id(ir: &CoreIR, root: WidgetId) -> Option<WidgetId> {
+    let Op::Semantics(semantics) = &ir.nodes.get(&root)?.op else {
+        return None;
+    };
+    if semantics.role != fission_ir::Role::TextInput {
+        return None;
+    }
+    text_scroll_nodes(ir, root).map(|(scroll_id, _, _)| scroll_id)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextControlError {
     MissingTextInput(WidgetId),

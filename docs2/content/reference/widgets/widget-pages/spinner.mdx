@@ -1,0 +1,48 @@
+---
+title: Spinner
+description: Show indeterminate loading when the app is busy but cannot report exact completion.
+slug: /widgets/spinner
+---
+# Spinner
+
+`Spinner` shows that work is underway when the app cannot report how much is
+complete. Use it for waits such as opening a panel, checking a server, or
+refreshing a view.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// Inside a Compose view, only while the operation is pending.
+Spinner(
+    motion: SpinnerMotion::Default,
+    label: cx.tr("sync.loading_messages"),
+)
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity used to drive the dot animations. | Compose supplies it; ordinary Rust construction should provide an explicit ID. |
+| `color` | `Option<Color>` | Dot color override. | Defaults to the theme's primary color. |
+| `motion` | `Option<SpinnerMotion>` | Spinner-owned motion preset or custom tracks. | `None` is static; set `SpinnerMotion::Default` or `Pulse` for animation. |
+| `label` | `Option<String>` | Accessible description of what is loading. | Defaults to “Loading”; prefer a translated task-specific name. |
+
+## user experience guidance
+
+A spinner says "work is happening" but does not explain how long it will take. That makes it useful for short or uncertain waits, but weaker than a real progress indicator for long-running tasks.
+
+The widget uses three dots. The default field value has no spinner motion;
+the example explicitly selects its animated preset. Stable identity keeps
+those motion slots attached to the same operation across builds.
+
+## Check the loading state in context
+
+- Use a spinner only while work is actually pending; use `ProgressBar` when the app knows how much is complete.
+- Pair it with nearby text that says what is loading, and give its animation a stable id.
+
+## Related
+
+[`Skeleton`](/reference/widgets/skeleton), [`CircularProgress`](/reference/widgets/circular-progress), [`ProgressBar`](/reference/widgets/progress-bar), and [`EmptyState`](/reference/widgets/empty-state).

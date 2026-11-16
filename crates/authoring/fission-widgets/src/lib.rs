@@ -131,7 +131,7 @@ pub use modal::{
 
 /// Declarative tabular data columns, rows, and presentation.
 pub mod data_table;
-pub use data_table::{DataTable, TableColumn, TableRow};
+pub use data_table::{DataTable, DataTableSelectionMode, TableColumn, TableRow};
 
 /// Two-pane horizontal or vertical split layout.
 pub mod split_view;
@@ -302,7 +302,7 @@ pub use pagination::Pagination;
 
 /// Anchored popup content and visibility motion.
 pub mod popover;
-pub use popover::{Popover, PopoverMotion};
+pub use popover::{Popover, PopoverMotion, PopoverWithAdditionalAnchors};
 
 /// Ordered declarative path routing and route-parameter capture.
 pub mod router;

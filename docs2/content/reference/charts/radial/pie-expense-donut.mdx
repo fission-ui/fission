@@ -1,0 +1,58 @@
+---
+title: Expense donut
+sidebar_label: Expense donut
+description: Fission Charts reference for Expense donut.
+---
+
+# Expense donut
+
+![Expense donut screenshot](/img/charts/pie-expense-donut.png)
+
+An expense breakdown is useful only when its categories describe the same accounting measure. Paid invoices, accrued expenses and budget allocations are not interchangeable. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This report partitions posted operating expenses by one primary category for a completed month. Use a bar chart for precise ranking or for signed adjustments which cannot be represented honestly as positive pie segments.
+
+## Data model
+
+Aggregate in the accounting model using exact money types. Convert bounded, non-negative display totals into one currency before passing them to `PieSeries`; keep refunds or negative categories explicit rather than taking their absolute values.
+
+## Authoring from a Fission component
+
+The parent supplies prepared monthly expense values. The inner radius creates a donut, without changing the denominator.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub MonthlyOperatingExpenseDonut<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            expenses_gbp_by_category: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.expenses_gbp_by_category.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test uncategorised expenses, a refund and currency conversion boundaries. Retain exact currency amounts and the accounting period in accessible content; the chart's f32 projection is not the financial authority.
+
+Tags: `donut`, `expense`.
+
+[Radial family overview](./overview)

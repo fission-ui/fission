@@ -1,0 +1,57 @@
+---
+title: Risk score parallel
+sidebar_label: Risk score parallel
+description: Fission Charts reference for Risk score parallel.
+---
+
+# Risk score parallel
+
+![Risk score parallel screenshot](/img/charts/parallel-risk-score.png)
+
+Risk dimensions are comparable only under a shared assessment policy. A supplier's likelihood, impact, detection difficulty and recovery exposure cannot be added as raw quantities simply because they are numbers. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use four policy scores on 0–100, consistently higher meaning greater risk. Keep evidence, uncertainty and blocking findings outside the visual rather than treating the line as a calibrated probability.
+
+## Data model
+
+`ParallelSeries` takes equal-length score rows and uses a fixed 0–100 scale. It does not label axes, name each observation or implement filtering. Preserve stable supplier IDs and dimension order in the report model.
+
+## Authoring from a Fission component
+
+The parent calculates the scores and supplies a localized explanation naming each dimension.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupplierRiskParallel<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores.iter().map(|row| row.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test unknown assessments and changes to the scoring rubric. Provide named values and evidence in an accessible table; do not turn missing evidence into an apparently low-risk zero.
+
+Tags: `parallel`, `risk`.
+
+[Statistical family overview](./overview)

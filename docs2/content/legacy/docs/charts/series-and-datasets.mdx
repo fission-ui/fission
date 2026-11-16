@@ -1,0 +1,190 @@
+---
+title: Series & DataSets
+sidebar_label: Series & DataSets
+description: Understand how Fission Charts models chart data, series, real-time streams, and very large history.
+---
+
+# Series & DataSets
+
+A chart is a projection of data the app already owns. A series decides how to
+draw one layer of that projection; a dataset lets several layers read the
+same named columns. Neither is a database connection or background loader.
+
+The Rust type is `Dataset`. “DataSet” here means the same chart-ready table,
+not a second storage API. Start with direct series values and add a dataset
+when named dimensions or shared rows make the mapping easier to review.
+
+## Start with direct series data
+
+A daily request history needs one value per displayed bucket. This component
+takes that actual history from its parent rather than generating demo traffic:
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, Series};
+
+#[derive(Clone)]
+pub struct RequestDay {
+    pub label: String,
+    pub requests: u32,
+}
+
+fission_component! {
+    pub RequestHistory<()> {
+        props { days: Vec<RequestDay> }
+    }
+    view(history, _state, cx) =>
+    if history.days.is_empty() {
+        EmptyState(title: cx.tr("requests.no_history"))
+    } else {
+        Chart(
+            title: cx.tr("requests.daily"),
+            x_axis: Axis::category(history.days.iter()
+                .map(|day| day.label.as_str()).collect()),
+            y_axis: Axis::value().min(0.0),
+            series: vec![Series::Line(
+                LineSeries::new(&cx.tr("requests.count"))
+                    .data(history.days.iter().map(|day| day.requests as f32).collect()),
+            )],
+        )
+    }
+}
+```
+
+The app keeps integer counts; the chart receives a floating-point display
+projection. Format date labels for the active locale and bound the history
+before passing it in. Category positions are equally spaced: a missing day
+needs an explicit bucket policy, not an unexplained gap disguised by labels.
+
+Enable the `charts` facade feature. The examples below assume the app supplies
+the translation keys and real loaded report records.
+
+## Use DataSets for shared tabular data
+
+An operations report may compare completed deliveries with the subset delivered
+on time. Both series measure deliveries, so they can share a value axis.
+Orders and revenue would not be interchangeable units on that same scale.
+
+```rust
+use fission::charts::{BarSeries, Dataset, Encode};
+
+#[derive(Clone)]
+pub struct DeliveryMonth {
+    pub label: String,
+    pub completed: u32,
+    pub on_time: u32,
+}
+
+fission_component! {
+    pub DeliveryReport<()> {
+        props { months: Vec<DeliveryMonth> }
+    }
+    view(report, _state, cx) {
+        let dataset = Dataset::new()
+            .dimensions(vec!["month".into(), "completed".into(), "on_time".into()])
+            .source(report.months.iter().map(|month| vec![
+                month.label.clone().into(),
+                (month.completed as f32).into(),
+                (month.on_time as f32).into(),
+            ]).collect());
+    } =>
+    if report.months.is_empty() {
+        EmptyState(title: cx.tr("deliveries.no_history"))
+    } else {
+        Chart(
+            title: cx.tr("deliveries.performance"),
+            dataset: dataset,
+            x_axis: Axis::category(report.months.iter()
+                .map(|month| month.label.as_str()).collect()),
+            y_axis: Axis::value().min(0.0),
+            series: vec![
+                Series::Bar(BarSeries::new(&cx.tr("deliveries.completed"))
+                    .encode(Encode::new().x("month").y("completed"))),
+                Series::Line(LineSeries::new(&cx.tr("deliveries.on_time"))
+                    .encode(Encode::new().x("month").y("on_time"))),
+            ],
+        )
+    }
+}
+```
+
+`Dataset::source` accepts rows; `dimensions` names their columns. The actual
+encoding constructor is `Encode::new().x(...).y(...)`. Keep those machine
+column names stable even when display labels change language.
+
+Validate that `on_time <= completed` while deriving the report. A renderer
+can draw inconsistent values; that does not make them a meaningful operational
+metric. Test the report calculation separately from its visual projection.
+
+## Choosing between series and DataSets
+
+| Use direct series data when | Use a dataset when |
+| --- | --- |
+| One visual layer needs one small value vector. | Several series read the same rows. |
+| The series type already makes the mapping clear. | Named columns clarify the encoding. |
+| The chart is easiest to test as a value vector. | The data mapping is best tested as a table. |
+| Copying a display projection is simpler than introducing a schema. | Repeated projections would obscure a shared schema. |
+
+A dataset is a render snapshot, not another authority for report data. Keep
+the domain records and derive either form from them.
+
+## Real-time data is app state, not renderer state
+
+A service receives readings, its event reducer updates a bounded app-owned
+window, and the next build derives the chart. Rendering must not open a socket,
+fetch a page, or wait for a device.
+
+Preserve timestamps alongside values. A line containing only `Vec<f32>`
+supplies y values, not the real timestamp positions of irregular readings.
+For equally spaced aggregates, category labels such as minute buckets make
+that policy explicit. Do not merely switch to `Axis::time()` after discarding
+the timestamp and claim the plot preserves elapsed time.
+
+Handle disconnected, loading, empty, and failed states outside the chart.
+A permanently displayed old trace is not evidence that the live feed remains
+healthy.
+
+## Infinite history and terabyte data
+
+An “infinite” history means the app can load successive windows, not that one
+`Dataset` contains every reading ever recorded. Keep the durable history in a
+store that answers bounded queries. App state owns the requested range,
+resolution, loaded pages, live tail, loading state, and errors.
+
+When the user changes the range, update that requested window in a reducer
+and request missing data through a typed job, resource, or service. Include
+device/range/generation identity in the request and completion so a delayed
+older query cannot replace the new view. Coalesce or reject stale results
+according to that same app-owned identity.
+
+Choose aggregates for the visible resolution: minute/hour buckets, min/max
+envelopes, or percentile bands. Release pages no longer needed. Keep overlap
+between history and the live tail deduplicated by sample identity; blindly
+chaining both vectors can count and draw the same reading twice.
+
+## Series guide
+
+| Family | Use it for | Typical data |
+| --- | --- | --- |
+| Line and area | Change over ordered buckets, trends, forecasts, bands. | Ordered values with an explicit time/bucket policy. |
+| Bar | Category comparison, rankings, stacks. | Category labels and values with a shared unit. |
+| Scatter and bubble | Correlation, outliers, clusters, size encoding. | x/y, optional size and category. |
+| Heatmap and calendar | Density, schedules, daily activity. | Numeric or date-indexed buckets. |
+| Pie, donut, gauge, radar | Bounded share or status comparisons. | Small category sets or bounded values. |
+| Tree, treemap, sunburst, graph, sankey | Hierarchy, dependency, flow. | Nodes, edges, parent-child or weighted flow records. |
+| Map and route | Geographic regions, routes, coverage. | Geometry and coordinates. |
+| 3D and GL | Genuinely spatial data. | Scene primitives, mesh vertices, or 3D points. |
+
+## Best practices
+
+Keep units consistent, validate domain totals before converting to chart
+values, and test missing/empty windows. Let the app own fetching, retries,
+paging, and selection. Use whole translated labels, and give a repeated chart
+a durable key based on its report or device identity.
+
+## Lifecycle fit and verification
+
+Verify a chart's source mapping before reviewing pixels. Then check its axis
+labels, empty/loading states, and the same data under a narrow layout. A
+correctly compiling `Dataset` can still show wrong units, duplicate readings,
+or a misleading time scale.

@@ -1,0 +1,58 @@
+---
+title: Donut
+sidebar_label: Donut
+description: Fission Charts reference for Donut.
+---
+
+# Donut
+
+![Donut screenshot](/img/charts/pie-donut.png)
+
+A donut retains a pie's part-to-whole model whilst leaving the centre empty. This can make room in a surrounding layout, but the hole does not calculate or render a total. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here the parts are parcel delivery outcomes for one dispatch batch. Each parcel has one final outcome at the report snapshot. Keep unresolved parcels visible so the chart does not imply that every dispatched parcel has already arrived.
+
+## Data model
+
+Use `PieSeries::inner_radius` to create the hole; the value is a logical-pixel radius and is constrained by plot size. Supply outcome counts from one snapshot. Parent totals and subcategory totals must not both be added as separate segments.
+
+## Authoring from a Fission component
+
+The component explicitly adds the inner radius which was missing from the previous donut example. The parent supplies the prepared outcome report.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DispatchOutcomeDonut<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            parcels_by_outcome: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.parcels_by_outcome.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test an entirely unresolved batch, all delivered and a mixed batch. Preserve the denominator as outcomes change and include exact values in accessible content. Inspect labels at the intended width; a large hole is not useful if it leaves unreadable segments.
+
+Tags: `pie`, `donut`.
+
+[Radial and polar family overview](./overview)

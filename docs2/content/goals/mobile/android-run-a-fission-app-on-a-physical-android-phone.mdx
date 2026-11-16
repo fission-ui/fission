@@ -1,0 +1,298 @@
+---
+layout: goal
+title: Run a Fission app on a physical Android phone
+description: "Run a Fission app on a physical Android phone."
+goal: Enable USB or Wi-Fi debugging, pair or connect with ADB, identify the device serial and launch the Fission app.
+path: /blog/run-a-fission-app-on-a-physical-android-phone/
+order: 25
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-run-a-fission-app-on-a-physical-android-phone
+outcomes:
+  - Enable USB or Wi-Fi debugging and confirm the phone is authorised with ADB
+  - Select the phone's ADB serial and launch the generated Android app on it
+  - Read the app's device logs without treating an emulator run as phone verification
+---
+
+A USB connection and an authorised debugging connection are different things. ADB can see a phone while refusing to run commands because its owner has not accepted this computer's key. Check that connection before changing Rust code or rebuilding the app.
+
+This guide takes an existing Android toolchain through authorisation, device selection and a real launch. Complete the [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/) first. The checklist below records checks you perform; it does not pair a phone or inspect its hardware.
+
+## Create the project and add the target
+
+Create the project and add the target used by this guide. Fission generates the native host; the app and its behaviour stay in shared Rust code.
+
+```sh
+cargo install cargo-fission
+fission init android-run-a-fission-app-on-a-physical-android-phone
+cd android-run-a-fission-app-on-a-physical-android-phone
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+## Files created by Fission
+
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
+
+```text
+android-run-a-fission-app-on-a-physical-android-phone/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # Compose checklist
+└── platforms/
+    └── android/              # generated Android host
+```
+
+The generated platform directory owns launch and packaging. The shared Rust library owns this screen and its translations.
+
+<!-- fission:step id="field-check-preview" -->
+## Keep an observable launch checklist
+
+Use the same screen in the browser and the native app, but do not confuse those results. A browser click checks the interface; changing a checkbox on the selected native device checks that this build actually launched there. The marks record your observations, not detected toolchain status, and can be cleared if you need to repeat a check.
+
+Replace both `src/app.rs` and `src/lib.rs` so the generated native entrypoint launches this component. Keep the language bundles in `i18n/` and the setup in `src/translations.rs`. The separate preview entrypoint is only for this documentation page.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub PhoneChecklist<()> {
+        state {
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
+        }
+    }
+    view(setup, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::PhoneChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::PhoneChecklist> {
+    let app = MobileApp::<(), _>::new(app::PhoneChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android phone launch checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::PhoneChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android phone launch checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::PhoneChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android phone launch checklist")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "Android phone launch checklist"
+setup.summary: "Record the checks you perform in the terminal and on the selected device."
+setup.manual: "Mark a check only after observing the result."
+setup.tools.check: "Phone authorised"
+setup.tools.detail: "Unlock the phone, accept the debugging prompt and confirm adb devices -l reports device."
+setup.runtime.check: "Correct serial selected"
+setup.runtime.detail: "Pass the phone's serial to fission run --device; do not rely on the first connected device."
+setup.targets.check: "App used on the phone"
+setup.targets.detail: "Change a checklist item on the physical screen, then inspect the attached app logs."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This checklist does not run commands or inspect devices. Marks are kept in this session only and can be cleared when a check must be repeated."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista de inicio en un teléfono Android"
+setup.summary: "Anota las comprobaciones que haces en el terminal y en el dispositivo elegido."
+setup.manual: "Marca cada comprobación tras observar el resultado."
+setup.tools.check: "Teléfono autorizado"
+setup.tools.detail: "Desbloquea el teléfono, acepta la depuración y confirma que adb devices -l muestra device."
+setup.runtime.check: "Número de serie seleccionado"
+setup.runtime.detail: "Pasa el número de serie del teléfono a fission run --device."
+setup.targets.check: "App usada en el teléfono"
+setup.targets.detail: "Cambia una casilla en la pantalla física y revisa los registros de la app."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista no ejecuta comandos ni inspecciona dispositivos. Las marcas duran esta sesión y pueden borrarse para repetir una comprobación."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Mark and clear each check, then reload to confirm the session-local state resets. Repeat the interaction on the actual emulator, simulator or phone after the native launch below.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Run a Fission app on a physical Android phone
+
+On the phone, enable Developer options and USB debugging, unlock it, and accept the computer's debugging prompt. Find its serial with `adb devices -l`; an `unauthorized` entry means the phone has not accepted the key yet. Pass the authorised serial to Fission so it does not select a different connected target:
+
+```sh
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+```
+
+For Wireless debugging, pair with the IP address and pairing port shown by Android's Wireless debugging screen, then connect to the device's connection address. The pairing and connection ports can differ:
+
+```sh
+adb pair <phone-ip>:<pairing-port>
+adb connect <phone-ip>:<connection-port>
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+```
+
+Confirm the app opens on the phone. An emulator exercises the UI, but it cannot prove that a physical camera, NFC antenna, biometric sensor or radio works.
+
+
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+The browser has not authorised a phone. Use the ADB output and a successful interaction on the physical device as the evidence for this step.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the connection and collect logs
+
+Run `fission doctor` to check the Android toolchain, then confirm ADB lists the phone as `device`, not `unauthorized` or `offline`. Build and launch with the serial from that list. Fission attaches to app logs during `run`; you can attach again with `fission logs` if the app exits after launch.
+
+```sh
+fission doctor android --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission logs --target android --device <adb-serial> --project-dir . --follow
+fission test --target android --project-dir .
+```
+
+`fission test` runs the generated emulator smoke test; it does not verify USB/Wi-Fi ADB pairing or hardware capability behavior. If the phone is listed as `offline`, reconnect it or wait for startup to finish, then run `adb devices -l` again.
+
+
+### Current references
+
+These references explain the API contract behind the example and the target-specific behavior to verify:
+
+- [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

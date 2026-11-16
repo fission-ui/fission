@@ -1,0 +1,277 @@
+---
+layout: goal
+title: Create and launch a Fission Android emulator
+description: "Create and launch a Fission Android emulator."
+goal: Configure an arm64 AVD, start it with the generated emulator script and resolve boot, graphics and acceleration problems.
+path: /blog/create-and-launch-a-fission-android-emulator/
+order: 24
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-create-and-launch-a-fission-android-emulator
+outcomes:
+  - Distinguish an AVD configuration from a running emulator
+  - Create and boot an installed arm64 system image
+  - Verify Android boot and launch the app on that emulator
+---
+
+An Android Virtual Device (AVD) is a saved emulator configuration, not the emulator process itself. Creating one establishes its system image and device profile; booting it starts the Android system that will run the app. A successful Rust build proves neither.
+
+We will use Fission's generated launcher to create or reuse an arm64 AVD, wait for Android to boot, and install the app. Start with the [Android setup guide](/blog/set-up-rust-android-gui-development-with-fission/) and [SDK packages](/blog/install-android-sdk-packages-for-a-fission-app/) if the tools or system image are missing.
+
+## Create the project and add the target
+
+Start with a fresh project and add Android as a target. If you have not installed the SDK and NDK yet, do that before continuing.
+
+```sh
+cargo install cargo-fission
+fission init android-create-and-launch-a-fission-android-emulator
+cd android-create-and-launch-a-fission-android-emulator
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+## Files created by Fission
+
+This is the tree Fission creates. The app and its behaviour live under `src/`; `platforms/android/` is the generated host used to launch and package the Android app. Keep the shared Rust code in one place rather than creating a separate Android version of the screen.
+
+```text
+android-create-and-launch-a-fission-android-emulator/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # Compose checklist
+└── platforms/
+    └── android/              # generated Android host
+```
+
+The generated platform directory owns launch and packaging. The shared Rust library owns this screen and its translations.
+
+<!-- fission:step id="start-screen" -->
+## Keep an observable launch checklist
+
+Use the same screen in the browser and the native app, but do not confuse those results. A browser click checks the interface; changing a checkbox on the selected native device checks that this build actually launched there. The marks record your observations, not detected toolchain status, and can be cleared if you need to repeat a check.
+
+Replace both `src/app.rs` and `src/lib.rs` so the generated native entrypoint launches this component. Keep the language bundles in `i18n/` and the setup in `src/translations.rs`. The separate preview entrypoint is only for this documentation page.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub EmulatorChecklist<()> {
+        state {
+            tools_checked: bool = false,
+            runtime_checked: bool = false,
+            targets_checked: bool = false,
+        }
+    }
+    view(setup, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [setup.tools_checked, setup.runtime_checked, setup.targets_checked]
+            .iter().filter(|checked| **checked).count();
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("setup.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("setup.summary")).color(tokens.colors.text_secondary),
+            Text(cx.tr("setup.manual")).weight(tokens.typography.font_weight_semibold),
+            Divider(),
+            Checkbox(
+                checked: setup.tools_checked,
+                label: Some(cx.tr("setup.tools.check")),
+                semantics_identifier: Some("setup.tools".into()),
+                bind(on_toggle): to(setup.tools_checked),
+            ),
+            Text(cx.tr("setup.tools.detail")),
+            Checkbox(
+                checked: setup.runtime_checked,
+                label: Some(cx.tr("setup.runtime.check")),
+                semantics_identifier: Some("setup.runtime".into()),
+                bind(on_toggle): to(setup.runtime_checked),
+            ),
+            Text(cx.tr("setup.runtime.detail")),
+            Checkbox(
+                checked: setup.targets_checked,
+                label: Some(cx.tr("setup.targets.check")),
+                semantics_identifier: Some("setup.targets".into()),
+                bind(on_toggle): to(setup.targets_checked),
+            ),
+            Text(cx.tr("setup.targets.detail")),
+            Divider(),
+            Text(cx.tr("setup.reviewed").replace("{count}", &reviewed.to_string())),
+            Text(cx.tr("setup.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(680.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), app::EmulatorChecklist> {
+    let app = MobileApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::EmulatorChecklist)
+        .with_env(translations::create_env())
+        .with_title("Android emulator checklist")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+setup.title: "Android emulator checklist"
+setup.summary: "Record the checks you perform in the terminal and on the selected device."
+setup.manual: "Mark a check only after observing the result."
+setup.tools.check: "System image installed"
+setup.tools.detail: "Review sdkmanager --list_installed for the arm64 Google APIs image."
+setup.runtime.check: "Android finished booting"
+setup.runtime.detail: "Use adb devices -l and adb -s <serial> shell getprop sys.boot_completed."
+setup.targets.check: "App opened in the emulator"
+setup.targets.detail: "Launch through the generated host, then change a checklist item in the emulator."
+setup.reviewed: "{count} of 3 checks marked"
+setup.scope: "This checklist does not run commands or inspect devices. Marks are kept in this session only and can be cleared when a check must be repeated."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+setup.title: "Lista del emulador Android"
+setup.summary: "Anota las comprobaciones que haces en el terminal y en el dispositivo elegido."
+setup.manual: "Marca cada comprobación tras observar el resultado."
+setup.tools.check: "Imagen del sistema instalada"
+setup.tools.detail: "Revisa sdkmanager --list_installed y comprueba la imagen arm64 de Google APIs."
+setup.runtime.check: "Android ha terminado de iniciar"
+setup.runtime.detail: "Usa adb devices -l y adb -s <serial> shell getprop sys.boot_completed."
+setup.targets.check: "App abierta en el emulador"
+setup.targets.detail: "Inicia la app con el host generado y cambia una casilla dentro del emulador."
+setup.reviewed: "{count} de 3 comprobaciones marcadas"
+setup.scope: "Esta lista no ejecuta comandos ni inspecciona dispositivos. Las marcas duran esta sesión y pueden borrarse para repetir una comprobación."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Mark and clear each check, then reload to confirm the session-local state resets. Repeat the interaction on the actual emulator, simulator or phone after the native launch below.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Create and launch the generated Android AVD
+
+The generated host includes `platforms/android/run-emulator.sh`. Keep only the intended emulator running for this script: it can reuse an already running emulator rather than booting the configured AVD. From the project root, it finds an installed arm64 Google APIs image, creates the default `FissionApi<level>Arm64` AVD when needed, then boots the emulator, builds and installs the APK, and launches the app. First follow the [Android SDK setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) if those tools are not installed yet.
+
+```sh
+fission doctor android --project-dir .
+sdkmanager --list_installed
+./platforms/android/run-emulator.sh
+```
+
+The first command reports missing Android or Rust prerequisites. The second shows which SDK packages are installed. The launcher prints each build and boot stage; let the first AVD finish booting before you start another emulator.
+
+Set `ANDROID_AVD_NAME` if you want to use a different AVD. The launcher can only use an image already installed in the SDK. If it cannot find an arm64 Google APIs image, check the API level in `platforms/android/README.md`, install it with `sdkmanager`, and try again.
+
+### Diagnose a boot or connection failure
+
+```sh
+emulator -accel-check
+adb devices -l
+fission devices --project-dir .
+```
+
+Check acceleration separately from the ADB connection. In the ADB output, `device` means ADB can communicate with Android; it does not prove that the system has finished booting. An `offline` entry means the connection is not yet usable. Use `adb -s <emulator-serial> shell getprop sys.boot_completed` to check for `1` before relying on the app launcher. Then check `fission devices` to make sure Fission sees the AVD too. If the emulator has a graphics problem, cold-boot it from Android Studio's Device Manager before changing the generated script.
+
+### Read next
+
+- [Android SDK package tutorial](/blog/install-android-sdk-packages-for-a-fission-app/)
+- [Android target requirements](/reference/platform/targets/)
+
+<!-- fission:checkpoint -->
+The browser runs the shared checklist, not an Android emulator. The commands above start a real AVD and check that the generated Android host can find it.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

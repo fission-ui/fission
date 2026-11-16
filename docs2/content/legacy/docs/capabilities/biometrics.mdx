@@ -1,0 +1,169 @@
+---
+title: Biometrics
+description: Ask the host to verify the current local user with fingerprint, face, or device credential fallback.
+---
+
+# Biometrics
+
+Biometrics are local device authentication. The host may use face recognition, fingerprint, iris, or the device credential fallback. The result says the current device user passed the local policy; it is not a server identity proof.
+
+This example checks the current device user before unlocking a local action. The reducer requests verification, then handles the host result. Keep the distinction clear: local biometric verification does not authenticate a user to your server.
+
+Use passkeys for account sign-in. Use biometrics when the question is local: should this already-signed-in app unlock a sensitive action on this device?
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct BiometricsState {
+    export_unlocked: bool,
+    verifying: bool,
+    biometric_error: Option<String>,
+}
+
+impl GlobalState for BiometricsState {}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability biometric --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android biometric permissions and the iOS Face ID usage string. macOS and Windows support local authentication through host providers. Web fingerprint prompts are normally passkeys/WebAuthn rather than raw biometric access.
+
+Keep these three pieces separate:
+
+- The Fission API is the typed request your reducer makes; this example calls `biometrics().authenticate(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the provider is missing, the request returns a typed unsupported error. If the provider exists but platform configuration is missing, the operating system may deny the request.
+
+## 3. Define reducers for success and failure
+
+The host responds after the starting reducer returns. Handle the verification result and any error in completion reducers.
+
+```rust
+#[fission_reducer(UserVerified)]
+fn on_user_verified(state: &mut BiometricsState, ctx: &mut ReducerContext<BiometricsState>) {
+    state.verifying = false;
+    match ctx.input.capability_ok(AUTHENTICATE_BIOMETRIC) {
+        Some(result) => {
+            state.export_unlocked = result.verified;
+            state.biometric_error = None;
+        }
+        None => {
+            state.export_unlocked = false;
+            state.biometric_error = Some("The host returned no verification result".into());
+        }
+    }
+}
+
+#[fission_reducer(UserVerificationFailed)]
+fn on_user_verification_failed(state: &mut BiometricsState, ctx: &mut ReducerContext<BiometricsState>) {
+    state.verifying = false;
+    state.export_unlocked = false;
+    state.biometric_error = Some(
+        ctx.input.capability_error(AUTHENTICATE_BIOMETRIC)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not verify the device user".into()),
+    );
+}
+```
+
+The callbacks are unit actions. Their payload does not contain the host result: the completion reducer reads that result from `ctx.input`. Both a missing result and an error leave the export locked. Cancellation and failed verification must not reuse an earlier successful unlock.
+
+## 4. Request the capability from a reducer
+
+Request verification from the reducer handling the user's action. Fission queues the host request and dispatches a completion action when it finishes.
+
+```rust
+#[fission_reducer(ConfirmExport)]
+fn on_confirm_export(
+    state: &mut BiometricsState,
+    request: BiometricAuthenticateRequest,
+    ctx: &mut ReducerContext<BiometricsState>,
+) {
+    if state.verifying {
+        return;
+    }
+    state.verifying = true;
+    state.export_unlocked = false;
+    state.biometric_error = None;
+    let verified = ctx.effects.bind(UserVerified, reduce_with!(on_user_verified));
+    let failed = ctx.effects.bind(UserVerificationFailed, reduce_with!(on_user_verification_failed));
+    ctx.effects.biometrics().authenticate(request)
+        .on_ok(verified)
+        .on_err(failed);
+}
+```
+
+Bind the completion actions before creating the effect builder: both operations need mutable access to `ctx.effects`. The request is an owned snapshot, while the completion reducers receive the current state when verification finishes.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+fission_component! {
+    pub ConfirmExportButton<BiometricsState> {}
+    view(_button, state, cx) {
+        let request = BiometricAuthenticateRequest {
+            reason: cx.tr("export.verify_reason"),
+            title: Some(cx.tr("export.verify_title")),
+            allow_device_credential: true,
+            required_strength: BiometricStrength::Strong,
+            ..Default::default()
+        };
+        let run = cx.bind(ConfirmExport(request), reduce!(on_confirm_export));
+    }
+    => Column(children: [
+        Button(
+            child: Text(cx.tr("export.verify")),
+            disabled: state.verifying,
+            on_press: run,
+        ),
+        if state.verifying { Spinner(motion: SpinnerMotion::Default, label: cx.tr("export.verifying")) },
+        if state.export_unlocked { Text(cx.tr("export.verified")) },
+        if let Some(error) = &state.biometric_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Add the `export.*` translation keys to the app's bundles. This widget verifies the local user; it does not export anything. The export action must check the current unlock policy again, clear it after use, and perform any server-side authorization independently.
+
+## 6. Provide and test the host behavior
+
+Register a `BiometricHost` with `.with_biometric_host(...)`. Use `MemoryBiometricHost` for tests. A real host should distinguish unsupported hardware, no enrollment, cancellation, denied permission, and failed verification.
+
+Test supported/enrolled and supported/not-enrolled devices, verification success, cancellation, permission denial, and provider failures. Verify that sensitive actions stay locked unless `verified` is true.
+
+## Platform expectations
+
+Android, iOS, Windows, and macOS provide local-authentication systems. On Linux, support depends on the desktop stack and enrolled authenticators. Web does not expose standalone biometric authentication; use passkeys for account sign-in. Check the [capability matrix](/docs/capabilities/matrix/) for the provider available on your target.
+
+For request fields, provider traits, and generated configuration, see the [Biometrics reference](/reference/capabilities/biometrics/).
+
+## Finished capability flow
+
+A complete `Biometrics` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

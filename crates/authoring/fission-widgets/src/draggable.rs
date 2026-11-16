@@ -48,6 +48,21 @@ pub struct Draggable {
     pub on_drag_end: Option<ActionEnvelope>,
 }
 
+impl Default for Draggable {
+    fn default() -> Self {
+        Self {
+            id: None,
+            semantics_identifier: None,
+            payload: Vec::new(),
+            child: fission_core::ui::widgets::Spacer::default().into(),
+            preview: None,
+            preview_options: DragPreviewOptions::default(),
+            on_drag_start: None,
+            on_drag_end: None,
+        }
+    }
+}
+
 impl Draggable {
     /// Sets the stable semantic/test identifier used to retain and locate this
     /// source when an explicit widget ID is not supplied.
@@ -139,6 +154,18 @@ pub struct DragTarget {
     pub child: Widget,
     /// Optional visible target while this target is the hovered drop target.
     pub hover_child: Option<Widget>,
+}
+
+impl Default for DragTarget {
+    fn default() -> Self {
+        Self {
+            id: None,
+            semantics_identifier: None,
+            on_drop: None,
+            child: fission_core::ui::widgets::Spacer::default().into(),
+            hover_child: None,
+        }
+    }
 }
 
 impl DragTarget {

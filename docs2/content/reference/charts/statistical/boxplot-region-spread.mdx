@@ -1,0 +1,58 @@
+---
+title: Region spread boxplot
+sidebar_label: Region spread boxplot
+description: Fission Charts reference for Region spread boxplot.
+---
+
+# Region spread boxplot
+
+![Region spread boxplot screenshot](/img/charts/boxplot-region-spread.png)
+
+Regional delivery distributions can show whether a national average hides a long tail in particular areas. The comparison needs the same service definition and completed-delivery population. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Group by a stable operational region and use elapsed delivery hours. Different service promises or incomplete deliveries can otherwise make regions appear comparable when they are not.
+
+## Data model
+
+Supply `[min, Q1, median, Q3, max]` rows aligned with region labels. Prepare ordered finite values and a consistent quantile convention. A boxplot does not normalise for route distance or sample count.
+
+## Authoring from a Fission component
+
+The parent supplies the completed-delivery summaries and keeps original delivery IDs and quantities outside the display.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RegionalDeliverySpread<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a region with no completed deliveries and a small sample. Provide sample counts, service scope and exact values outside the plot; apparent differences alone do not explain regional performance.
+
+Tags: `boxplot`, `region`.
+
+[Statistical family overview](./overview)

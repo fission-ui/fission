@@ -1,0 +1,51 @@
+---
+title: Brush horizontal
+sidebar_label: Brush horizontal
+description: Use a horizontal brush for basket-value selection independently of item count.
+---
+
+# Brush horizontal
+
+![Brush horizontal screenshot](/img/charts/component-brush-horizontal.png)
+
+A horizontal brush limits x whilst spanning the full plot height. For an order scatter plot, that means selecting a basket-value interval without also restricting item count.
+
+Reuse `BrushInspector` from [brush selection](./brush-select), placed in `widgets/brush_inspector.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::ChartBrush;
+use crate::widgets::brush_inspector::BrushInspector;
+
+fission_component! {
+    pub BasketValueRangeInspector<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            orders_label: String,
+            value_axis_label: String,
+            item_axis_label: String,
+            summary_pattern: String,
+            samples: Vec<(f32, f32)>,
+        }
+    }
+    view(range, _state, _cx) => BrushInspector {
+        chart_id: range.chart_id,
+        title: range.title.clone(),
+        orders_label: range.orders_label.clone(),
+        value_axis_label: range.value_axis_label.clone(),
+        item_axis_label: range.item_axis_label.clone(),
+        summary_pattern: range.summary_pattern.clone(),
+        samples: range.samples.clone(),
+        brush: ChartBrush::horizontal(),
+    }
+}
+```
+
+The helper owns retained summary state, while the chart owns its gesture state. Supply translated labels and the `{count}` summary pattern described on the base page; assign stable component identity if inspectors repeat dynamically.
+
+The selected region uses plot fractions, not currency amounts. Decode the completed hits through `ChartBrushSelection` before relating them to domain records; dragging does not change the source dataset by itself.
+
+Test dragging in both directions, clearing and selections near the plot edges. Provide equivalent minimum/maximum value controls so the investigation is not pointer-only. The screenshot uses its own gallery data.
+
+[Components and interaction family overview](./overview)

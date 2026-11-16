@@ -1,7 +1,7 @@
 use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Container, Spacer, Text};
 use fission_core::{build, GlobalState, View, WidgetId};
-use fission_ir::op::Color;
+use fission_ir::op::{Color, Length};
 use fission_ir::{LayoutOp, Op};
 use fission_widgets::timeline::{Timeline, TimelineEntry, TimelineItem, TimelineLayout};
 use serde::{Deserialize, Serialize};
@@ -118,4 +118,36 @@ fn one_rich_timeline_entry_has_no_connector() {
             }) if width == 2.0
         )
     }));
+}
+
+#[test]
+fn timeline_rail_keeps_its_width_while_content_can_shrink() {
+    let env = fission_core::Env::default();
+    let runtime = fission_core::RuntimeState::default();
+    let state = TestState;
+    let view = View::new(&state, &runtime, &env, None);
+    let mut ctx = BuildCtx::<TestState>::new();
+    let widget = build::enter(&mut ctx, &view, || {
+        TimelineLayout::new(vec![TimelineEntry::new(
+            WidgetId::explicit("timeline.shrink"),
+            Text::new("Content that must wrap without moving the marker rail"),
+        )])
+        .marker_geometry(24.0, 12.0)
+        .into()
+    });
+    let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Layout(LayoutOp::StyledBox { style, .. })
+            if style.width == Some(Length::Points(24.0))
+                && style.min_width == Some(Length::Points(24.0))
+                && style.flex_shrink.map(|value| value.0) == Some(0.0)
+    )));
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Layout(LayoutOp::StyledBox { style, .. })
+            if style.min_width == Some(Length::Points(0.0))
+                && style.flex_grow.map(|value| value.0) == Some(1.0)
+    )));
 }

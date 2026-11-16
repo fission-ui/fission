@@ -1,0 +1,62 @@
+---
+title: Operational step series
+sidebar_label: Operational step series
+description: Fission Charts reference for Operational step series.
+---
+
+# Operational step series
+
+![Operational step series screenshot](/img/charts/line-operational-steps.png)
+
+A configured worker limit changes at specific times. A step line preserves those discrete transitions instead of implying that a limit gradually moved through values that the system never used. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, each sample states the new limit at its reporting boundary. The previous limit remains in force until that boundary, which is why the example uses an end step. This is a configuration history, not a count of workers actually running.
+
+## Data model
+
+Supply the ordered limit snapshots and labels. LineSeries::step("end") changes at the next category position. Use regularly spaced snapshots for this category-based example; gaps between arbitrary event timestamps do not automatically scale the horizontal distance.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub OperationalStepSeriesChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            worker_limits: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.worker_limits.clone())
+                    .step("end")
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check increases, decreases and repeated limits. Preserve the difference between configured capacity and observed concurrency, and include the effective timestamp in readable details for operational review.
+
+Tags: `line`, `step`.
+
+[Line family overview](./overview)

@@ -1,0 +1,89 @@
+---
+title: Visual map build calendar
+sidebar_label: Visual map build calendar
+description: Fission Charts reference for Visual map build calendar.
+---
+
+# Visual map build calendar
+
+![Visual map build calendar screenshot](/img/charts/visual-map-calendar-builds.png)
+
+A build calendar shows failures in their date context. An explicit colour range adds an important constraint: the same count should look the same when a user compares two months. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example counts failed completed builds each day and keeps the scale between zero and ten. Without a shared range, a month with two failures can look as severe as a month with ten. The range is a reporting decision, so explain it rather than leaving users to infer it from colour.
+
+## Data model
+
+Supply ISO date/failure-count pairs after deduplicating build records. A day with no completed builds is different from a day where all builds passed. Keep the total build count available when the report needs to distinguish those cases.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `CalendarHeatmapSeries::data` | `Vec<(&str, f32)>` | Converts date/value pairs into the series' owned `Vec<(String, f32)>`. |
+| `CalendarHeatmapSeries::range` | `&str, &str` | Sets the displayed start and end dates. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric colour range. |
+| `Chart::series` | `Vec<Series>` | Adds the calendar series; Cartesian axes are not required. |
+
+## Example
+
+```rust
+use fission::charts::{CalendarHeatmapSeries, Chart, VisualMap};
+
+let chart = Chart::new()
+    .title("Failed builds per day — scale: 0 to 10")
+    .visual_map(VisualMap::new().min(0.0).max(10.0))
+    .series(vec![CalendarHeatmapSeries::new("Failed builds")
+        .range("2026-10-01", "2026-10-31")
+        .data(vec![
+            ("2026-10-01", 2.0),
+            ("2026-10-02", 0.0),
+            ("2026-10-03", 7.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the daily values. This component presents them; it does not start a request during the build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub VisualMapBuildCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            daily_values: Vec<(String, f32)>,
+        }
+    }
+    view(calendar, _state, _cx) =>
+        Chart(
+            title: Some(calendar.chart_title.clone()),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries {
+                name: calendar.series_label.clone(),
+                data: calendar.daily_values.clone(),
+                start: Some("2026-10-01".into()),
+                end: Some("2026-10-31".into()),
+            })],
+        )
+}
+```
+
+## Interaction and accessibility
+
+A selected date can filter the build history through a reducer. Expose the failed count and total builds in readable text; colour should help locate the day, not be the only way to learn its result.
+
+## Testing guidance
+
+Test zero failures, a value at the configured upper bound and a value above it. Check days with no build data separately from known zero-failure days, and verify that compared months use the same scale.
+
+Tags: `visualMap`, `calendar`.
+
+[Heatmap family overview](./overview)

@@ -1,0 +1,58 @@
+---
+title: Two-level donut
+sidebar_label: Two-level donut
+description: Fission Charts reference for Two-level donut.
+---
+
+# Two-level donut
+
+![Two-level donut screenshot](/img/charts/pie-two-level.png)
+
+The gallery name describes a presentation, not a hierarchical data contract. A `PieSeries` with an inner radius is one ring of categories, even when those categories were derived from a two-level source model. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+For a budget organised into departments and cost centres, a flat donut can show either department totals or the selected department's cost centres. It cannot preserve both levels simply by adding a hole. A hierarchical chart is needed when both levels must remain visible together.
+
+## Data model
+
+Aggregate one selected level into non-overlapping label/value pairs before rendering. Do not add department totals to their cost-centre totals in the same pie: that would count the same budget twice. The current pie API has no per-series outer-radius field for laying out two independent concentric rings.
+
+## Authoring from a Fission component
+
+This component shows cost centres within a department selected by the parent. The title should identify that department and the reporting period.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DepartmentCostCentreDonut<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            budget_by_cost_centre: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.budget_by_cost_centre.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a department with no budget, one cost centre and a parent total which disagrees with its children. Keep currency arithmetic authoritative outside the `f32` display values. Provide the department total and cost-centre amounts in a list; do not imply the single ring displays a second hierarchy level.
+
+Tags: `pie`, `donut`.
+
+[Pie and radial family overview](./overview)

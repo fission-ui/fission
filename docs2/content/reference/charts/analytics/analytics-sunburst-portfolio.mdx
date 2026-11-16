@@ -1,0 +1,47 @@
+---
+title: Portfolio sunburst
+sidebar_label: Portfolio sunburst
+description: Show a portfolio's additive hierarchy with SunburstSeries and explicit parent-child totals.
+---
+
+# Portfolio sunburst
+
+![Portfolio sunburst screenshot](/img/charts/analytics-sunburst-portfolio.png)
+
+A portfolio hierarchy might divide committed spend into departments, programmes and projects. A sunburst uses successive rings for those levels, allowing the reader to follow a project's place in the whole.
+
+The quantity must remain the same at every level. Combining department revenue with project headcount would produce a hierarchy, but not a meaningful part-to-whole chart.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, SunburstSeries, TreemapNode};
+
+fission_component! {
+    pub PortfolioComposition<()> {
+        props {
+            title: String,
+            measure_label: String,
+            departments: Vec<TreemapNode>,
+        }
+    }
+    view(portfolio, _state, _cx) => Chart(
+        title: Some(portfolio.title.clone()),
+        series: vec![Series::Sunburst(
+            SunburstSeries::new(&portfolio.measure_label)
+                .data(portfolio.departments.clone()),
+        )],
+    )
+}
+```
+
+Construct each `TreemapNode` with its translated `name`, finite non-negative display `value` and `children`. Build the tree from the application's authoritative portfolio records rather than storing a second editable hierarchy in the chart.
+
+## Decide what a parent represents
+
+Require child totals to reconcile to their parent. If some spend is unallocated, represent that remainder explicitly instead of allowing named children to appear to account for the entire parent.
+
+Keep money calculations outside the chart and convert only the final display amounts to `f32`. Test the hierarchy and reconciliation separately, then inspect deep and narrow branches: small sectors may not fit labels. Provide the same hierarchy and amounts in an accessible list. The gallery screenshot is illustrative, not the output of this component's props.
+
+[Analytics family overview](./overview)

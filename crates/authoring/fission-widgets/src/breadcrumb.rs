@@ -21,7 +21,7 @@ pub struct BreadcrumbItem {
 }
 
 /// Ordered navigation trail from a broad parent to the current location.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Breadcrumb {
     /// Segments in ancestor-to-current order.
     pub items: Vec<BreadcrumbItem>,

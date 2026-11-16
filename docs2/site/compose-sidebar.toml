@@ -1,0 +1,74 @@
+[[items]]
+title = "Compose guide"
+href = "/compose/"
+level = 0
+group = true
+
+[[items]]
+title = "Component structure"
+href = "/compose/#a-complete-component"
+level = 1
+group = true
+
+[[items]]
+title = "Complete component"
+href = "/compose/#a-complete-component"
+level = 2
+
+[[items]]
+title = "Imported widgets and direct fields"
+href = "/compose/#imported-widgets-and-direct-fields"
+level = 2
+
+[[items]]
+title = "State and actions"
+href = "/compose/#state-and-bindings"
+level = 1
+group = true
+
+[[items]]
+title = "State and bindings"
+href = "/compose/#state-and-bindings"
+level = 2
+
+[[items]]
+title = "Reducers and effects"
+href = "/compose/#inline-and-reusable-reducers"
+level = 2
+
+[[items]]
+title = "Async effects"
+href = "/compose/#async-effects-without-lifecycle-boilerplate"
+level = 2
+
+[[items]]
+title = "Composition and routing"
+href = "/compose/#conditions-matches-and-repeated-children"
+level = 1
+group = true
+
+[[items]]
+title = "Conditions and repeated children"
+href = "/compose/#conditions-matches-and-repeated-children"
+level = 2
+
+[[items]]
+title = "Routes and scoped state"
+href = "/compose/#routes-and-scoped-state"
+level = 2
+
+[[items]]
+title = "Design and accessibility"
+href = "/compose/#internationalisation-and-design-systems"
+level = 1
+group = true
+
+[[items]]
+title = "Internationalisation and design systems"
+href = "/compose/#internationalisation-and-design-systems"
+level = 2
+
+[[items]]
+title = "When to use the lower-level API"
+href = "/compose/#use-the-lower-level-api-when-it-is-the-clearer-tool"
+level = 2

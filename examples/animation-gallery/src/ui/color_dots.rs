@@ -1,23 +1,15 @@
 use super::color_dot::ColorDot;
+use crate::state::AnimationGalleryState;
 use fission::prelude::*;
 
-pub struct ColorDots<'a> {
-    pub colors: &'a [Color],
-}
-
-impl From<ColorDots<'_>> for Widget {
-    fn from(dots: ColorDots<'_>) -> Self {
-        let (_, view) = fission::build::current::<crate::state::AnimationGalleryState>();
-        Row {
-            gap: Some(view.env().theme.tokens.spacing.xs),
-            children: dots
-                .colors
-                .iter()
-                .copied()
-                .map(|color| ColorDot { color }.into())
-                .collect(),
-            ..Default::default()
-        }
-        .into()
-    }
+fission_component! {
+    pub ColorDots<AnimationGalleryState> { colors: Vec<Color> } |dots, _state, cx| {} =>
+        Row(
+            gap: cx.view.env().theme.tokens.spacing.xs,
+            children: [
+                for (index, color) in dots.colors.iter().copied().enumerate() {
+                    ColorDot(color, key: index)
+                },
+            ],
+        )
 }

@@ -1,0 +1,67 @@
+---
+title: Candlestick with movement
+sidebar_label: Candlestick with movement
+description: Fission Charts reference for Candlestick with movement.
+---
+
+# Candlestick with movement
+
+![Candlestick with movement screenshot](/img/charts/candlestick-volume.png)
+
+Candles show the price range within each reporting interval. Despite the route's historical volume name, `CandlestickSeries` does not include a traded-volume value. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this view to inspect open-to-close movement and extremes for one instrument. If volume matters, present a separate aligned bar chart or report; a wider or taller candle is not a volume encoding.
+
+## Data model
+
+Rows are `[open, close, low, high]`. Validate their ordering and preserve equal-duration interval alignment. Do not add a fifth number and assume the renderer will display volume.
+
+## Authoring from a Fission component
+
+The parent prepares the price report and supplies distinguishable rising/falling colours from the design system.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SessionPriceMovement<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a flat candle, a wide range and no-trade intervals. Provide exact prices, interval timestamps and any volume measure outside the plot. Colour must not be the only way to identify a rising or falling close.
+
+Tags: `candlestick`, `finance`.
+
+[Scatter and statistical family overview](./overview)

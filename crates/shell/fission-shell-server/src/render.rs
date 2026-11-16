@@ -19,8 +19,10 @@ use fission_core::{
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
-    render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
-    CssVariableMap, HtmlRenderOptions, SitePageElement, SitePageElementPlacement, StyleRegistry,
+    generated_stylesheet_href, packaged_font_asset_path, packaged_font_content_type,
+    packaged_font_css, render_ir_to_html_with_styles, site_base_css, site_enhancement_js,
+    theme_variables_css, CssVariableMap, HtmlRenderOptions, SitePageElement,
+    SitePageElementPlacement, StyleRegistry,
 };
 use fission_theme::DesignMode;
 use serde::{Deserialize, Serialize};
@@ -28,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime};
 
 /// Maximum encoded action submission accepted by the built-in SSR endpoint.
@@ -138,6 +140,7 @@ impl ServerResponse {
 pub struct ServerSession {
     id: String,
     is_new: bool,
+    rotated_id: Arc<OnceLock<String>>,
 }
 
 impl ServerSession {
@@ -149,6 +152,32 @@ impl ServerSession {
     /// Returns whether this request created the session.
     pub fn is_new(&self) -> bool {
         self.is_new
+    }
+
+    /// Replaces this request's session identifier at the response boundary.
+    ///
+    /// Rotation is idempotent within a request. Authentication handlers should
+    /// bind newly authenticated server-side state to the returned identifier;
+    /// the original identifier remains available through [`Self::id`] so
+    /// existing anonymous state can be revoked deliberately.
+    pub fn rotate(&self) -> Result<String> {
+        if let Some(id) = self.rotated_id.get() {
+            return Ok(id.clone());
+        }
+        let candidate = generate_session_id()?;
+        let _ = self.rotated_id.set(candidate);
+        Ok(self
+            .rotated_id
+            .get()
+            .expect("session rotation was initialized")
+            .clone())
+    }
+
+    fn response_id(&self) -> &str {
+        self.rotated_id
+            .get()
+            .map(String::as_str)
+            .unwrap_or(&self.id)
     }
 }
 
@@ -232,6 +261,9 @@ impl ServerRenderer {
     pub fn with_config(mut app: FissionServerApp, config: ServerRuntimeConfig) -> Result<Self> {
         if let Some(mode) = config.default_route_mode {
             app.apply_default_route_mode(mode);
+        }
+        if let Some(delivery) = config.font_delivery {
+            app.document = app.document.with_font_delivery(delivery);
         }
         let mut renderer = Self::new(app);
         if let Some(limit) = config.render_pass_limit {
@@ -370,8 +402,34 @@ impl ServerRenderer {
 
     /// Dispatches a framework-neutral request to actions, handlers, static files,
     /// or the matching SSR route and returns the resulting response.
-    pub fn handle(&self, request: ServerRequest) -> Result<ServerResponse> {
-        if request.method == "POST" && normalize_server_path(&request.path) == "/__fission/action/"
+    pub fn handle(&self, mut request: ServerRequest) -> Result<ServerResponse> {
+        let is_head = request.method == "HEAD";
+        if is_head && self.app.find_http_handler("HEAD", &request.path).is_none() {
+            request.method = "GET".to_string();
+        }
+        let mut response = self.handle_request(request)?;
+        if is_head {
+            if !response
+                .headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            {
+                response.headers.push((
+                    "content-length".to_string(),
+                    response.body.len().to_string(),
+                ));
+            }
+            response.body.clear();
+        }
+        Ok(response)
+    }
+
+    fn handle_request(&self, request: ServerRequest) -> Result<ServerResponse> {
+        let normalized_path = normalize_server_path(&request.path);
+        if request.method == "POST"
+            && (normalized_path == "/__fission/action/"
+                || (self.app.find_route(&normalized_path).is_some()
+                    && request_contains_action_token(&request)))
         {
             return self.handle_action(request);
         }
@@ -688,6 +746,7 @@ impl ServerRenderer {
         let action_tokens = collect_server_action_tokens(
             lowering.ir(),
             &route_path,
+            &request.query,
             &self.action_signer,
             Duration::from_secs(10 * 60),
         )?;
@@ -718,7 +777,7 @@ impl ServerRenderer {
                 .code_highlighting()
                 .cloned()
                 .unwrap_or_default(),
-            server_action_post_path: Some("/__fission/action".to_string()),
+            server_action_post_path: Some(route_path.clone()),
             server_action_tokens: action_tokens,
             structured_data: route.route.structured_data.clone(),
             motion_declarations,
@@ -731,6 +790,7 @@ impl ServerRenderer {
                 .map(|registration| (registration.node_id, registration))
                 .collect(),
             font_faces: self.app.document.font_faces(),
+            separate_generated_stylesheet: true,
             head_start_html,
             head_end_html,
             body_start_html,
@@ -765,6 +825,12 @@ impl ServerRenderer {
                 SERVER_BROWSER_RUNTIME_JS,
             ))),
             "/favicon.ico" => Ok(Some(self.favicon_response()?)),
+            path if path.starts_with("/__fission/styles/") => {
+                Ok(Some(self.generated_stylesheet_response(path)?))
+            }
+            path if path.starts_with("/__fission/fonts/") => {
+                Ok(Some(self.packaged_font_response(path)))
+            }
             path if path.starts_with("/assets/") => Ok(Some(self.project_asset_response(path)?)),
             _ => Ok(None),
         }
@@ -774,7 +840,7 @@ impl ServerRenderer {
         let mut css = String::new();
         css.push_str(site_base_css());
         css.push_str(
-            "\n.fission-browser-action{cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
+            "\n.fission-browser-action{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;padding:0;text-align:inherit;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action>.fission-site-box,.fission-server-action>.fission-site-box{display:flex;align-items:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
         );
         css.push('\n');
         if self.app.document.theme_switching() {
@@ -800,27 +866,82 @@ impl ServerRenderer {
         } else {
             css.push_str(&theme_variables_css(":root", self.app.document.theme()));
         }
-        let styles = self
-            .style_cache
-            .read()
-            .map_err(|_| anyhow!("server style cache lock poisoned"))?;
-        for style in styles.values() {
-            css.push('\n');
-            css.push_str(style);
+        for font in self.app.document.font_faces() {
+            if let Some(font_css) = packaged_font_css(font, self.app.document.font_delivery()) {
+                css.push('\n');
+                css.push_str(&font_css);
+            }
         }
         for user_css in self.app.document.user_css() {
             css.push('\n');
             css.push_str(user_css);
         }
-        Ok(ServerResponse::text(200, "text/css; charset=utf-8", css))
+        let mut response = ServerResponse::text(200, "text/css; charset=utf-8", css);
+        response.headers.push((
+            "cache-control".to_string(),
+            "public, max-age=300".to_string(),
+        ));
+        Ok(response)
     }
 
     fn remember_route_css(&self, route_path: &str, css: &str) -> Result<()> {
+        let _ = route_path;
+        let href = generated_stylesheet_href(css);
         self.style_cache
             .write()
             .map_err(|_| anyhow!("server style cache lock poisoned"))?
-            .insert(route_path.to_string(), css.to_string());
+            .insert(href, css.to_string());
         Ok(())
+    }
+
+    fn generated_stylesheet_response(&self, request_path: &str) -> Result<ServerResponse> {
+        let styles = self
+            .style_cache
+            .read()
+            .map_err(|_| anyhow!("server style cache lock poisoned"))?;
+        let Some(css) = styles.get(request_path) else {
+            return Ok(ServerResponse::text(
+                404,
+                "text/plain; charset=utf-8",
+                "stylesheet not found",
+            ));
+        };
+        let mut response = ServerResponse::text(200, "text/css; charset=utf-8", css.clone());
+        response.headers.push((
+            "cache-control".to_string(),
+            "public, max-age=31536000, immutable".to_string(),
+        ));
+        Ok(response)
+    }
+
+    fn packaged_font_response(&self, request_path: &str) -> ServerResponse {
+        if self.app.document.font_delivery() != fission_shell_site::WebFontDelivery::External {
+            return ServerResponse::text(404, "text/plain; charset=utf-8", "font not found");
+        }
+        let Some(font) = self
+            .app
+            .document
+            .font_faces()
+            .iter()
+            .find(|font| packaged_font_asset_path(font) == request_path)
+        else {
+            return ServerResponse::text(404, "text/plain; charset=utf-8", "font not found");
+        };
+        ServerResponse {
+            status: 200,
+            headers: vec![
+                (
+                    "content-type".to_string(),
+                    packaged_font_content_type(font).to_string(),
+                ),
+                (
+                    "cache-control".to_string(),
+                    "public, max-age=31536000, immutable".to_string(),
+                ),
+            ],
+            body: font.data.to_vec(),
+            cache_status: None,
+        }
     }
 
     fn favicon_response(&self) -> Result<ServerResponse> {
@@ -967,7 +1088,7 @@ impl ServerRenderer {
                         "server action form schema not registered",
                     ));
                 };
-                match binding.decode(fields) {
+                match binding.decode(&verified.action, fields) {
                     Ok(action) => Some(action),
                     Err(_) => {
                         return Ok(ServerResponse::text(
@@ -1011,6 +1132,15 @@ impl ServerRenderer {
             action.action = bound_action;
         }
         let route_path = normalize_server_path(&action.route_path);
+        if normalize_server_path(&request.path) != "/__fission/action/"
+            && normalize_server_path(&request.path) != route_path
+        {
+            return Ok(ServerResponse::text(
+                403,
+                "text/plain; charset=utf-8",
+                "server action route rejected",
+            ));
+        }
         let Some(route) = self.app.find_route(&route_path) else {
             return Ok(ServerResponse::text(
                 404,
@@ -1018,9 +1148,13 @@ impl ServerRenderer {
                 "server action route not found",
             ));
         };
-        let session = self.session_for_request(&request)?;
-        let wants_redirect = action_request_should_redirect(&request);
-        let rendered = self.render_uncached(route, Some(&action), &request, &session)?;
+        let wants_redirect = normalize_server_path(&request.path) == "/__fission/action/"
+            && action_request_should_redirect(&request);
+        let mut trusted_request = request.clone();
+        trusted_request.path = route_path.clone();
+        trusted_request.query = action.request_query.clone();
+        let session = self.session_for_request(&trusted_request)?;
+        let rendered = self.render_uncached(route, Some(&action), &trusted_request, &session)?;
         let navigation_location = rendered
             .navigation
             .as_ref()
@@ -1086,18 +1220,23 @@ impl ServerRenderer {
         if let Some(cookie) = header_value(&request.headers, "cookie") {
             if let Some(value) = cookie_value(cookie, &self.session_config.cookie_name) {
                 if let Some(id) = self.verify_session_cookie_value(&value) {
-                    return Ok(ServerSession { id, is_new: false });
+                    return Ok(ServerSession {
+                        id,
+                        is_new: false,
+                        rotated_id: Arc::new(OnceLock::new()),
+                    });
                 }
             }
         }
         Ok(ServerSession {
             id: generate_session_id()?,
             is_new: true,
+            rotated_id: Arc::new(OnceLock::new()),
         })
     }
 
     fn attach_session_cookie(&self, response: &mut ServerResponse, session: &ServerSession) {
-        if session.is_new {
+        if session.is_new || session.rotated_id.get().is_some() {
             let secure = if self.session_config.secure {
                 "; Secure"
             } else {
@@ -1113,7 +1252,7 @@ impl ServerRenderer {
                 format!(
                     "{}={}; Path=/; HttpOnly; SameSite={same_site}; Max-Age=2592000{secure}",
                     self.session_config.cookie_name,
-                    self.encode_session_cookie_value(session.id())
+                    self.encode_session_cookie_value(session.response_id())
                 ),
             ));
         }
@@ -1673,6 +1812,16 @@ fn action_request_should_redirect(request: &ServerRequest) -> bool {
     content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded")
 }
 
+fn request_contains_action_token(request: &ServerRequest) -> bool {
+    if !action_request_should_redirect(request) {
+        return false;
+    }
+    request
+        .body
+        .split(|byte| *byte == b'&')
+        .any(|field| field.starts_with(b"token="))
+}
+
 fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
     ServerResponse {
         status: page.status,
@@ -1688,6 +1837,7 @@ fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
 fn collect_server_action_tokens(
     ir: &CoreIR,
     route_path: &str,
+    request_query: &BTreeMap<String, String>,
     signer: &ServerActionSigner,
     ttl: Duration,
 ) -> Result<BTreeMap<(fission_ir::WidgetId, u128), String>> {
@@ -1725,15 +1875,22 @@ fn collect_server_action_tokens(
                         "server action form id `{form_id}` belongs to more than one submit action"
                     );
                 }
-                signer.sign_form_envelope(
+                signer.sign_form_envelope_for_request(
                     route_path.to_string(),
                     node.id.as_u128(),
                     envelope,
                     form_id,
+                    request_query.clone(),
                     ttl,
                 )
             } else {
-                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl)
+                signer.sign_envelope_for_request(
+                    route_path.to_string(),
+                    node.id.as_u128(),
+                    envelope,
+                    request_query.clone(),
+                    ttl,
+                )
             };
             tokens.insert((node.id, entry.action_id), signer.encode(&token)?);
         }
@@ -1962,11 +2119,15 @@ mod tests {
         ir.set_root(id);
 
         let signer = ServerActionSigner::development();
-        assert!(
-            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(collect_server_action_tokens(
+            &ir,
+            "/",
+            &BTreeMap::new(),
+            &signer,
+            Duration::from_secs(60),
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[test]
@@ -1991,11 +2152,15 @@ mod tests {
         ir.set_root(root);
 
         let signer = ServerActionSigner::development();
-        assert!(
-            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(collect_server_action_tokens(
+            &ir,
+            "/",
+            &BTreeMap::new(),
+            &signer,
+            Duration::from_secs(60),
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[derive(Debug, Default)]
@@ -2124,7 +2289,9 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct FormActionState;
+    struct FormActionState {
+        submitted_query: Option<String>,
+    }
 
     impl GlobalState for FormActionState {}
 
@@ -2145,10 +2312,11 @@ mod tests {
     static SUBMITTED_SEARCHES: OnceLock<Mutex<Vec<SubmittedSearch>>> = OnceLock::new();
 
     fn on_submitted_search(
-        _state: &mut FormActionState,
+        state: &mut FormActionState,
         action: SubmittedSearch,
         _ctx: &mut ReducerContext<FormActionState>,
     ) {
+        state.submitted_query = Some(action.query.clone());
         SUBMITTED_SEARCHES
             .get_or_init(|| Mutex::new(Vec::new()))
             .lock()
@@ -2161,13 +2329,21 @@ mod tests {
 
     impl From<FormActionPage> for Widget {
         fn from(_: FormActionPage) -> Self {
-            let (ctx, _) = fission_core::build::current::<FormActionState>();
+            let (ctx, view) = fission_core::build::current::<FormActionState>();
             let submit = ctx.bind(
                 SubmittedSearch::default(),
                 on_submitted_search as Handler<FormActionState, SubmittedSearch>,
             );
             Column {
                 children: vec![
+                    Text::new(
+                        view.state()
+                            .submitted_query
+                            .as_deref()
+                            .map(|query| format!("Search submitted: {query}"))
+                            .unwrap_or_else(|| "Search ready".to_string()),
+                    )
+                    .into(),
                     TextInput {
                         label: Some("Query".into()),
                         name: Some("query".into()),
@@ -2199,6 +2375,83 @@ mod tests {
                         ..Default::default()
                     }
                     .form_id("search")
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct ContextFormState {
+        oauth_state: String,
+        submitted: Option<ContextualConsent>,
+    }
+
+    impl GlobalState for ContextFormState {}
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct ConsentFields {
+        display_name: String,
+    }
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct ContextualConsent {
+        oauth_state: String,
+        display_name: String,
+    }
+
+    impl Action for ContextualConsent {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.contextual-consent")
+        }
+    }
+
+    fn on_contextual_consent(
+        state: &mut ContextFormState,
+        action: ContextualConsent,
+        _ctx: &mut ReducerContext<ContextFormState>,
+    ) {
+        state.submitted = Some(action);
+    }
+
+    #[derive(Clone)]
+    struct ContextFormPage;
+
+    impl From<ContextFormPage> for Widget {
+        fn from(_: ContextFormPage) -> Self {
+            let (ctx, view) = fission_core::build::current::<ContextFormState>();
+            let submit = ctx.bind(
+                ContextualConsent {
+                    oauth_state: view.state().oauth_state.clone(),
+                    display_name: String::new(),
+                },
+                on_contextual_consent as Handler<ContextFormState, ContextualConsent>,
+            );
+            let submitted = view
+                .state()
+                .submitted
+                .as_ref()
+                .map(|action| format!("submitted:{}:{}", action.oauth_state, action.display_name))
+                .unwrap_or_else(|| "not submitted".to_string());
+            Column {
+                children: vec![
+                    Text::new(format!("request-state:{}", view.state().oauth_state)).into(),
+                    Text::new(submitted).into(),
+                    TextInput {
+                        label: Some("Display name".into()),
+                        name: Some("display_name".into()),
+                        form_id: Some("consent".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        child: Some(Text::new("Continue").into()),
+                        on_press: Some(submit),
+                        ..Default::default()
+                    }
+                    .form_id("consent")
                     .into(),
                 ],
                 ..Default::default()
@@ -2399,6 +2652,49 @@ mod tests {
 
         assert_eq!(response.status, 200);
         assert!(response.body_string().contains("Job complete"));
+    }
+
+    #[test]
+    fn server_jobs_can_rotate_an_existing_request_session() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .jobs(
+                    ServerJobRegistry::new().register_job(ACTION_JOB, |_request, ctx| {
+                        ctx.session().expect("request session").rotate().unwrap();
+                        Ok("Signed in".to_string())
+                    }),
+                )
+                .server_route_widget::<ActionJobState, _>("/", "Home", None, ActionJobPage),
+        );
+        let initial = renderer.handle(ServerRequest::get("/")).unwrap();
+        let original_cookie = response_header(&initial, "set-cookie")
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let token = renderer.sign_action(
+            "/",
+            WidgetId::explicit("action-job-button").as_u128(),
+            StartActionJob,
+            Duration::from_secs(60),
+        );
+        let mut request =
+            ServerRequest::post("/__fission/action", serde_json::to_vec(&token).unwrap());
+        request
+            .headers
+            .insert("cookie".to_string(), original_cookie.clone());
+
+        let response = renderer.handle(request).unwrap();
+        let replacement_cookie = response_header(&response, "set-cookie")
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("Signed in"));
+        assert_ne!(replacement_cookie, original_cookie);
     }
 
     #[test]
@@ -3115,6 +3411,35 @@ mod tests {
     }
 
     #[test]
+    fn head_uses_get_route_headers_without_returning_a_body() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/status",
+                "Status",
+                None,
+                TestPage("Service ready"),
+            ),
+        );
+        let get = renderer.handle(ServerRequest::get("/status")).unwrap();
+        let mut request = ServerRequest::get("/status");
+        request.method = "HEAD".to_string();
+
+        let head = renderer.handle(request).unwrap();
+
+        assert_eq!(head.status, get.status);
+        assert_eq!(head.body, Vec::<u8>::new());
+        assert_eq!(
+            response_header(&head, "content-type"),
+            response_header(&get, "content-type")
+        );
+        let expected_length = get.body.len().to_string();
+        assert_eq!(
+            response_header(&head, "content-length"),
+            Some(expected_length.as_str())
+        );
+    }
+
+    #[test]
     fn server_renderer_rebuilds_expired_revalidated_routes() {
         let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
             "/",
@@ -3430,6 +3755,11 @@ same_site = "none"
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
         assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains("button.fission-site-semantics"));
+        assert!(css.contains(".fission-site-retained-control-input"));
+        assert!(css.contains(
+            ".fission-browser-action>.fission-site-box,.fission-server-action>.fission-site-box{display:flex;align-items:center;}"
+        ));
         assert!(css.contains(":root"));
 
         let js = renderer
@@ -3454,6 +3784,7 @@ same_site = "none"
         assert!(runtime.contains("fission_bridge_alloc"));
         assert!(runtime.contains("fission-site-text-run"));
         assert!(runtime.contains("data-fission-browser-text-action"));
+        assert!(runtime.contains("nativeCheckable?'change':'click'"));
         assert!(runtime.contains("selectionDirection"));
         assert!(runtime.contains("textEncoder.encode(value.slice(0,bounded)).length"));
         assert!(runtime.contains("compositionCommitValue"));
@@ -3560,6 +3891,48 @@ same_site = "none"
     }
 
     #[test]
+    fn shared_site_css_does_not_accumulate_rendered_route_styles() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Home"))
+                .server_route_widget::<TestState, _>("/catalog", "Catalog", None, CodePage),
+        );
+
+        let before = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body;
+        renderer.handle(ServerRequest::get("/")).unwrap();
+        renderer.handle(ServerRequest::get("/catalog")).unwrap();
+        let after = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body;
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn packaged_fonts_are_not_exposed_by_default() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .with_fonts(&TEST_FONT)
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Home")),
+        );
+
+        let css = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body_string();
+        assert!(!css.contains("@font-face"));
+
+        let font = renderer
+            .handle(ServerRequest::get(packaged_font_asset_path(&TEST_FONT[0])))
+            .unwrap();
+        assert_eq!(font.status, 404);
+    }
+
+    #[test]
     fn server_renderer_applies_document_elements_with_static_site_filters() {
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test")
@@ -3615,6 +3988,7 @@ same_site = "none"
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test")
                 .with_fonts(&TEST_FONT)
+                .with_font_delivery(fission_shell_site::WebFontDelivery::External)
                 .favicon("/assets/icon.svg")
                 .code_highlighting(fission_shell_site::CodeHighlightingOptions {
                     enabled: true,
@@ -3633,8 +4007,41 @@ same_site = "none"
         assert!(html.contains("rel=\"icon\" href=\"/assets/icon.svg\""));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
         let rendered = renderer.render_route("/").unwrap();
-        assert!(rendered.css.contains("font-family:'Parity Sans'"));
-        assert!(rendered.css.contains("data:font/woff2;base64,"));
+        assert!(!rendered.css.contains("@font-face"));
+        assert!(!rendered.css.contains("data:font/"));
+
+        let shared_css = renderer.handle(ServerRequest::get("/site.css")).unwrap();
+        assert_eq!(
+            response_header(&shared_css, "cache-control"),
+            Some("public, max-age=300")
+        );
+        let shared_css = shared_css.body_string();
+        assert!(shared_css.contains("font-family:'Parity Sans'"));
+        assert!(shared_css.contains("src:url('__fission/fonts/"));
+        assert!(!shared_css.contains("data:font/"));
+
+        let font_path = packaged_font_asset_path(&TEST_FONT[0]);
+        let font = renderer.handle(ServerRequest::get(font_path)).unwrap();
+        assert_eq!(font.status, 200);
+        assert_eq!(font.body, TEST_FONT[0].data);
+        assert_eq!(
+            response_header(&font, "cache-control"),
+            Some("public, max-age=31536000, immutable")
+        );
+
+        let route_css_path = rendered
+            .html
+            .split("href=\"")
+            .filter_map(|rest| rest.split_once('\"').map(|(href, _)| href))
+            .find(|href| href.starts_with("/__fission/styles/"))
+            .expect("content-addressed route stylesheet");
+        let route_css = renderer.handle(ServerRequest::get(route_css_path)).unwrap();
+        assert_eq!(route_css.status, 200);
+        assert_eq!(route_css.body, rendered.css.as_bytes());
+        assert_eq!(
+            response_header(&route_css, "cache-control"),
+            Some("public, max-age=31536000, immutable")
+        );
     }
 
     #[test]
@@ -3901,6 +4308,7 @@ same_site = "none"
         assert!(initial_html.contains("name=\"query\""));
         assert!(initial_html.contains("form=\"search\""));
         assert!(initial_html.contains("id=\"search\""));
+        assert!(initial_html.contains("action=\"/search/\""));
 
         let duplicate_token = rendered_form_token(&renderer);
         let duplicate = encoded_form(&[
@@ -3945,6 +4353,24 @@ same_site = "none"
                 tag: vec!["water".into(), "physics".into()],
             })
         );
+        let completed_token = rendered_form_token(&renderer);
+        let completed = encoded_form(&[
+            ("token", completed_token.as_str()),
+            ("query", "rendered feedback"),
+        ]);
+        let completed = route_form_request(&renderer, completed, Some("https://app.example"));
+        assert_eq!(completed.status, 200);
+        assert!(completed
+            .body_string()
+            .contains("Search submitted: rendered feedback"));
+        assert_eq!(
+            SUBMITTED_SEARCHES.get().unwrap().lock().unwrap().last(),
+            Some(&SubmittedSearch {
+                query: "rendered feedback".into(),
+                archived: false,
+                tag: Vec::new(),
+            })
+        );
         assert_eq!(
             form_request(&renderer, valid, Some("https://app.example")).status,
             403
@@ -3967,6 +4393,67 @@ same_site = "none"
                 .unwrap()
                 .archived
         );
+    }
+
+    #[test]
+    fn typed_server_form_restores_signed_query_and_merges_signed_action_context() {
+        let schema = ServerFormSchema::new("consent")
+            .field(ServerFormField::text("display_name").required());
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .form_action_with_context::<ConsentFields, ContextualConsent, _>(
+                    schema,
+                    |mut context, fields| {
+                        context.display_name = fields.display_name;
+                        context
+                    },
+                )
+                .route_widget_with_state::<ContextFormState, _, _>(
+                    "/consent",
+                    "Consent",
+                    None,
+                    WebRouteMode::Server(Default::default()),
+                    ContextFormPage,
+                    |ctx| {
+                        Ok(ContextFormState {
+                            oauth_state: ctx
+                                .request
+                                .query
+                                .get("state")
+                                .cloned()
+                                .unwrap_or_default(),
+                            submitted: None,
+                        })
+                    },
+                ),
+        );
+        let mut initial = ServerRequest::get("/consent");
+        initial
+            .query
+            .insert("state".into(), "trusted-oauth-state".into());
+        let html = renderer.handle(initial).unwrap().body_string();
+        let token = html
+            .split("name=\"token\" value=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .unwrap();
+        let body = encoded_form(&[("token", token), ("display_name", "Alex Rivera")]);
+        let mut submitted = ServerRequest::post("/consent", body);
+        submitted.headers.insert(
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
+        submitted
+            .query
+            .insert("state".into(), "unsigned-attacker-value".into());
+
+        let response = renderer.handle(submitted).unwrap();
+
+        assert_eq!(response.status, 200);
+        let html = response.body_string();
+        assert!(html.contains("request-state:trusted-oauth-state"));
+        assert!(html.contains("submitted:trusted-oauth-state:Alex Rivera"));
+        assert!(!html.contains("unsigned-attacker-value"));
     }
 
     fn rendered_form_token(renderer: &ServerRenderer) -> String {
@@ -3993,6 +4480,22 @@ same_site = "none"
         origin: Option<&str>,
     ) -> ServerResponse {
         let mut request = ServerRequest::post("/__fission/action", body);
+        request.headers.insert(
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
+        if let Some(origin) = origin {
+            request.headers.insert("origin".into(), origin.into());
+        }
+        renderer.handle(request).unwrap()
+    }
+
+    fn route_form_request(
+        renderer: &ServerRenderer,
+        body: String,
+        origin: Option<&str>,
+    ) -> ServerResponse {
+        let mut request = ServerRequest::post("/search", body);
         request.headers.insert(
             "content-type".into(),
             "application/x-www-form-urlencoded".into(),

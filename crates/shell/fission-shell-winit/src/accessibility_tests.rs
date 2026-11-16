@@ -253,6 +253,76 @@ fn interaction_inert_subtrees_are_absent_from_the_accessibility_tree() {
 }
 
 #[test]
+fn native_accessibility_tree_contains_only_the_active_responsive_branch() {
+    let root = WidgetId::explicit("responsive-root");
+    let compact_branch = WidgetId::explicit("compact-branch");
+    let compact_input = WidgetId::explicit("compact-input");
+    let expanded_branch = WidgetId::explicit("expanded-branch");
+    let expanded_input = WidgetId::explicit("expanded-input");
+    let input_semantics = || {
+        Op::Semantics(Semantics {
+            role: Role::TextInput,
+            identifier: Some("slide.text.input".into()),
+            label: Some("Slide text".into()),
+            focusable: true,
+            ..Semantics::default()
+        })
+    };
+    let box_op = || {
+        Op::Layout(LayoutOp::Box {
+            width: None,
+            height: None,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            aspect_ratio: None,
+        })
+    };
+
+    let mut ir = CoreIR::new();
+    ir.add_node(compact_input, input_semantics(), Vec::new());
+    ir.add_node(compact_branch, box_op(), vec![compact_input]);
+    ir.add_node(expanded_input, input_semantics(), Vec::new());
+    ir.add_node(expanded_branch, box_op(), vec![expanded_input]);
+    ir.add_node(
+        root,
+        Op::Layout(LayoutOp::Responsive {
+            query: fission_ir::op::ResponsiveQuery::Viewport,
+            cases: vec![fission_ir::op::ResponsiveCondition {
+                min_width: None,
+                max_width: Some(600.0),
+            }],
+        }),
+        vec![compact_branch, expanded_branch],
+    );
+    ir.set_root(root);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(1_100.0, 700.0));
+    for (id, rect) in [
+        (root, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+        (expanded_branch, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
+        (expanded_input, LayoutRect::new(20.0, 20.0, 320.0, 36.0)),
+    ] {
+        layout.nodes.insert(
+            id,
+            LayoutNodeGeometry {
+                rect,
+                content_size: LayoutSize::new(rect.width(), rect.height()),
+            },
+        );
+    }
+
+    let built = build_tree_update(&ir, &layout, &Runtime::default(), 1.0);
+    let expanded_access = mapped_access_id(&built, expanded_input);
+    assert!(built.update.nodes.iter().any(|(id, _)| *id == expanded_access));
+    assert!(!built.node_map.values().any(|widget_id| *widget_id == compact_input));
+}
+
+#[test]
 fn derives_button_label_from_descendant_text() {
     let root = WidgetId::from_u128(10);
     let button = WidgetId::from_u128(11);

@@ -1,0 +1,63 @@
+---
+title: Encoded bars dataset
+sidebar_label: Encoded bars dataset
+description: Bind grouped arrival and completion bars to one validated dataset projection.
+---
+
+# Encoded bars dataset
+
+![Encoded bars dataset screenshot](/img/charts/dataset-encoded-bars.png)
+
+Two measures from the same period should remain in the same source row until the chart projection is built. Encoded bars then select named columns instead of maintaining independent arrays.
+
+Reuse `JobFlowPeriod` from [encoded dataset](../data-pipeline-and-interaction/dataset-encoded), placed in `widgets/encoded_job_flow.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, Series,
+};
+use crate::widgets::encoded_job_flow::JobFlowPeriod;
+
+pub fn job_flow_dataset(periods: &[JobFlowPeriod]) -> Dataset {
+    Dataset::new()
+        .dimensions(vec!["period".into(), "arrived".into(), "completed".into()])
+        .source(periods.iter().map(|period| vec![
+            DataValue::String(period.label.clone()),
+            DataValue::Number(period.arrived as f32),
+            DataValue::Number(period.completed as f32),
+        ]).collect())
+}
+
+fission_component! {
+    pub EncodedJobBars<()> {
+        props {
+            title: String,
+            arrived_label: String,
+            completed_label: String,
+            periods: Vec<JobFlowPeriod>,
+        }
+    }
+    view(flow, _state, _cx) => Chart(
+        title: Some(flow.title.clone()),
+        dataset: Some(job_flow_dataset(&flow.periods)),
+        x_axis: Some(Axis::category(Vec::new())),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&flow.arrived_label)
+                .encode(Encode::new().x("period").y("arrived"))),
+            Series::Bar(BarSeries::new(&flow.completed_label)
+                .encode(Encode::new().x("period").y("completed"))),
+        ],
+    )
+}
+```
+
+Put the helper and component in `widgets/encoded_job_bars.rs`. Internal keys are not translated UI text; the parent supplies translated measure names and period labels.
+
+Neither series has a stack key. Completed jobs may include earlier arrivals; adding these measures would double-count work rather than produce a meaningful total.
+
+Test dimension names, row order and completeness. Numeric extraction can fall back to zero for malformed cells, so validate before constructing the dataset and retain exact counts outside the plot. The image is a gallery fixture.
+
+[Dataset and dynamic family overview](./overview)

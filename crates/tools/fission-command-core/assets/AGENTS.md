@@ -5,16 +5,51 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
+## Browser Project Setup and Testing
+
+- Immediately after `fission init`, read generated `AGENTS.md` and any referenced
+  `AGENTS.fission.md`. Preserve generated `fission.toml`; use `add-target` to add
+  the requested target.
+- Use `fission run --target web --project-dir . --port 0 --no-open` or
+  `fission site serve --project-dir . --port 0 --no-open`. An optional
+  `--mount /repository-name/` serves under that prefix without changing config.
+- Wrappers can use `--json --stdin-control`, retain the attached process/stdin,
+  and consume the ready event's actual URL. Send `stop` and a newline, close
+  stdin, or signal Ctrl+C/SIGTERM; wait for stopped and process exit. Never kill
+  listeners by port or trust saved PIDs.
+- Serving readiness verifies required local assets. Verify browser rendering and
+  development test control with `fission test --target web`; use
+  `fission test --target static-site` for static browser smoke tests. Ordinary
+  run/serve does not enable a test bridge.
+- Failures include bounded build diagnostics and retry arguments. Correct the
+  reported prerequisite before retrying. `--startup-timeout-seconds` (1–3600)
+  bounds build/readiness. Cleanup affects only the session's owned resources.
+
 ## Source-Grounded Work
 
+- Immediately after `fission init`, locate and read this file and its linked
+  guidance before editing. It is generated at the nearest enclosing Git root,
+  or the app root outside Git. If `AGENTS.md` contains user-authored instructions,
+  read those and the generated `AGENTS.fission.md` beside it; preserve both.
+- Keep generated `fission.toml` and the scaffold's target/feature organisation.
+  Use `fission add-target` for target changes. Edit Rust source and source assets,
+  never generated HTML or WASM host output.
+- For a website starter, read the app's `WEBSITE.md`. Build and preview the chosen
+  target, exercise navigation, direct routes and refresh, and inspect narrow
+  (about 390px) and wide (about 1280px) screenshots. Verify links/assets at `/`
+  and a GitHub Pages `/repository-name/` mount, including Web WASM loading.
+  Pages hosts static files, not a backend. Web starters use hash routes for
+  refreshable secondary pages on Pages; local pathname fallbacks are not a
+  promise of support by a static host.
+
 - Start from the real app entrypoint, then trace into screens, reusable widgets,
-  and lower-level render behavior before changing UI code.
+  and lower-level render behaviour before changing UI code.
 - For UI reviews, group findings by visible region. Do not stop at a screenshot
   description; trace the component and widget code that creates each issue.
 - When a visual problem looks small, keep looking for related spacing,
   alignment, overflow, typography, state, and target-specific issues before
   reporting completion.
-- Keep edits scoped to the component, widget, route, shell, or target behavior
+- Keep edits scoped to the component, widget, route, shell, or target behaviour
   being changed. Avoid broad cleanup unless it is required for the task.
 
 ## Product and UX Principles
@@ -80,13 +115,20 @@ tree.
 - For multi-platform apps, put the app state, reducers, routes, widgets,
   services, design system, and i18n setup in a shared core. Keep each
   feature-gated shell entrypoint thin: it should configure the shell and run the
-  shared core rather than duplicating app behavior per target.
-- Prefer one reusable widget per file when introducing app UI.
-- Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
+  shared core rather than duplicating app behaviour per target.
+- Prefer one reusable component per file when introducing app UI.
+- Use `fission_component!` as the default authoring API. Its `props` block
+  declares parent inputs, its `state` block declares retained component state,
+  and its `view` expression composes imported core or third-party widgets.
+- Keep app-level user interface inside named `fission_component!` components.
+  When a feature needs low-level rendering infrastructure, encapsulate the
+  infrastructure in a reusable component and keep product state and actions
+  visible in that component's `view` and state scope.
 - Add semantics to every interactive widget and to semantic regions where they
   improve navigation, testing, or accessibility.
-- Use `#[fission_component]` for components that own retained local widget
-  state. Do not model retained UI state as ordinary mutable struct fields.
+- In handwritten widget structs, use `#[with_local_state]` for retained local
+  widget state. Compose components declare the same state in their `state`
+  block. Do not model retained UI state as ordinary mutable struct fields.
 - Keep screen modules focused on app state, routing, effects, and composition.
   Move reusable presentation pieces into widget modules.
 - Avoid screen-level helper functions that build large `Widget` trees. If a UI
@@ -98,55 +140,39 @@ tree.
   meaningful UI fragments through anonymous functions can hide identity and
   weaken optimizations.
 
-Local-state component shape:
+Compose component shape:
 
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
-pub struct DisclosureSection {
-    pub title: String,
-
-    #[local_state(default = false)]
-    open: bool,
-}
-
-#[fission_reducer(ToggleOpen)]
-fn on_toggle_open(open: &mut bool) {
-    *open = !*open;
-}
-
-impl From<DisclosureSection> for Widget {
-    fn from(section: DisclosureSection) -> Widget {
-        let (ctx, _) = fission::build::current::<()>();
-        let open = section.open();
-        let toggle = ctx.bind_local(ToggleOpen, open.clone(), reduce!(on_toggle_open));
-
-        Column {
-            gap: Some(8.0),
-            children: widgets![
-                Button {
-                    on_press: Some(toggle),
-                    child: Some(Text::new(section.title).into()),
-                    ..Default::default()
-                },
-                if open.get() {
-                    Text::new("The details are visible.").into()
+fission_component! {
+    pub DisclosureSection<()> {
+        props { title: String }
+        state { open: bool = false }
+    }
+    view(section, _state, _cx) =>
+        Column(
+            gap: 8.0,
+            children: [
+                Button(
+                    child: Text(section.title.clone()),
+                    key: "toggle",
+                    on_press: reduce { section.open = !section.open; },
+                ),
+                if section.open {
+                    Text("The details are visible.")
                 } else {
-                    Text::new("The details are hidden.").into()
+                    Text("The details are hidden.")
                 },
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 ```
 
-Use `fission::build::current::<()>()` only when the component is intentionally
-state-agnostic and does not read app state. Use the concrete app state type when
-the component reads `GlobalState`, reads environment values tied to that app, or
-binds reducers that update app state.
+Use a Compose component's `state` block for retained interface memory and
+`GlobalState` for durable product data. In `view(component, state, cx)`, use the
+concrete app state type when the component reads product data or binds app
+reducers; use `()` only for state-independent components.
 
 ## State, Reducers, Routing and Runtime Data
 
@@ -155,11 +181,13 @@ binds reducers that update app state.
 - Use `GlobalState` for durable app truth: product data, routing, sync,
   persistence, user preferences, shared filters, and values read by distant
   screens.
-- Use `#[local_state]` for retained UI memory owned by one widget identity:
-  open/closed flags, isolated draft text, local selected tabs, hoverless
-  interaction state, or a counter-like local value.
+- Use a Compose component's `state` block for retained UI memory owned by one
+  widget identity: open/closed flags, isolated draft text, local selected tabs,
+  hoverless interaction state, or a counter-like local value. In handwritten
+  widget structs, use `#[local_state]` for the same lifetime.
 - Use reducers on `GlobalState` when an action updates app data. Use
-  `ctx.bind_local(...)` when an action updates one local-state field.
+  `reduce { ... }` for component-specific transitions; handwritten widgets can
+  bind local fields with `ctx.bind_local(...)`.
 - Use reducers for explicit state transitions. Match the dispatched action to the
   reducer registration used by the widget.
 - Do not store `BuildCtxHandle` or `ViewHandle` in structs, reducers, services,
@@ -177,6 +205,14 @@ binds reducers that update app state.
 - For local-state components rendered from dynamic, reorderable, insertable, or
   filterable data, assign stable widget identities with
   `.id(WidgetId::explicit(...))`. Use a durable data id, not the list index.
+- In Compose child collections, use `for item in items { Component(item, key:
+  item.id) }`; the `key` is required and scopes retained component state. Do not
+  call Compose identity helpers manually for ordinary repeated children.
+- When responsive branches construct retained-state components, use
+  `Responsive::new_with_id(id, || fallback)` and the matching
+  `case_min_width_with`, `case_max_width_with`, or `case_between_with` methods.
+  These construct every branch beneath a stable semantic identity without an
+  application dependency on `fission-compose`.
 - Do not pad production UI with fixture, mock, or demo data. Production paths
   should render persisted data, an explicit empty state, or a clear error state.
 - Keep fixture parsing, fixture environment variables, and test-only data inside
@@ -204,7 +240,7 @@ Use these Fission defaults as the starting point for a custom design system:
 - Copy `tokens.json` from
   <https://github.com/fission-ui/fission/blob/main/crates/core/fission-theme/design/default/tokens.json>
   into the app, for example at `design/tokens.json`.
-- Customize the checked-in copies. Do not parse the upstream default files at
+- Customise the checked-in copies. Do not parse the upstream default files at
   runtime.
 - Follow the official design-system example:
   <https://github.com/fission-ui/fission/tree/main/examples/todo-design-system>.
@@ -217,7 +253,7 @@ Outside the Fission source workspace, prefer the published crate pinned to the s
 
 ```toml
 [build-dependencies]
-fission-design-system-codegen = { version = "0.15.1" }
+fission-design-system-codegen = { version = "0.16.0" }
 ```
 
 Generate a typed design system from the copied DSP file in `build.rs`:
@@ -276,27 +312,25 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-Inside widgets, read colors, spacing, typography, radii, and component styling
-from `view.env().theme`:
+Inside components, read colors, spacing, typography, radii, and component
+styling from `cx.view.env().theme`:
 
 ```rust
-impl From<App> for Widget {
-    fn from(_app: App) -> Widget {
-        let (_ctx, view) = fission::build::current::<AppState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Text::new("Dashboard"))
-            .bg(tokens.colors.background)
-            .padding_all(tokens.spacing.xl)
-            .into()
-    }
+fission_component! {
+    pub Dashboard<AppState> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Text("Dashboard"))
+        .bg(tokens.colors.background)
+        .padding_all(tokens.spacing.xl)
 }
 ```
 
 Do not guess token names. Inspect the generated Rust output or the copied DSP
 and tokens files before wiring new design values.
 
-## Theme and Locale Synchronization
+## Theme and Locale Synchronisation
 
 Theme and locale are app-wide presentation inputs. Keep user-controlled choices
 in `GlobalState`, then mirror them into `Env` with `.with_sync_env(...)`.
@@ -316,10 +350,10 @@ Use `.with_sync_env(...)` only for app-wide presentation inputs such as theme,
 locale, and similar environment values. Do not use it for network loading, file
 writes, job startup, or ordinary domain data.
 
-## Internationalization
+## Internationalisation
 
 Follow the Fission theming and i18n guide:
-<https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>.
+<https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/theming-and-i18n.mdx>.
 
 - Include an i18n setup from the start with at least two languages. Always
   include English. If the system default language is not English, add that
@@ -409,11 +443,11 @@ widgets guess.
 - Design-system example `main.rs`:
   <https://github.com/fission-ui/fission/blob/main/examples/todo-design-system/src/main.rs>
 - Design-system guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/design-system.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/design-system.mdx>
 - Theming and i18n guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/theming-and-i18n.mdx>
 - State, handles, and providers guide:
-  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/state-handles-and-providers.mdx>
+  <https://github.com/fission-ui/fission/blob/main/docs2/content/legacy/docs/guides/state-handles-and-providers.mdx>
 - Default DSP package:
   <https://github.com/fission-ui/fission/blob/main/crates/core/fission-theme/design/default/dsp.json>
 - Default token file:
@@ -431,6 +465,37 @@ widgets guess.
   inspect those screenshots before calling the UI production-ready.
 - For UI changes, verify a real rendered target when possible, and check mobile
   and desktop layouts when the screen is responsive.
+- For same-session Web viewport tests, compile with `FISSION_WEB_TEST_CONTROL=1`
+  on the Web build command, serve the bundle through the existing Web server,
+  and retain `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`.
+  Use `client.simulate_resize(width, height)` for owned Chromium CSS viewport
+  changes and `client.capture_screenshot_png()` after acknowledgement/paint.
+  The opt-in `__FISSION_TEST__.frame` getter describes a successful submitted
+  layout frame; production builds omit test control. Raw Web bridge resize has
+  no host authority and returns `unsupported_host`. Static DOM browser sessions
+  need no bridge; native resize retains logical viewport semantics.
 - If docs or configuration target names are changed, keep terminology consistent
   with Fission's public target names: `macOS`, `Windows`, `Linux`, `Web`,
   `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.
+
+## Browser website review loop
+
+After initialisation, read this generated `AGENTS.md` and referenced
+`AGENTS.fission.md` before editing. Retain generated `fission.toml` and use
+`fission add-target` for browser targets. Build/review the Rust/Fission website:
+
+```sh
+fission test --visual-review --target static-site --project-dir . --output-dir review --json
+fission test --visual-review --target web --project-dir . --route / --route /details/ --output-dir review --json
+```
+
+Inspect `review/review.json` and the real PNGs at 390, 800 and 1280 CSS pixels.
+Fix the responsible Rust/Fission widget/route or intended site CSS, then rerun.
+Select Web/custom-site routes explicitly; undiscovered routes are not reviewed.
+Use `--mount /repository-name/` when testing a matching app navigation base.
+Treat incomplete/unsupported cases and partial geometry limitations truthfully;
+geometry warnings do not prove visual failure and only cause failure with
+explicit `--strict`. Runtime/required-resource and incomplete capture failures
+remain blocking. Nonuniform pixels only prove capture content; even exit 0
+requires human/agent image inspection. Do not switch UI
+frameworks or reauthor configuration to bypass a review failure.

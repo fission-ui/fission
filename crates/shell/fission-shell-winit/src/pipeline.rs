@@ -5,7 +5,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
-use fission_core::scrollbar::scrollbar_geometry_for_node;
+use fission_core::scrollbar::{scrollbar_geometry_for_node, ScrollbarPalette, ScrollbarStyle};
 use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
@@ -108,6 +108,15 @@ impl InvalidationSet {
     }
 }
 
+pub(crate) fn software_frame_needs_raster(
+    frame_valid: bool,
+    invalidations: InvalidationSet,
+    paint_misses: usize,
+    has_dynamic_surfaces: bool,
+) -> bool {
+    !frame_valid || invalidations.any() || paint_misses > 0 || has_dynamic_surfaces
+}
+
 #[derive(Debug, Clone)]
 struct BoundaryCacheEntry {
     hash: u64,
@@ -196,6 +205,7 @@ pub struct Pipeline {
     retained_texture_plans: Vec<CompositorTexturePlan>,
     retained_texture_root_transform: Option<[f32; 16]>,
     viewport_state: ViewportStateMap,
+    scrollbar_paint: ScrollbarPalette,
 }
 
 pub struct PipelineStats {
@@ -233,6 +243,7 @@ impl Pipeline {
             retained_texture_plans: Vec::new(),
             retained_texture_root_transform: None,
             viewport_state: ViewportStateMap::default(),
+            scrollbar_paint: ScrollbarPalette::default(),
         }
     }
 
@@ -242,6 +253,11 @@ impl Pipeline {
 
     pub fn scroll_offsets_changed(&self, scroll_map: &ScrollStateMap) -> bool {
         scroll_offsets_changed(&self.last_scroll_offsets, scroll_map)
+    }
+
+    /// Names the scroll views whose bar should be drawn forward.
+    pub fn set_active_scrollbars(&mut self, active: HashSet<WidgetId>) {
+        self.scrollbar_paint.set_active_nodes(active);
     }
 
     pub fn take_video_surfaces(&mut self) -> Vec<VideoSurfaceFrame> {
@@ -259,6 +275,7 @@ impl Pipeline {
 
     pub fn replace_ir(&mut self, next_ir: CoreIR, env: &Env) -> InvalidationSet {
         let mut invalidation = InvalidationSet::default();
+        self.scrollbar_paint.set_theme(&env.theme.tokens);
         let mut rebuild_layout_tree = self.prev_ir.is_none();
 
         if let Some(prev_ir) = &self.prev_ir {
@@ -338,7 +355,6 @@ impl Pipeline {
         };
         let (snapshot, full_rebuild) = if needs_full {
             self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
-            layout_engine.update(&self.layout_input_nodes);
             let root_id = self
                 .prev_ir
                 .as_ref()
@@ -354,7 +370,6 @@ impl Pipeline {
                 true,
             )
         } else {
-            layout_engine.update(&self.layout_input_nodes);
             let root_id = self
                 .prev_ir
                 .as_ref()
@@ -477,6 +492,7 @@ impl Pipeline {
                     &mut self.paint_cache,
                     &mut self.boundary_cache,
                     &self.runtime_dynamic_subtrees,
+                    &self.scrollbar_paint,
                     &mut stats.paint_misses,
                     &mut stats.paint_hits,
                     true,
@@ -825,8 +841,13 @@ impl Pipeline {
             return;
         };
         for binding in &self.retained_dynamic_ops.scrollbar {
-            let Some(scrollbar) = build_scrollbar_paint(ir, binding.node_id, snapshot, scroll_map)
-            else {
+            let Some(scrollbar) = build_scrollbar_paint(
+                ir,
+                binding.node_id,
+                snapshot,
+                scroll_map,
+                self.scrollbar_paint.style_for(binding.node_id),
+            ) else {
                 continue;
             };
             if let Some(RenderNode::Paint(list)) =
@@ -1564,6 +1585,7 @@ fn generate_render_layer_recursive(
     paint_cache: &mut HashMap<WidgetId, (u64, DisplayList)>,
     boundary_cache: &mut HashMap<WidgetId, BoundaryCacheEntry>,
     runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
+    scrollbar_paint: &ScrollbarPalette,
     miss_count: &mut usize,
     hit_count: &mut usize,
     scene_cache_allowed: bool,
@@ -1854,6 +1876,7 @@ fn generate_render_layer_recursive(
                 paint_cache,
                 boundary_cache,
                 runtime_dynamic_subtrees,
+                scrollbar_paint,
                 miss_count,
                 hit_count,
                 scene_cache_allowed,
@@ -1904,6 +1927,7 @@ fn generate_render_layer_recursive(
                 paint_cache,
                 boundary_cache,
                 runtime_dynamic_subtrees,
+                scrollbar_paint,
                 miss_count,
                 hit_count,
                 scene_cache_allowed,
@@ -1932,6 +1956,7 @@ fn generate_render_layer_recursive(
                 paint_cache,
                 boundary_cache,
                 runtime_dynamic_subtrees,
+                scrollbar_paint,
                 miss_count,
                 hit_count,
                 scene_cache_allowed,
@@ -1944,7 +1969,13 @@ fn generate_render_layer_recursive(
         }
     }
 
-    if let Some(scrollbar) = build_scrollbar_paint(ir, node_id, snapshot, scroll_map) {
+    if let Some(scrollbar) = build_scrollbar_paint(
+        ir,
+        node_id,
+        snapshot,
+        scroll_map,
+        scrollbar_paint.style_for(node_id),
+    ) {
         let mut scrollbar_path = layer_path.clone();
         scrollbar_path.push(layer.children.len());
         layer.children.push(RenderNode::Paint(scrollbar));
@@ -2593,37 +2624,31 @@ fn build_scrollbar_paint(
     node_id: WidgetId,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
+    style: ScrollbarStyle,
 ) -> Option<DisplayList> {
     let geometry = scrollbar_geometry_for_node(ir, snapshot, scroll_map, node_id)?;
-    let rail_fill = Some(Fill::Solid(RenderColor {
-        r: 160,
-        g: 168,
-        b: 180,
-        a: 80,
-    }));
-    let thumb_fill = Some(Fill::Solid(RenderColor {
-        r: 82,
-        g: 91,
-        b: 108,
-        a: 190,
-    }));
     let mut list = DisplayList::new(geometry.rail_rect);
     let corner_radius = fission_core::scrollbar::SCROLLBAR_THICKNESS / 2.0;
 
-    list.push(DisplayOp::DrawRect {
-        rect: geometry.rail_rect,
-        fill: rail_fill,
-        stroke: None,
-        corner_radius,
-        shadow: None,
-        bounds: geometry.rail_rect,
-        node_id: Some(node_id),
-        corner_radii: None,
-        border_sides: None,
-    });
+    // The rail is what made a resting scrollbar read as a rule between two
+    // panes, so it only appears once the bar is active; at rest the thumb
+    // floats alone over the content.
+    if style.rail.a > 0 {
+        list.push(DisplayOp::DrawRect {
+            rect: geometry.rail_rect,
+            fill: Some(Fill::Solid(render_color(style.rail))),
+            stroke: None,
+            corner_radius,
+            shadow: None,
+            bounds: geometry.rail_rect,
+            node_id: Some(node_id),
+            corner_radii: None,
+            border_sides: None,
+        });
+    }
     list.push(DisplayOp::DrawRect {
         rect: geometry.thumb_rect,
-        fill: thumb_fill,
+        fill: Some(Fill::Solid(render_color(style.thumb))),
         stroke: None,
         corner_radius,
         shadow: None,
@@ -2634,6 +2659,15 @@ fn build_scrollbar_paint(
     });
 
     Some(list)
+}
+
+fn render_color(color: fission_ir::op::Color) -> RenderColor {
+    RenderColor {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a: color.a,
+    }
 }
 
 fn resolve_composite_scalar(
@@ -4048,7 +4082,9 @@ mod tests {
                     fission_render::RenderNode::Paint(list) => list.ops.iter().find_map(|op| {
                         if let fission_render::DisplayOp::DrawRect { rect, node_id, .. } = op {
                             if *node_id == Some(scroll)
-                                && (rect.width() - 6.0).abs() <= 0.01
+                                && (rect.width() - fission_core::scrollbar::SCROLLBAR_THICKNESS)
+                                    .abs()
+                                    <= 0.01
                                 && rect.height() < 200.0
                             {
                                 return Some(rect.origin.y);
@@ -4066,7 +4102,7 @@ mod tests {
     }
 
     #[test]
-    fn overflowing_scroll_nodes_emit_visible_scroll_rails() {
+    fn active_overflowing_scroll_nodes_emit_visible_scroll_rails() {
         let mut ir = CoreIR::new();
         let fill = WidgetId::derived(16, &[0]);
         let content = WidgetId::derived(16, &[1]);
@@ -4178,7 +4214,9 @@ mod tests {
                     .filter(|op| match op {
                         fission_render::DisplayOp::DrawRect { rect, node_id, .. } => {
                             *node_id == Some(scroll)
-                                && (rect.width() - 6.0).abs() <= 0.01
+                                && (rect.width() - fission_core::scrollbar::SCROLLBAR_THICKNESS)
+                                    .abs()
+                                    <= 0.01
                                 && rect.height() >= 200.0
                         }
                         _ => false,
@@ -4192,7 +4230,28 @@ mod tests {
             }
         }
 
-        let rail_count: usize = pipeline
+        let resting_rail_count: usize = pipeline
+            .retained_scene()
+            .expect("retained scene")
+            .roots
+            .iter()
+            .map(|node| count_scroll_rails(node, scroll))
+            .sum();
+        assert_eq!(resting_rail_count, 0, "a resting bar has no rail");
+
+        pipeline.set_active_scrollbars(std::collections::HashSet::from([scroll]));
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll_map,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let active_rail_count: usize = pipeline
             .retained_scene()
             .expect("retained scene")
             .roots
@@ -4200,7 +4259,7 @@ mod tests {
             .map(|node| count_scroll_rails(node, scroll))
             .sum();
         assert!(
-            rail_count > 0,
+            active_rail_count > 0,
             "expected an overflow rail for the scroll node"
         );
     }

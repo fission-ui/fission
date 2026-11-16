@@ -1,0 +1,45 @@
+---
+title: Positive and negative bar
+sidebar_label: Positive and negative bar
+description: Show signed response-time changes with a zero baseline and an explicit sign convention.
+---
+
+# Positive and negative bar
+
+![Positive and negative bar screenshot](/img/charts/bar-negative.png)
+
+Signed bars are useful when zero is the comparison point. A response-time delta can be above an agreed limit or below it, whereas a raw duration cannot be negative.
+
+The [SLA delta example](../bar/bar-sla-breach-delta) defines `ResponseTimeCheck` and `ResponseTimeExceptions`. Place them in `widgets/response_time_exceptions.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::response_time_exceptions::{
+    ResponseTimeCheck, ResponseTimeExceptions,
+};
+
+fission_component! {
+    pub ServiceResponseReport<()> {
+        props {
+            title: String,
+            difference_label: String,
+            minutes_label: String,
+            checks: Vec<ResponseTimeCheck>,
+        }
+    }
+    view(report, _state, _cx) => ResponseTimeExceptions {
+        title: report.title.clone(),
+        difference_label: report.difference_label.clone(),
+        minutes_label: report.minutes_label.clone(),
+        checks: report.checks.clone(),
+    }
+}
+```
+
+The projection calculates observed minutes minus allowed minutes. Its numeric axis includes signed values; forcing a zero minimum would conceal early responses.
+
+Explain that positive means late and negative means within the limit. Neither direction should depend on red/green colour coding to be understood. Validate source times and the contractual timing rule before rendering.
+
+Test one positive, one negative and one zero result, and keep exact timings in the report. This is a delta view, not a cumulative waterfall or proof that every service request met its commitment. The screenshot uses gallery data.
+
+[Cartesian family overview](./overview)

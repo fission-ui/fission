@@ -1,0 +1,64 @@
+---
+title: Gradient area line
+sidebar_label: Gradient area line
+description: Fission Charts reference for Gradient area line.
+---
+
+# Gradient area line
+
+![Gradient area line screenshot](/img/charts/line-gradient-area.png)
+
+An area fill gives the size of a non-negative quantity more visual weight than a line alone. For processed documents, that makes the daily volume visible whilst retaining the shape of the trend. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Keep the zero baseline when area is meant to communicate magnitude. Starting the axis close to the smallest value can make small changes look much larger than they are.
+
+## Data model
+
+LineSeries::area_style takes a colour. The current line renderer uses it to produce a gradient fading towards the baseline; it is not a separate gradient-stop configuration. Read the colour from the active theme and supply regularly ordered document counts.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub GradientAreaLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            processed: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.processed.clone())
+                    .color(colors.primary)
+                    .area_style(colors.primary.with_alpha(100))
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check an all-zero series, a large spike and contrast in both themes. The fill should support the line rather than obscure it, and exact daily counts should remain available without estimating area.
+
+Tags: `line`, `area`.
+
+[Line family overview](./overview)

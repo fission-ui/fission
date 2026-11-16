@@ -4,7 +4,51 @@ use fission_core::ui::{
     Button, ButtonVariant, Container, SemanticsRegion, Text, TextContent, Widget,
 };
 use fission_ir::{Role, Semantics};
+use fission_theme::ColorRole;
 use serde::{Deserialize, Serialize};
+
+fn relative_luminance(color: fission_theme::Color) -> f64 {
+    let channel = |value: u8| {
+        let value = f64::from(value) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+fn contrast_ratio(a: fission_theme::Color, b: fission_theme::Color) -> f64 {
+    let (a, b) = (relative_luminance(a), relative_luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+fn readable_selected_foreground(
+    background: fission_theme::Color,
+    preferred: fission_theme::Color,
+) -> fission_theme::Color {
+    if contrast_ratio(background, preferred) >= 4.5 {
+        return preferred;
+    }
+    let black = fission_theme::Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    let white = fission_theme::Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    if contrast_ratio(background, black) >= contrast_ratio(background, white) {
+        black
+    } else {
+        white
+    }
+}
 
 /// A pill-shaped label with an optional close button.
 ///
@@ -19,7 +63,7 @@ pub struct Tag {
     pub on_close: Option<ActionEnvelope>,
     /// Optional press action; supplying it makes the tag a toggle, such as a filter.
     pub on_press: Option<ActionEnvelope>,
-    /// Whether a pressable tag is on; drawn with the accent colour and announced as selected.
+    /// Whether a pressable tag is on; filled with the primary colour and announced as selected.
     #[serde(default)]
     pub selected: bool,
 }
@@ -31,12 +75,20 @@ impl From<Tag> for Widget {
 
         let tokens = &view.env().theme.tokens;
         let recipe = view.env().theme.recipe(fission_theme::recipes::Tag);
+        // A selected tag is filled, not ringed. A ring alone reads as a border
+        // treatment and disappears next to an unselected pill, so the on state
+        // takes the primary fill. Prefer the design system's paired foreground,
+        // but do not use it for this small label unless it clears body-text
+        // contrast.
+        let selected_pair = tokens.colors.pair(ColorRole::Primary);
+        let selected_foreground =
+            readable_selected_foreground(selected_pair.fill, selected_pair.on);
 
         let text: Widget = Text {
             content: TextContent::Literal(this.label.clone()),
             font_size: Some(13.0),
             color: Some(if this.selected {
-                tokens.colors.primary
+                selected_foreground
             } else {
                 tokens.colors.text_primary
             }),
@@ -75,7 +127,11 @@ impl From<Tag> for Widget {
                         Text {
                             content: TextContent::Literal("×".into()),
                             font_size: Some(14.0),
-                            color: Some(tokens.colors.text_secondary),
+                            color: Some(if this.selected {
+                                selected_foreground
+                            } else {
+                                tokens.colors.text_secondary
+                            }),
                             ..Default::default()
                         }
                         .into(),
@@ -94,7 +150,7 @@ impl From<Tag> for Widget {
         }
 
         let background = if this.selected {
-            fission_core::op::Fill::Solid(tokens.colors.primary_subtle)
+            fission_core::op::Fill::Solid(selected_pair.fill)
         } else {
             recipe
                 .base
@@ -110,7 +166,7 @@ impl From<Tag> for Widget {
         .bg_fill(background)
         .border(
             if this.selected {
-                tokens.colors.primary
+                selected_pair.fill
             } else {
                 tokens.colors.border
             },

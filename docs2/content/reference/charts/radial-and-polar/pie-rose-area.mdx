@@ -1,0 +1,58 @@
+---
+title: Rose by area
+sidebar_label: Rose by area
+description: Fission Charts reference for Rose by area.
+---
+
+# Rose by area
+
+![Rose by area screenshot](/img/charts/pie-rose-area.png)
+
+Area-style rose rendering changes the outer radius as well as the angle of each category. For a small project portfolio, this can emphasise differences in planned effort whilst retaining the category breakdown. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use exact planned hours alongside the visual. A rose's apparent segment area should not be treated as a precise estimate of effort, and more hours allocated to a project do not imply more value delivered.
+
+## Data model
+
+Enable `PieSeries::rose_type("area")`. The current renderer uses a square-root term with a non-zero radius baseline, whilst angles remain proportional to value share. It is therefore not an equal-angle chart whose areas are exactly proportional to the source values.
+
+## Authoring from a Fission component
+
+The parent supplies comparable planned hours for one planning period, with no overlapping project allocation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PlannedProjectEffortRose<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            hours_by_project: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.hours_by_project.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .rose_type("area")
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test equal allocations, one small project and an all-zero plan. Reject invalid negative hours before rendering, and retain unallocated time separately rather than hiding a planning gap. Provide exact hours and totals in accessible text.
+
+Tags: `pie`, `rose`.
+
+[Radial and polar family overview](./overview)

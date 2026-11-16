@@ -1,0 +1,58 @@
+---
+title: Device mix donut
+sidebar_label: Device mix donut
+description: Fission Charts reference for Device mix donut.
+---
+
+# Device mix donut
+
+![Device mix donut screenshot](/img/charts/pie-device-mix.png)
+
+A device mix describes how one reporting population is divided across device categories. For example, sessions can be grouped as desktop, phone, tablet and unknown, provided each session belongs to exactly one category. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the donut for a small part-to-whole snapshot. Session share is not user share: the same person may use several devices. Decide which entity is counted before attaching a percentage to the result.
+
+## Data model
+
+`PieSeries` takes labelled non-negative values and derives segment angles from their total. `inner_radius` is a logical-pixel radius, not a percentage, and is bounded by the available plot size. The hole does not automatically contain a total or a status label.
+
+## Authoring from a Fission component
+
+Pass prepared session counts rather than hard-coded acquisition channels. Keep unknown device classifications visible so that the whole remains the actual reporting population.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SessionDeviceMix<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            sessions_by_device: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.sessions_by_device.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .inner_radius(48.0)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test unknown devices, a single category and no recorded sessions. Ensure all values use the same reporting window and session definition. Provide the total and category values in accessible content outside the chart, and inspect labels at mobile widths before adding more categories.
+
+Tags: `pie`, `device`.
+
+[Pie and radial family overview](./overview)

@@ -1,0 +1,57 @@
+---
+title: Bubble scatter
+sidebar_label: Bubble scatter
+description: Fission Charts reference for Bubble scatter.
+---
+
+# Bubble scatter
+
+![Bubble scatter screenshot](/img/charts/scatter-bubble.png)
+
+A bubble chart adds one size measure to two numeric axes. For account reporting, active seats, support effort and a revenue magnitude can be compared without discarding the relation between each account's observations. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here x is active seats, y is support minutes and size is recognised revenue in one currency for the same reporting period. This is descriptive; a large bubble does not automatically identify the most valuable or profitable customer.
+
+## Data model
+
+`BubbleSeries` takes `(x, y, size)` triples and uses a bounded square-root radius scale relative to the largest size. Its minimum radius means exact area proportionality is not guaranteed. A `VisualMap`, if supplied, colours by size, not by a separate fourth dimension.
+
+## Authoring from a Fission component
+
+The parent prepares bounded display values, retaining exact money and stable account IDs in the domain model.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AccountSupportRevenueBubbles<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test zero revenue, overlapping accounts and a dominant customer. Present exact values and the reporting definitions outside the chart; relative rescaling can change a bubble's radius when another account arrives.
+
+Tags: `scatter`, `bubble`.
+
+[Statistical and finance family overview](./overview)

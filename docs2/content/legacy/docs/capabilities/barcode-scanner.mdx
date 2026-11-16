@@ -1,0 +1,164 @@
+---
+title: Barcode scanner
+description: Scan live camera barcodes or decode existing image bytes through a host provider.
+---
+
+# Barcode scanner
+
+Barcode scanning is a host operation because live scanning usually owns camera permission, camera preview, autofocus, torch, and decoder selection. The app describes acceptable formats and receives portable decoded results.
+
+This example scans QR codes and Code 128 labels, then stores the decoded result. The host owns camera permission, preview, and decoder details; keep those out of shared reducers.
+
+Do not build a camera-specific barcode workflow in shared reducers. Keep camera and decoder details behind `BarcodeScannerHost`, and use ordinary Fission UI for the screen around it.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct BarcodeScannerState {
+    last_barcode: Option<String>,
+    barcode_error: Option<String>,
+    scanning: bool,
+    scan_finished: bool,
+}
+
+impl GlobalState for BarcodeScannerState {}
+```
+
+Store the last decoded value, scan status, and error in app state. Update them from the typed completion actions.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability barcode-scanner --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds camera-related mobile configuration because live scanning normally uses the camera. Apps that only decode existing image bytes may not need camera access on every target, but the capability declaration keeps future live scanning explicit.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed request your reducer makes; here it is the barcode-scanner request shown below.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The scan completes after its starting reducer returns. Handle the result and any error in completion reducers.
+
+```rust
+#[fission_reducer(BarcodeScanned)]
+fn on_barcode_scanned(state: &mut BarcodeScannerState, ctx: &mut ReducerContext<BarcodeScannerState>) {
+    state.scanning = false;
+    state.scan_finished = true;
+    match ctx.input.capability_ok(SCAN_BARCODE) {
+        Some(results) => {
+            state.last_barcode = results.items.first().map(|item| item.value.clone());
+            state.barcode_error = None;
+        }
+        None => state.barcode_error = Some("The host returned no scan result".into()),
+    }
+}
+
+#[fission_reducer(BarcodeScanFailed)]
+fn on_barcode_scan_failed(state: &mut BarcodeScannerState, ctx: &mut ReducerContext<BarcodeScannerState>) {
+    state.scanning = false;
+    state.scan_finished = true;
+    state.barcode_error = Some(
+        ctx.input.capability_error(SCAN_BARCODE)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not scan the label".into()),
+    );
+}
+```
+
+The actions carry no fabricated barcode value. `ctx.input` contains the actual host result, and an empty `items` list is distinct from both a failed request and a scan that has not started. Validate the decoded value before using it as a product identifier or opening a URL; a camera read is not a trust boundary.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(ScanBarcode)]
+fn on_scan_barcode(
+    state: &mut BarcodeScannerState,
+    request: BarcodeScanRequest,
+    ctx: &mut ReducerContext<BarcodeScannerState>,
+) {
+    if state.scanning { return; }
+    state.scanning = true;
+    state.scan_finished = false;
+    state.last_barcode = None;
+    state.barcode_error = None;
+    let scanned = ctx.effects.bind(BarcodeScanned, reduce_with!(on_barcode_scanned));
+    let failed = ctx.effects.bind(BarcodeScanFailed, reduce_with!(on_barcode_scan_failed));
+    ctx.effects.barcode_scanner().scan(request)
+        .on_ok(scanned)
+        .on_err(failed);
+}
+```
+
+The call records a typed host request; the shell handles the camera and decoder.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts the scan:
+
+```rust
+fission_component! {
+    pub ScanBarcodeButton<BarcodeScannerState> {}
+    view(_button, state, cx) {
+        let request = BarcodeScanRequest {
+            formats: vec![BarcodeFormat::QrCode, BarcodeFormat::Code128],
+            prompt: Some(cx.tr("barcode.prompt")),
+            timeout_ms: Some(20_000),
+            allow_multiple: false,
+            ..Default::default()
+        };
+        let run = cx.bind(ScanBarcode(request), reduce!(on_scan_barcode));
+    }
+    => Column(children: [
+        Button(child: Text(cx.tr("barcode.scan")), disabled: state.scanning, on_press: run),
+        if state.scanning { Spinner(motion: SpinnerMotion::Default, label: cx.tr("barcode.scanning")) },
+        if let Some(value) = &state.last_barcode { Code(text: value.clone()) }
+        else if state.scan_finished && state.barcode_error.is_none() { Text(cx.tr("barcode.no_result")) },
+        if let Some(error) = &state.barcode_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Define the `barcode.*` labels in the app's translation bundles. The button remains disabled while the host owns the scan, and the completion displays either the decoded value, a no-result message, or the failure. Inventory lookup would be a separate effect after validation, not work hidden inside rendering.
+
+## 6. Provide and test the host behavior
+
+Register a `BarcodeScannerHost` with `.with_barcode_scanner_host(...)`. Use `MemoryBarcodeScannerHost` for deterministic tests. A provider can support live scanning, image decoding, or both; unsupported operations should return `BarcodeScannerError`.
+
+Test accepted formats, decoded results, no-result scans, cancellation, timeout, permission denial, missing hardware, unsupported formats, and decoding existing image bytes where those paths apply. A UI test should prove the scan button becomes busy while the host owns the live scan.
+
+## Platform expectations
+
+Android and iOS normally scan through the camera. Web can use camera APIs and browser barcode detection where available, with a decoder fallback when appropriate. Desktop support depends on camera providers or image-decoding libraries.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Barcode scanner reference](/reference/capabilities/barcode-scanner/).
+
+## Finished capability flow
+
+A complete `Barcode scanner` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

@@ -99,6 +99,11 @@ pub struct InboxState {
     pub expanded_folders: HashSet<String>,
     pub contact_selected_ids: Vec<String>,
     pub drag_in_progress: bool,
+
+    /// Whether another app, such as the example showcase, mounts the inbox. The
+    /// host already names the example, so the sidebar drops the app brand.
+    #[serde(default)]
+    pub embedded: bool,
 }
 
 /// Upper end of the size filter, in megabytes.
@@ -176,6 +181,7 @@ impl Default for InboxState {
             expanded_folders: HashSet::new(),
             contact_selected_ids: Vec::new(),
             drag_in_progress: false,
+            embedded: false,
         }
     }
 }

@@ -12,6 +12,7 @@ const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png")
 const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
+mod android_bridge;
 mod desktop_features;
 mod icons;
 mod linux_native;
@@ -21,7 +22,9 @@ mod native_cargo;
 mod native_variant;
 mod splash;
 mod web_storage;
+mod website;
 mod windows_native;
+pub use android_bridge::prepare_android_capability_helper;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use linux_native::{
@@ -85,6 +88,13 @@ pub enum PlatformCapability {
     Storage,
     VolumeControl,
     Wifi,
+}
+
+/// Source template used when initialising a new Fission project.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ProjectTemplate {
+    /// A complete static website starter with typed design tokens and i18n.
+    Website,
 }
 
 impl PlatformCapability {
@@ -403,6 +413,27 @@ pub fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
+    init_project_with_template(root, name, app_id, local_path, None)
+}
+
+/// Initialises an application using the selected source template, when supplied.
+pub fn init_project_with_template(
+    root: &Path,
+    name: Option<String>,
+    app_id: Option<String>,
+    local_path: Option<PathBuf>,
+    template: Option<ProjectTemplate>,
+) -> Result<()> {
+    let website_template = template == Some(ProjectTemplate::Website);
+    if website_template
+        && (root.join("Cargo.toml").exists()
+            || root.join("fission.toml").exists()
+            || root.join("src").exists())
+    {
+        bail!(
+            "--template website requires a new source directory; use fission add-target on an existing app"
+        );
+    }
     let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
@@ -411,30 +442,37 @@ pub fn init_project(
     } else {
         WritePolicy::Overwrite
     };
-    let project = initial_project_config(root, name, app_id)?;
+    let mut project = initial_project_config(root, name, app_id)?;
+    if website_template {
+        project.targets = BTreeSet::from([Target::Site]);
+    }
 
     write_file_with_policy(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
         write_policy,
     )?;
-    write_file_with_policy(
-        &root.join("src/main.rs"),
-        &render_app_main(project.app.name.as_str()),
-        write_policy,
-    )?;
-    write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
-    write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    if !website_template {
+        write_file_with_policy(
+            &root.join("src/main.rs"),
+            &render_app_main(project.app.name.as_str()),
+            write_policy,
+        )?;
+        write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
+        write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    }
     write_binary_file_with_policy(
         &root.join("assets/app-icon.png"),
         DEFAULT_APP_ICON_PNG,
         write_policy,
     )?;
-    write_file_with_policy(
-        &root.join("README.md"),
-        &render_project_readme(&project),
-        write_policy,
-    )?;
+    if !website_template {
+        write_file_with_policy(
+            &root.join("README.md"),
+            &render_project_readme(&project),
+            write_policy,
+        )?;
+    }
     write_generated_app_agents(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
@@ -445,10 +483,14 @@ pub fn init_project(
 
     let targets = project.targets.iter().copied().collect::<Vec<_>>();
     for target in targets {
-        scaffold_target_with_policy(root, &project, target, write_policy)?;
+        scaffold_target_with_policy(root, &project, target, write_policy, !website_template)?;
     }
     sync_platform_config(root, &project)?;
     sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
+
+    if website_template {
+        website::scaffold(root, &project, local_path.as_deref(), write_policy)?;
+    }
 
     Ok(())
 }
@@ -586,7 +628,7 @@ pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         } else {
             WritePolicy::Overwrite
         };
-        scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
+        scaffold_target_with_policy(project_dir, &project, *target, write_policy, true)?;
     }
     sync_platform_config(project_dir, &project)?;
     write_project_config(project_dir, &project)?;
@@ -1525,11 +1567,13 @@ fi
 "#;
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.targets.contains(&Target::Android) {
+        ensure_android_capability_helper(root)?;
+    }
     if project.capabilities.is_empty() {
         return Ok(());
     }
     if project.targets.contains(&Target::Android) {
-        ensure_android_capability_helper(root)?;
         if project
             .capabilities
             .contains(&PlatformCapability::FileSystem)
@@ -1545,11 +1589,7 @@ fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Re
 }
 
 fn ensure_android_capability_helper(root: &Path) -> Result<()> {
-    write_file_with_policy(
-        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
-        render_android_capabilities_java(),
-        WritePolicy::PreserveExisting,
-    )
+    prepare_android_capability_helper(root)
 }
 
 fn ensure_android_file_system_helper(root: &Path) -> Result<()> {
@@ -2392,6 +2432,7 @@ fn scaffold_target_with_policy(
     project: &FissionProject,
     target: Target,
     write_policy: WritePolicy,
+    example_content: bool,
 ) -> Result<()> {
     let relative = Path::new(target.scaffold_relative_path());
     let text = match target {
@@ -2479,6 +2520,7 @@ fn scaffold_target_with_policy(
                     "Run `fission run --target web --detach --project-dir .` to keep the local server running in the background.",
                     "Run `fission test --target web --project-dir .` for a headless Chrome/Chromium CDP smoke test.",
                     "Run `./platforms/web/run-browser.sh` from the project root to build the wasm package and serve the app locally.",
+                    "Set `FISSION_WEB_WASM_SIMD=scalar` before a Web build when the target browsers do not support wasm `simd128`; SIMD is enabled by default.",
                     "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
                     "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
                     "The generated page uses `assets/app-icon.png` as its default favicon/app icon seed.",
@@ -2497,11 +2539,14 @@ fn scaffold_target_with_policy(
             ],
         ),
         Target::Site => {
-            write_file_with_policy(
-                &root.join("content/getting-started.md"),
-                "---\ntitle: Site content\ndescription: Static site content rendered by the Fission static site shell.\n---\n\n# Site content\n\nAdd Markdown files under `content/`. `fission site build` renders them through real Fission widgets, lowers the nodes to Core IR, and emits static HTML.\n",
-                write_policy,
-            )?;
+            if example_content {
+                let starter = "---\ntitle: Site content\ndescription: Static site content rendered by the Fission static site shell.\n---\n\n# Site content\n\nAdd Markdown files under `content/`. `fission site build` renders them through real Fission widgets, lowers the nodes to Core IR, and emits static HTML.\n";
+                write_file_with_policy(
+                    &root.join("content/getting-started.md"),
+                    starter,
+                    write_policy,
+                )?;
+            }
             platform_readme(
                 "Static site",
                 "Static multi-page website target. The site shell renders Markdown content through real Fission widgets, lowers nodes to Core IR, and emits semantic static HTML.",
@@ -2716,6 +2761,11 @@ fn scaffold_android_bundle(
     write_file_with_policy(
         &root.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
         render_android_activity_java(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        render_android_capabilities_java(),
         write_policy,
     )?;
     if project
@@ -3417,6 +3467,17 @@ fn scaffold_web_bundle(
         &bootstrap,
         write_policy,
     )?;
+    let icon_path = root.join("assets/app-icon.png");
+    let icon = if icon_path.exists() {
+        fs::read(&icon_path)?
+    } else {
+        DEFAULT_APP_ICON_PNG.to_vec()
+    };
+    write_binary_file_with_policy(
+        &root.join("platforms/web/assets/app-icon.png"),
+        &icon,
+        write_policy,
+    )?;
     if project.capabilities.contains(&PlatformCapability::Storage) {
         web_storage::write_web_sqlite_assets(root, write_policy)?;
     }
@@ -3561,7 +3622,7 @@ fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> Str
     let lib_name = project.app.name.replace('-', "_");
 
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nconsole_error_panic_hook = \"0.1\"\nwasm-bindgen = \"0.2\"\n\n# Optimize renderer and runtime dependencies for interactive debug builds.\n[profile.dev.package.\"*\"]\nopt-level = 1\n",
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nconsole_error_panic_hook = \"0.1\"\nwasm-bindgen = \"0.2\"\n\n# Optimise renderer and runtime dependencies for interactive debug builds.\n[profile.dev.package.\"*\"]\nopt-level = 1\n",
         project.app.name, lib_name, deps
     )
 }
@@ -5525,7 +5586,7 @@ fn render_web_index(project: &FissionProject) -> String {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <link rel="icon" type="image/png" href="../../assets/app-icon.png" />
+    <link rel="icon" type="image/png" href="assets/app-icon.png" />
     <style>
       :root {{
         color-scheme: dark;
@@ -5561,7 +5622,7 @@ fn render_web_index(project: &FissionProject) -> String {
   </head>
   <body>
     <main id="fission-web-mount" aria-label="{title}"></main>
-    <script type="module" src="/bootstrap.mjs"></script>
+    <script type="module" src="./bootstrap.mjs"></script>
   </body>
 </html>
 "#,
@@ -5590,6 +5651,46 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 PROFILE="${FISSION_WEB_PROFILE:-dev}"
+SIMD_MODE="${FISSION_WEB_WASM_SIMD:-simd}"
+SIMD_MODE=$(printf '%s' "$SIMD_MODE" | tr '[:upper:]' '[:lower:]')
+
+case "$SIMD_MODE" in
+  1|true|yes|on|simd|simd128)
+    GLOBAL_FLAGS="${CARGO_ENCODED_RUSTFLAGS:-${RUSTFLAGS:-}}"
+    if [[ -n "$GLOBAL_FLAGS" ]]; then
+      if [[ "$GLOBAL_FLAGS" != *"+simd128"* || "$GLOBAL_FLAGS" == *"-simd128"* ]]; then
+        printf '%s\n' "Global Rust flags override target-specific Web flags; add +simd128 to them or set FISSION_WEB_WASM_SIMD=scalar." >&2
+        exit 2
+      fi
+    else
+      TARGET_FLAGS="${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-}"
+      if [[ "$TARGET_FLAGS" == *"target-feature="* ]]; then
+        if [[ "$TARGET_FLAGS" != *"+simd128"* ]]; then
+          printf '%s\n' "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS already sets target-feature; include +simd128 or set FISSION_WEB_WASM_SIMD=scalar." >&2
+          exit 2
+        fi
+      else
+        export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="${TARGET_FLAGS:+$TARGET_FLAGS }-C target-feature=+simd128"
+      fi
+    fi
+    ;;
+  0|false|no|off|scalar)
+    GLOBAL_FLAGS="${CARGO_ENCODED_RUSTFLAGS:-${RUSTFLAGS:-}}"
+    if [[ "$GLOBAL_FLAGS" == *"+simd128"* && "$GLOBAL_FLAGS" != *"-simd128"* ]]; then
+      printf '%s\n' "Global Rust flags enable simd128; remove that flag for a scalar build." >&2
+      exit 2
+    fi
+    if [[ "${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-}" == *"+simd128"* ]]; then
+      printf '%s\n' "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS enables simd128; remove that flag for a scalar build." >&2
+      exit 2
+    fi
+    ;;
+  *)
+    printf '%s\n' "FISSION_WEB_WASM_SIMD must be 'simd' (default) or 'scalar'." >&2
+    exit 2
+    ;;
+esac
+
 BUILD_ARGS=(build "$PROJECT_DIR" --target web --out-dir "$SCRIPT_DIR/pkg")
 
 if [[ "$PROFILE" == "release" ]]; then
@@ -6112,41 +6213,45 @@ pub struct CounterState {
 
 impl GlobalState for CounterState {}
 
-#[fission_reducer(Increment)]
-fn on_increment(state: &mut CounterState) {
-    state.count += 1;
-}
-
-#[derive(Clone)]
-pub struct CounterApp;
-
-impl From<CounterApp> for Widget {
-    fn from(component: CounterApp) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let increment = with_reducer!(ctx, Increment, on_increment);
-
-        Column {
-            gap: Some(16.0),
-            children: vec![
-                Text::new(format!("Count: {}", view.state().count)).size(28.0).into(),
-                Button {
-                    on_press: Some(increment),
-                    child: Some(Text::new("Increment").into()),
-                    ..Default::default()
-                }
-                .into(),
+fission_component! {
+    pub CounterApp<CounterState> |_, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            children: [
+                Text(format!("Count: {}", state.count))
+                    .size(tokens.typography.heading1_size),
+                Button(
+                    child: Text("Increment"),
+                    key: "increment",
+                    on_press: |_, state, _cx| state.count += 1,
+                )
+                .semantics_identifier("counter.increment"),
             ],
-            ..Default::default()
-        }
-        .into()
-
-    }
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .width_length(Length::percent(100.0))
+    .height_length(Length::percent(100.0))
+    .bg(tokens.colors.background)
 }
 "#;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_starter_teaches_compose_as_the_default_authoring_api() {
+        assert!(APP_RS.contains("fission_component!"));
+        assert!(APP_RS.contains("on_press: |_, state, _cx|"));
+        assert!(APP_RS.contains("key: \"increment\""));
+        assert!(APP_RS.contains("semantics_identifier(\"counter.increment\")"));
+        assert!(!APP_RS.contains("impl From<CounterApp> for Widget"));
+        assert!(!APP_RS.contains("#[fission_reducer(Increment)]"));
+    }
 
     fn unique_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -6189,7 +6294,7 @@ mod tests {
         let dir = unique_dir("target-sync-preserves-features");
         fs::write(
             dir.join("Cargo.toml"),
-            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.15.1\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
+            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.16.0\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
         )
         .unwrap();
         let project = FissionProject {
@@ -6392,6 +6497,16 @@ publisher = "CN=Example & Co"
 
         scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
 
+        assert!(dir
+            .join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java")
+            .exists());
+        let capabilities = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        )
+        .unwrap();
+        assert!(capabilities.contains("Intent.ACTION_OPEN_DOCUMENT"));
+        assert!(capabilities.contains("Intent.ACTION_CREATE_DOCUMENT"));
+        assert!(capabilities.contains("nativeFilePickerResult"));
         assert!(!dir
             .join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java")
             .exists());

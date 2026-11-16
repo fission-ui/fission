@@ -1,0 +1,158 @@
+---
+title: Passkeys
+description: Register and authenticate WebAuthn-style credentials through the host.
+---
+
+# Passkeys
+
+Passkeys are account credentials. The host may unlock the credential with fingerprint, face, device PIN, password manager, phone, or hardware key, but the app receives WebAuthn registration or authentication data that the server must verify.
+
+One sign-in attempt has three operations: obtain a fresh server challenge, ask the host for an assertion, and send that assertion to the server for verification. This page implements the middle operation. It assumes the app's challenge-loading effect has already supplied a `PasskeyAuthenticationRequest`; it deliberately does not create a session from a host result.
+
+Do not use passkeys for local-only unlock when no server identity is involved. Use biometrics for local verification and passkeys for account registration or sign-in.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct PasskeyState {
+    authentication_request: Option<PasskeyAuthenticationRequest>,
+    pending_assertion: Option<PasskeyAuthenticationResult>,
+    login_error: Option<String>,
+    authenticating: bool,
+}
+
+impl GlobalState for PasskeyState {}
+```
+
+`None` means no fresh challenge is ready. The challenge-loading effect sets `authentication_request` only after the server succeeds. Consume that request when starting the prompt, so retrying does not silently reuse a challenge from an earlier attempt. The pending assertion is proof material for verification, not authenticated app state.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability passkeys --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Fission cannot invent those because they must match the production domain and app identifiers.
+
+Keep these three pieces separate:
+
+- The Fission API is the typed request your reducer makes; this example calls `passkeys().authenticate(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The host responds after the starting reducer returns. Handle the assertion and any error in completion reducers.
+
+```rust
+#[fission_reducer(PasskeyAssertionReady)]
+fn on_passkey_assertion_ready(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    state.authenticating = false;
+    match ctx.input.capability_ok(AUTHENTICATE_PASSKEY) {
+        Some(assertion) => {
+            state.pending_assertion = Some(assertion);
+            state.login_error = None;
+        }
+        None => state.login_error = Some("The host returned no credential assertion".into()),
+    }
+}
+
+#[fission_reducer(PasskeySignInFailed)]
+fn on_passkey_sign_in_failed(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    state.authenticating = false;
+    state.pending_assertion = None;
+    state.login_error = Some(
+        ctx.input.capability_error(AUTHENTICATE_PASSKEY)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not obtain a credential assertion".into()),
+    );
+}
+```
+
+The unit completion action selects the reducer; `ctx.input` contains the actual assertion. The success branch does not set a `signed_in` flag. In the complete app, that branch should queue the shared server-verification job, and only that job's validated completion can establish a session. Clear the pending assertion after verification or rejection, and obtain a new challenge before retrying.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(SignInWithPasskey)]
+fn on_sign_in_with_passkey(state: &mut PasskeyState, ctx: &mut ReducerContext<PasskeyState>) {
+    if state.authenticating { return; }
+    let Some(mut request) = state.authentication_request.take() else { return; };
+    if request.challenge.is_empty() {
+        state.login_error = Some("The server supplied an empty challenge".into());
+        return;
+    }
+    request.mediation = PasskeyMediation::Required;
+    state.authenticating = true;
+    state.pending_assertion = None;
+    state.login_error = None;
+    let ready = ctx.effects.bind(PasskeyAssertionReady, reduce_with!(on_passkey_assertion_ready));
+    let failed = ctx.effects.bind(PasskeySignInFailed, reduce_with!(on_passkey_sign_in_failed));
+    ctx.effects.passkeys().authenticate(request).on_ok(ready).on_err(failed);
+}
+```
+
+The button requests visible mediation, rather than conditional form autofill. The request's relying-party id, challenge, allowed credentials, verification policy, and timeout come from the app's server-backed sign-in flow. Do not generate the challenge in the widget or use a fixed challenge in production. A missing provider reports an unsupported error rather than satisfying verification locally.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+fission_component! {
+    pub PasskeySignInButton<PasskeyState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(SignInWithPasskey, reduce!(on_sign_in_with_passkey));
+    }
+    => Column(children: [
+        Button(
+            child: Text(cx.tr("passkeys.sign_in")),
+            disabled: state.authenticating || state.authentication_request.is_none(),
+            on_press: run,
+        ),
+        if state.authenticating { Spinner(motion: SpinnerMotion::Default, label: cx.tr("passkeys.authenticating")) },
+        if state.pending_assertion.is_some() { Text(cx.tr("passkeys.server_verification_required")) },
+        if let Some(error) = &state.login_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Define the `passkeys.*` labels in the translation bundles. This control remains disabled until challenge loading succeeds. The larger sign-in screen must also expose its challenge-loading, server-verification, and retry states; the host prompt is one stage of that screen, not the whole authentication protocol.
+
+## 6. Provide and test the host behavior
+
+Register a `PasskeyHost` with `.with_passkey_host(...)`. Use `MemoryPasskeyHost` for reducer tests. A real provider only gathers credential data; the relying-party server must verify registration and authentication results before the app treats the user as signed in.
+
+Use fixed challenges and memory results for reducer tests. Integration tests should cover a successful assertion, server rejection, cancellation, unsupported hosts, and a mismatched relying-party ID. Do not treat a host result as an authenticated session until the server verifies it.
+
+## Platform expectations
+
+Passkey routes are available on Web, Android, iOS, macOS, and Windows. Linux support depends on the browser, desktop credential provider, and hardware authenticator. A route does not guarantee a production provider on every target, so check the [capability matrix](/docs/capabilities/matrix/) and handle the typed unsupported result in the UI. Production also requires a secure origin and correctly configured domain ownership.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Passkeys reference](/reference/capabilities/passkeys/).
+
+## Finished capability flow
+
+A production passkey flow needs all of these pieces:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

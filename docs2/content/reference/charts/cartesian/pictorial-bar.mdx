@@ -1,0 +1,51 @@
+---
+title: Pictorial bar
+sidebar_label: Pictorial bar
+description: Use PictorialBarSeries with its actual symbol and count semantics.
+---
+
+# Pictorial bar
+
+![Pictorial bar screenshot](/img/charts/pictorial-bar.png)
+
+A pictorial bar replaces a rectangle with repeated shapes. Readers will often assume each shape represents a fixed number of items, so the current renderer needs a more careful explanation.
+
+It uses `ceil(abs(value) / 20)` shapes, with at least one even for zero. Positions depend on numeric height, so this is not a literal one-shape-per-unit display.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, PictorialBarSeries, Series};
+
+#[derive(Clone)]
+pub struct CollectionTotal {
+    pub label: String,
+    pub collected_items: u32,
+}
+
+fission_component! {
+    pub CollectionPictorialBars<()> {
+        props {
+            title: String,
+            items_label: String,
+            collections: Vec<CollectionTotal>,
+        }
+    }
+    view(collections, _state, _cx) {
+        let labels = collections.collections.iter().map(|row| row.label.as_str()).collect();
+        let values = collections.collections.iter().map(|row| row.collected_items as f32).collect();
+    } => Chart(
+        title: Some(collections.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::PictorialBar(
+            PictorialBarSeries::new(&collections.items_label).symbol("rect").data(values),
+        )],
+    )
+}
+```
+
+`"rect"` selects the current rectangular path branch. Other strings take the alternative shape branch; a symbol string does not establish arbitrary SVG-path rendering.
+
+Use ordinary bars when accurate quantity comparison is the goal. If retaining this presentation, supply translated labels, show exact counts and explain its count convention, particularly zero and values below twenty. Test those boundaries and narrow layouts. The gallery image is not proof of a custom-path contract.
+
+[Cartesian family overview](./overview)

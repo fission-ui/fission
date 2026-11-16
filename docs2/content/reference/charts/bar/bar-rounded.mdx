@@ -1,0 +1,60 @@
+---
+title: Rounded bar
+sidebar_label: Rounded bar
+description: Apply theme-supplied corner geometry to an ordinary, meaningful bar comparison.
+---
+
+# Rounded bar
+
+![Rounded bar screenshot](/img/charts/bar-rounded.png)
+
+Rounded corners are a presentation choice, not another chart type. The underlying question and scale should remain exactly as clear as they would be with square bars.
+
+For a support dashboard, compare resolved tickets by weekday. The corner radius comes from the application's design system so this chart fits the rest of the interface without inventing its own styling rules.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct ResolvedTicketsDay {
+    pub label: String,
+    pub resolved: u32,
+}
+
+fission_component! {
+    pub RoundedResolutionBars<()> {
+        props {
+            title: String,
+            measure_label: String,
+            days: Vec<ResolvedTicketsDay>,
+            corner_radius: f32,
+        }
+    }
+    view(resolutions, _state, _cx) {
+        let labels = resolutions.days.iter().map(|day| day.label.as_str()).collect();
+        let values = resolutions.days.iter().map(|day| day.resolved as f32).collect();
+    } => Chart(
+        title: Some(resolutions.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(
+            BarSeries::new(&resolutions.measure_label)
+                .border_radius(resolutions.corner_radius)
+                .data(values),
+        )],
+    )
+}
+```
+
+`BarSeries.border_radius` is an optional `f32`; the builder above sets it explicitly. Require a finite non-negative radius and pass a value from the active theme rather than hard-coding a new visual language in each chart.
+
+## Inspect the small values too
+
+A large radius can obscure the shape of very short bars. The current renderer also gives zero-height bars a minimum visible extent, so labels and exact counts remain important.
+
+Test zero and low counts, tight category spacing and a narrow viewport. Keep the same resolution rule across days; rounded corners cannot make inconsistent ticket counts comparable. The gallery screenshot uses separate sample data.
+
+[Bar family overview](./overview)

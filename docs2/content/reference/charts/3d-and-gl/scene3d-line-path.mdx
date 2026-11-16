@@ -1,0 +1,51 @@
+---
+title: 3D line path
+sidebar_label: 3D line path
+description: Reuse a gap-aware spatial trajectory for an ordered inspection route.
+---
+
+# 3D line path
+
+![3D line path screenshot](/img/charts/scene3d-line-path.png)
+
+A path represents an order of movement, not merely a collection of positions. For an inspection route, joining samples after sorting by their X coordinate would create a different route from the one recorded.
+
+This gallery entry uses the same sphere samples and segment meshes described in [3D line](./line3d-basic). It is not a separate line-series API.
+
+## Compose the continuous sections
+
+Put `InspectionTrajectory` in `widgets/inspection_trajectory.rs`, using the `segment_prism` helper from [3D graph](./graph3d-basic). Supply its sections from validated, ordered observations; [3D trajectory](./line3d-trajectory) shows how to split timestamped observations at missing samples and excessive gaps.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::inspection_trajectory::InspectionTrajectory;
+
+fission_component! {
+    pub RecordedInspectionRoute<()> {
+        props {
+            title: TextContent,
+            continuous_sections: Vec<Vec<Point3D>>,
+            route_color: Color,
+        }
+    }
+    view(recording, _state, _cx) => InspectionTrajectory {
+        title: recording.title.clone(),
+        sections: recording.continuous_sections.clone(),
+        route_color: recording.route_color,
+    }
+}
+```
+
+Enable the `three-d` feature. The parent supplies translated text and a design-system colour. Keep sample timestamps and route identifiers in the source model; the point vectors only supply the geometry.
+
+## Checks
+
+Test that missing sections remain disconnected and that a one-point section does not imply a movement segment. Provide direction, units and route duration outside the image rather than assuming that a line communicates them.
+
+The scene does not emit per-sample chart events. Use a sample list or a picking-capable scene interface if inspection of individual observations is required. Inspect the rendered route where segments overlap; the screenshot is a gallery fixture.
+
+Tags: `3d`, `line`.
+
+[3D and GL family overview](./overview)

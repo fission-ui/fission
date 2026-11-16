@@ -1,0 +1,255 @@
+---
+layout: goal
+title: Play video in an Android app with Fission
+description: "Put a real video beside an observation draft and address its play and pause controls by one stable player ID. Check Android playback rather than only button dispatch."
+goal: "Compose a reference-video screen with independent written notes and test the native player without promising unsupported Android audio policies."
+path: /blog/play-media-in-an-android-app/
+order: 60
+difficulty: Beginner
+duration: 25 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-play-media-in-an-android-app
+outcomes:
+  - "Embed a real network video without autoplay"
+  - "Address Play and Pause to the same stable video identity"
+  - "Keep written observations independent of playback state"
+  - "Check native surface placement, interrupted playback and the Android audio-option boundary"
+---
+
+A field-survey app can put a reference clip beside an observation draft. The two pieces have different owners: the native player owns decoding and playback, whilst the component owns the user's unsaved note. Pressing Play must not mark a survey complete or pretend the user has watched the clip.
+
+This example uses a public flower video to demonstrate that interaction. It is not a botanical training course or an app-owned production asset. Replace the source and accompanying explanation with material you have rights to distribute; meaningful instructional audio also needs captions or an equivalent accessible transcript. A semantic label identifies the surface but does not provide either.
+
+## Create the Android project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/), then choose [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+cargo install cargo-fission
+fission init harbour-plant-survey
+cd harbour-plant-survey
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs`. The shared library below launches this screen on Android, desktop and Web; the preview does not substitute a different application.
+
+<!-- fission:step id="player-screen" -->
+## Address one player from both controls
+
+A control action needs the identity of its intended player. Give the video a stable explicit ID and obtain its typed controls from that same ID. There is no separate local `is_playing` flag: changing such a flag would change a label, not make the native player decode or display a frame.
+
+Autoplay remains off. Play and Pause are deliberate actions, and the note is independent of them.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+const SAMPLE_VIDEO_URL: &str =
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
+
+fission_component! {
+    pub PlantSurveyPlayer<()> {
+        state { observation: String = String::new() }
+    }
+    view(screen, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let video_width = (cx.view.viewport_size().width - 2.0 * tokens.spacing.l)
+            .clamp(1.0, 640.0);
+        let video_id = WidgetId::explicit("plant-survey.growth-reference");
+        let controls = cx.build.video_controls(video_id);
+        let video = Video::network(SAMPLE_VIDEO_URL)
+            .id(video_id)
+            .size(video_width, video_width * 9.0 / 16.0)
+            .semantic_label(cx.tr("player.video.label"));
+    } =>
+    SafeArea(child: Scroll(child: SemanticsRegion(
+        identifier: Some("plant-survey.player".to_string()),
+        label: Some(cx.tr("player.screen.label")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("player.app.title"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("player.app.subtitle"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Divider(),
+                Text(cx.tr("player.clip.title"))
+                    .weight(tokens.typography.font_weight_semibold),
+                Container(video)
+                    .width(video_width)
+                    .height(video_width * 9.0 / 16.0)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(cx.tr("player.action.play")),
+                        key: "play-growth-video",
+                        variant: ButtonVariant::Primary,
+                        on_press: controls.play(),
+                    ),
+                    Button(
+                        child: Text(cx.tr("player.action.pause")),
+                        key: "pause-growth-video",
+                        variant: ButtonVariant::Outline,
+                        on_press: controls.pause(),
+                    ),
+                ]),
+                TextInput(
+                    label: Some(cx.tr("player.observation").into()),
+                    helper_text: Some(cx.tr("player.note_scope").into()),
+                    bind: screen.observation, multiline: true,
+                    semantics_identifier: "player.observation".to_owned(),
+                ),
+                Text(cx.tr("player.scope"))
+                    .color(tokens.colors.text_secondary),
+            ])
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+player.screen.label: "Plant survey video player"
+player.app.title: "Harbour Plant Survey"
+player.app.subtitle: "Observe a reference clip"
+player.clip.title: "Flower growth-stage sample"
+player.video.label: "Flower growth-stage reference video"
+player.action.play: "Play video"
+player.action.pause: "Pause video"
+player.scope: "Browser preview uses an external sample video; use an app-owned source in production."
+player.observation: "Observation draft"
+player.note_scope: "Local notes only; nothing is saved or submitted."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+player.screen.label: "Reproductor de vídeo del inventario de plantas"
+player.app.title: "Inventario de plantas de Harbour"
+player.app.subtitle: "Observar un vídeo de referencia"
+player.clip.title: "Muestra de las etapas de crecimiento de una flor"
+player.video.label: "Vídeo de referencia de las etapas de crecimiento de una flor"
+player.action.play: "Reproducir vídeo"
+player.action.pause: "Pausar vídeo"
+player.scope: "La vista previa web usa un vídeo externo de muestra; usa una fuente propia en producción."
+player.observation: "Borrador de observación"
+player.note_scope: "Notas locales; no se guarda ni envía nada."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::PlantSurveyPlayer;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(PlantSurveyPlayer::new())
+        .with_env(translations::create_env())
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), PlantSurveyPlayer> {
+    let app = MobileApp::<(), _>::new(PlantSurveyPlayer::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(PlantSurveyPlayer::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+include!("../src/lib.rs");
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Start and pause the clip, then edit the observation. Pausing must preserve the note. The browser uses its real video implementation and the same network URL; a functioning browser preview does not qualify Android's decoding, surface placement or audio behaviour.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="android-interruptions" -->
+## Test the video, not only its buttons
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission devices --project-dir .
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+On the selected device, verify actual moving frames, Pause, resume and completion. Rotate or resize where supported and check that the opaque native surface stays aligned with its controls. The widget is not a canvas texture, so do not assume clipping and compositing behave like ordinary text.
+
+Repeat after interrupting connectivity and after backgrounding the app. A dispatched command is not evidence that the media loaded. Inspect real player errors rather than showing a permanent success label when the source is unavailable. Network media does not work offline merely because the rest of the app does; packaging and validating an owned local source is separate work.
+
+The Android backend currently accepts `VideoAudioOptions` but does not apply those options when creating its player. Setting `VideoAudioOptions::playback()` therefore cannot promise Android audio focus, ducking or background service behaviour. Test interruptions on the Android versions you support. Fission's video widget is not a standalone background audio service.
+
+`fission test` checks the generated host can start. It does not prove codec compatibility, sound, network recovery or that the exact release package was installed.
+
+<!-- fission:checkpoint -->
+Record player behaviour on an emulator and a physical phone separately. Keep failures and unsupported policies visible in the product rather than translating a successful button dispatch into a playback guarantee.
+<!-- /fission:checkpoint -->
+
+### References
+
+- [Video widget](/reference/widgets/video/)
+- [Android device setup](/blog/set-up-rust-android-gui-development-with-fission/)
+<!-- /fission:step -->

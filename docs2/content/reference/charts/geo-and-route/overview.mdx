@@ -1,0 +1,41 @@
+---
+title: Geo and route
+sidebar_label: Overview
+description: Choose supplied region geometry, schematic routes or explicitly paired reports.
+---
+
+# Geo and route
+
+Start with the question the report needs to answer. Regional colour compares an area-based measure; route lines compare relationships between endpoints. These are useful in the same report, but they are not interchangeable geographical models.
+
+![Flight-like lines screenshot](/img/charts/lines-flight-like.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Flight-like lines](./lines-flight-like) | LineSegment values plus effect. | Use it for route animation-style visuals. |
+| [Geo network](./geo-network) | GeoJSON plus lines. | Use it for network coverage and paths. |
+| [Migration routes](./geo-migration) | LineSegment values. | Use it for movement and transfer flows. |
+| [Region value map](./map-region-values) | GeoJSON regions plus values. | Use it for geography-first comparisons. |
+| [Risk map](./map-risk) | GeoJSON regions plus numeric values. | Use it for geographic risk dashboards. |
+| [Route arcs](./geo-route-arcs) | Line segments with values. | Use it for logistics and movement. |
+| [Route map overlay](./geo-route-map) | GeoJSON regions plus route segments. | Use it when geography and movement combine. |
+| [Sales map](./map-sales) | GeoJSON regions plus values. | Use it for regional business metrics. |
+| [Service coverage map](./map-service-coverage) | GeoJSON regions plus values. | Use it for coverage and rollout screens. |
+| [Traffic lines](./lines-traffic) | LineSegment values. | Use it for traffic or flow intensity. |
+
+
+## Choose the coordinate contract first
+
+The [choropleth component](/reference/charts/geographic-and-route/map-choropleth/) joins stable region IDs to supplied Polygon/MultiPolygon GeoJSON. A map-type name does not fetch geometry. Validate geometry and joins before rendering because malformed inputs can otherwise leave an empty picture.
+
+The [connection component](/reference/charts/geographic-and-route/lines-basic/) uses actual `LinesSeries` values, with endpoints and one relative intensity each. It fits its own bounds; curves are schematic and are not road paths or geodesics.
+
+**The current map and line fitting rules do not establish a shared projection.** Pages whose titles mention overlays retain their paths, but explain this gap and show paired reports instead of promising geographical alignment. See the [network composition](/reference/charts/geo-and-route/geo-network/) for the supported alternative. Exact route overlays need framework work outside these examples.
+
+## Keep the facts independent of the drawing
+
+Load coherent snapshots through effects and reducers, retain durable region/route IDs and provide exact values beside the chart. Translate captions and units in the parent. Choose a colour scale whose meaning stays constant across comparisons, and do not use colour as the only status signal.
+
+Test joins, missing data, degenerate routes and report replacement before visual checks. A gallery screenshot uses separate fixtures; it does not prove navigation, data loading or coordinate alignment.

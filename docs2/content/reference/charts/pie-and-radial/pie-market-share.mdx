@@ -1,0 +1,57 @@
+---
+title: Market share pie
+sidebar_label: Market share pie
+description: Fission Charts reference for Market share pie.
+---
+
+# Market share pie
+
+![Market share pie screenshot](/img/charts/pie-market-share.png)
+
+A market-share chart needs an explicit market boundary. A seller's share of recorded orders in one region and period is not automatically its share of the whole industry. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a pie when a few mutually exclusive categories make up one known total. State the geography, product category, reporting period and measurement, such as units sold. Revenue and unit share can differ substantially.
+
+## Data model
+
+Supply labelled values from the same denominator. `PieSeries` computes angles from their sum; it does not check market coverage or infer an omitted “Other” category. Prepare that category explicitly when the report groups smaller participants.
+
+## Authoring from a Fission component
+
+The parent supplies the covered-market unit totals. The default zero inner radius gives a pie rather than the unrelated donut shown by the previous example.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CoveredMarketUnitShare<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            units_by_supplier: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.units_by_supplier.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test incomplete coverage, an explicit “Other” group and suppliers with equal totals. Reject negative or non-finite values and present an empty state when there is no positive total. Provide exact shares and the coverage definition outside the image.
+
+Tags: `pie`, `share`.
+
+[Pie and radial family overview](./overview)

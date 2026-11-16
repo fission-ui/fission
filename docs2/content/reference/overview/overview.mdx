@@ -1,0 +1,76 @@
+---
+title: Reference overview
+description: Find the Fission reference for runtime, shells, CLI, widgets, charts, targets, and lifecycle tools.
+slug: /overview/overview
+---
+
+# Reference overview
+
+Start with the goal-based guide when you want to build something, or use Tutorials to follow a complete task. Come back to Reference when you know what you are building and need to check a type, lifecycle rule or subsystem.
+
+These pages have different jobs. A tutorial introduces an idea as you use it. Reference should let you find the exact answer quickly without hiding the public contract behind shorthand.
+
+Use this section when you are asking questions such as these:
+
+- What belongs in a `fission_component!` view?
+- When should I use a job instead of a service?
+- What does `Env` hold today?
+- Which shell wrappers expose which builder methods?
+- Which widget family should I browse for this screen?
+
+The older guides, tutorials and cookbook are still at their original `/docs/...` URLs. Open “Learning and guides” in the navigation to find them. The `/docs/` landing page now starts with the goal-based guide.
+
+## How to use the reference effectively
+
+Start with the part of Fission your question is about:
+
+- For app behaviour, use the core runtime pages. They cover widgets, state, reducers, effects, resources, environment, input, rendering, testing and diagnostics.
+- For how the app runs on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site or SSR, use the platform pages. They explain the shells, targets, target-level tests and what the host is responsible for.
+- For project setup and commands, use the command-line interface page.
+- For UI authoring, start with the widget catalog, then open the relevant widget family.
+
+Think of the reference as a map of Fission's subsystems. Start with the job your code needs to do, then follow the links to the types and contracts involved.
+
+## Core runtime reference
+
+These pages explain the runtime model shared by macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site and SSR.
+
+Use [Widget authoring boundary](/reference/core/widget-authoring-boundary) to check what a component is, what belongs in a `fission_component!` view, and how `BuildCtxHandle` and `ViewHandle` divide responsibility.
+
+Use [State system](/reference/core/state-system) for `GlobalState`, typed `Action` values, reducers, `ReducerContext` and selectors.
+
+For asynchronous work, host integration, timers or background behaviour, see [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities).
+
+For input and environment contracts, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime). [Animations, portals, and media](/reference/core/animations-portals-media) covers runtime-owned motion and overlays. [Rendering pipeline](/reference/core/rendering-pipeline) follows a view from component composition through presentation.
+
+Use [Platform runtime](/reference/core/platform-runtime), [Testing and diagnostics](/reference/core/testing-and-diagnostics), and [Theming and internationalization](/reference/core/theming-and-i18n) for shells, verification, theme and locale.
+
+## Platform reference
+
+The platform pages pick up where the shared runtime meets a host.
+
+[Targets](/reference/platform/targets) explains generated host output, target folders and what to expect on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site and SSR.
+
+[Accessibility reference](/reference/platform/accessibility) lists native screen-reader bridges, semantic HTML output, role mapping, exported node data and known gaps. [Accessibility and internationalization](/reference/platform/accessibility-and-i18n) explains how semantics and locale-sensitive behaviour connect to platform adapters and tests.
+
+[Testing](/reference/platform/testing) explains what can be checked headlessly, what needs a live shell and which host-level test APIs are available.
+
+## command-line interface reference
+
+The command-line interface takes you from project setup through running, logs, readiness, packaging, release content, distribution and release receipts.
+
+Use [command-line interface overview](/reference/cli/overview) for the scaffold and target commands, their main flags and generated files. Use the [`fission.toml` manifest](/reference/config/fission-toml) for the project schema: targets, capabilities, site builds, packaging, signing, publishing and workflows. [Environment variables](/reference/config/environment-variables/) lists runtime overrides, Web and native test switches, script inputs, tool discovery and signing or publishing secret names.
+
+If you are preparing a Fission release, follow [Fission release checklist](/reference/project/fission-release-checklist) for the version bump, changelog, blog post, crates.io, GitHub release, tag and website checks.
+
+## Widget reference
+
+The widget reference is grouped by the job a widget does, rather than making you scan one long alphabetical list.
+
+Start with [Widget catalog](/reference/widgets/catalog) for the full map, then go to the family page that matches your task: [Layout](/reference/widgets/layout), [Inputs](/reference/widgets/inputs), [Display and data](/reference/widgets/display-and-data), [Overlays and navigation](/reference/widgets/overlays-and-navigation), or [Media](/reference/widgets/media).
+
+Each family links to dedicated widget pages. Use those pages to check fields and usage details.
+
+## A good working pattern
+
+When you are new to a subsystem, start with Tutorials or the Learning and guides group in the sidebar. When you start implementing it, keep the matching reference page beside your code. Use the tutorial to understand the flow and the reference to check the exact contract.

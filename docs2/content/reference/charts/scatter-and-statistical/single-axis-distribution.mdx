@@ -1,0 +1,53 @@
+---
+title: Distribution single axis
+sidebar_label: Distribution single axis
+description: Fission Charts reference for Distribution single axis.
+---
+
+# Distribution single axis
+
+![Distribution single axis screenshot](/img/charts/single-axis-distribution.png)
+
+A single-axis plot can show individual values without inventing a second measurement. Job runtimes are one example where position alone answers much of the question. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use equal marker weights when every completed job should count once. Varying size would add another measure which needs its own explanation.
+
+## Data model
+
+`SingleAxisSeries` accepts `(value, size)` pairs and scales position from the supplied values. It offsets marks across five index-based lanes to reduce overlap; those lanes are not categories or another numeric axis.
+
+## Authoring from a Fission component
+
+The parent supplies `(runtime_seconds, 1.0)` pairs and retains job identities separately.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SingleAxisSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CompletedJobRuntimeStrip<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            seconds_and_weight: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![SingleAxisSeries::new(&report.series_label)
+            .data(report.seconds_and_weight.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test identical runtimes, one job and an extreme duration. Provide a distribution summary and accessible job list; overlapping marks do not give a reliable count and the plot is not a histogram or density estimate.
+
+Tags: `singleAxis`, `distribution`.
+
+[Scatter and statistical family overview](./overview)

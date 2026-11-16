@@ -1,0 +1,54 @@
+---
+title: 3D capacity bars
+sidebar_label: 3D capacity bars
+description: Preserve spatial rack positions whilst showing a consistently defined capacity measure.
+---
+
+# 3D capacity bars
+
+![3D capacity bars screenshot](/img/charts/scene3d-bar-capacity.png)
+
+For a storage-floor view, a bar can identify both where a rack is and how full it is. The spatial position is the reason to use depth. If the reader only needs a ranking of utilisation, a two-dimensional chart or table is easier to compare accurately.
+
+Define whether height represents occupied quantity or the fraction of available capacity. A rack holding more items is not necessarily closer to full than a smaller rack.
+
+## Use the shared capacity component
+
+The [3D capacity reference](./bar3d-capacity) defines `RackUsage` and `CapacityFloorPlan`, built on the mesh-bar component from [3D bar](./bar3d-basic). Keep those types together in `widgets/capacity_floor_plan.rs` and the underlying mesh component in `widgets/spatial_readings.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::capacity_floor_plan::{CapacityFloorPlan, RackUsage};
+
+fission_component! {
+    pub StorageFloorCapacity<()> {
+        props {
+            title: TextContent,
+            racks: Vec<Vec<RackUsage>>,
+            bar_color: Color,
+        }
+    }
+    view(floor, _state, _cx) => CapacityFloorPlan {
+        title: floor.title.clone(),
+        racks: floor.racks.clone(),
+        bar_color: floor.bar_color,
+    }
+}
+```
+
+Enable the `three-d` feature. The parent supplies translated text, a theme colour and the source occupied/capacity quantities. The shared projection preserves invalid ratios as unavailable instead of converting them into an empty rack.
+
+## Read the geometry honestly
+
+A full rack has a height of one scene unit in this projection. A ratio above one remains above one; clamping it to full would hide over-allocation. Explain unavailable readings and exact quantities in an accessible table outside the scene.
+
+The legacy `Scene3D` used by the gallery has cube, sphere and mesh primitives with optional viewport dimensions. It does not expose `camera` or `ambient_light` builders, chart axes or per-rack `ChartInteractionEvent` selection.
+
+## Checks
+
+Test zero capacity, empty racks, exact capacity and over-allocation, then inspect a rendered floor layout for hidden bars and misleading perspective. Keep row and column positions stable when measurements update. The gallery screenshot uses sample geometry, not this component's rack records.
+
+Tags: `3d`, `bar`.
+
+[3D and GL family overview](./overview)

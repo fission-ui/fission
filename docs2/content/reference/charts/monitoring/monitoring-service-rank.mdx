@@ -1,0 +1,59 @@
+---
+title: Service rank
+sidebar_label: Service rank
+description: Fission Charts reference for Service rank.
+---
+
+# Service rank
+
+![Service rank screenshot](/img/charts/monitoring-service-rank.png)
+
+Ranking services by failed requests helps identify which services contributed most failures during a reporting period. This answers a contribution question, not which service had the worst failure rate. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Choose the measure before sorting. A busy service can produce more failures whilst having a lower error percentage than a small service. Show rates and denominators separately when reliability, rather than total contribution, is the question.
+
+## Data model
+
+Prepare service labels and failed-request counts in the same descending order, with a stable tie-breaker. `BarSeries` does not sort the data for you. Aggregate in integer domain types first; convert the bounded display values to `f32` only when preparing the chart.
+
+## Authoring from a Fission component
+
+The component receives an already-ranked snapshot. Horizontal bars give service names more room than rotated category labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FailedRequestsByService<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            service_names: Vec<String>,
+            failed_requests: Vec<f32>,
+        }
+    }
+    view(ranking, _state, _cx) {
+        let services = ranking.service_names.iter().map(String::as_str).collect();
+    } => Chart(
+        title: Some(ranking.chart_title.clone()),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(services)),
+        series: vec![BarSeries::new(&ranking.series_label)
+            .data(ranking.failed_requests.clone())
+            .horizontal()
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test ties, a service with no failures, fewer results than the requested limit and a report with no failures anywhere. If showing only the largest contributors, state that the list is partial and retain the omitted total. Provide exact counts outside the floating-point visual projection.
+
+Tags: `monitoring`, `rank`.
+
+[Monitoring family overview](./overview)

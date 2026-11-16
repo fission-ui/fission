@@ -1,0 +1,43 @@
+---
+title: Tag
+description: Show a labeled chip, optionally with a close action for removing it.
+slug: /widgets/tag
+---
+# Tag
+
+`Tag` shows a short label, with an optional close action. Use it for active
+filters, selected categories, or recipients that people may want to remove.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// Inside a view: clear_unread_filter_action is bound to the real filter.
+Tag(label: cx.tr("mail.unread_only"), on_close: clear_unread_filter_action)
+```
+
+When `on_close` is absent, the same widget becomes a simple non-removable label chip.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Text shown inside the chip. | Required. |
+| `on_close` | `Option<ActionEnvelope>` | Action fired by the small close button. | Defaults to `None`. When present, the widget renders a close affordance. |
+| `on_press` | `Option<ActionEnvelope>` | Optional activation action for a toggle tag. | Keep distinct from the remove action. |
+| `selected` | `bool` | Whether a toggle tag is on. | Controlled by app state. |
+
+## Usage guidance
+
+A removable tag should remove something real from app state, such as a filter or recipient. If pressing the close icon does not clearly map to a user-visible change, the control can feel confusing.
+
+## Production checklist
+
+Test that removing the tag changes the underlying filter or recipient, not
+only its visible chip. For toggle tags, verify `selected` and the actual filter
+agree after repeated activation, and distinguish toggling from removal.
+
+## Related
+
+[`Badge`](/reference/widgets/badge), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Button`](/reference/widgets/button), and [`Wrap`](/reference/widgets/wrap).

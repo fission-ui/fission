@@ -1,0 +1,43 @@
+---
+title: Dynamic pictorial units
+sidebar_label: Dynamic pictorial units
+description: Update actual PictorialBarSeries input while retaining its nonliteral symbol-count semantics.
+---
+
+# Dynamic pictorial units
+
+![Dynamic pictorial units screenshot](/img/charts/dynamic-pictorial-units.png)
+
+Updating a pictorial display does not change how its symbols are counted. The current renderer uses a fixed twenty-unit step and still draws a minimum symbol for zero.
+
+If exact quantity comparison is the task, ordinary bars are usually clearer. If keeping the pictorial form, explain it and retain exact counts.
+
+The [pictorial example](../cartesian/pictorial-bar) defines `CollectionTotal` and `CollectionPictorialBars`. Put them in `widgets/collection_pictorial_bars.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::collection_pictorial_bars::{
+    CollectionPictorialBars, CollectionTotal,
+};
+
+fission_component! {
+    pub CollectionProgressDisplay<()> {
+        props {
+            title: String,
+            items_label: String,
+            collections: Vec<CollectionTotal>,
+        }
+    }
+    view(display, _state, _cx) => CollectionPictorialBars {
+        title: display.title.clone(),
+        items_label: display.items_label.clone(),
+        collections: display.collections.clone(),
+    }
+}
+```
+
+Supply translated collection labels and a validated snapshot from state. The underlying component actually uses `PictorialBarSeries`, not a conventional bar masquerading as the feature.
+
+Test transitions around zero, twenty and forty items. A symbol appearing or disappearing is not necessarily a one-item change, and missing data is not zero. Refresh through effects and reducers, show exact values in text and inspect the current rendering. The gallery screenshot is not a live update test.
+
+[Dataset and dynamic family overview](./overview)

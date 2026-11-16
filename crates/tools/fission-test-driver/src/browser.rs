@@ -3,9 +3,13 @@ use anyhow::{anyhow, Context, Result};
 #[cfg(not(target_arch = "wasm32"))]
 use base64::Engine;
 #[cfg(not(target_arch = "wasm32"))]
+use fission_command_process::SupervisedChild;
+#[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::{json, Value};
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::HashSet;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
@@ -15,7 +19,7 @@ use std::net::TcpListener;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,9 +32,18 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
+mod site;
+#[cfg(not(target_arch = "wasm32"))]
+mod viewport;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod review;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
+    Website,
     FissionCanvas,
 }
 
@@ -41,13 +54,16 @@ pub struct BrowserTestOptions {
     pub mode: BrowserSmokeMode,
     pub chrome_path: Option<PathBuf>,
     pub cdp_port: Option<u16>,
+    /// CSS pixels, 1..=8192 per axis and at most 16,777,216 pixels total.
+    /// Device scale and mobile emulation are preserved across in-session resizes.
     pub viewport_width: u32,
     pub viewport_height: u32,
     /// Browser device-pixel ratio used for input and rendering emulation.
     pub device_scale_factor: f64,
-    /// Enables Chromium's mobile viewport and touch-device behavior.
+    /// Enables Chromium's mobile viewport and touch-device behaviour.
     pub mobile: bool,
     pub prefers_reduced_motion: bool,
+    /// Startup budget; each in-session resize/capture clamps this to 1..=60,000 ms.
     pub timeout_ms: u64,
     pub screenshot_path: Option<PathBuf>,
 }
@@ -72,6 +88,12 @@ impl BrowserTestOptions {
 
     pub fn fission_canvas(mut self) -> Self {
         self.mode = BrowserSmokeMode::FissionCanvas;
+        self
+    }
+
+    /// Drives any rendered website through its semantic DOM and real Chromium input.
+    pub fn website(mut self) -> Self {
+        self.mode = BrowserSmokeMode::Website;
         self
     }
 
@@ -155,11 +177,16 @@ pub(crate) struct BrowserController {
     _session: ChromeSession,
     client: CdpClient,
     report: BrowserSmokeReport,
+    options: BrowserTestOptions,
+    require_frame: bool,
+    viewport_after: Option<u64>,
+    bridge_ready_navigation_count: Option<u64>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BrowserController {
     pub(crate) fn launch(options: BrowserTestOptions, require_live_control: bool) -> Result<Self> {
+        viewport::validate_dimensions(options.viewport_width, options.viewport_height)?;
         let chrome = options
             .chrome_path
             .clone()
@@ -176,6 +203,7 @@ impl BrowserController {
         client.send("Runtime.enable", json!({}))?;
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
+        client.send("Network.enable", json!({}))?;
         // Headless Chromium has no desktop clipboard broker. Grant clipboard
         // access to this disposable browser profile so trusted keyboard copy,
         // cut, and paste events exercise the same DOM path as an interactive
@@ -209,6 +237,8 @@ impl BrowserController {
 
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
+        let mut last_viewport = Value::Null;
+        let mut last_context_error = None;
         while Instant::now() < deadline {
             client.drain_events(Duration::from_millis(25))?;
             if !client.errors.is_empty() {
@@ -217,39 +247,62 @@ impl BrowserController {
                     client.errors.join("\n")
                 ));
             }
-            let status = read_runtime_status(&mut client)?;
-            let ready = match options.mode {
-                BrowserSmokeMode::Dom => status.ready_dom,
-                BrowserSmokeMode::FissionCanvas => status.ready_canvas && status.renderer.is_some(),
-            } && (!require_live_control || status.test_bridge_ready);
+            let status = match read_runtime_status(&mut client) {
+                Ok(status) => status,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let measured = match viewport::read(&mut client) {
+                Ok(measured) => measured,
+                Err(error) if is_transient_execution_context_error(&error) => {
+                    last_context_error = Some(error.to_string());
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let ready = browser_is_ready(&status, options.mode, require_live_control)
+                && viewport::acknowledged(&measured, &options, require_live_control, None);
             if ready {
                 let report = BrowserSmokeReport {
                     url: options.url.clone(),
                     title: status.title,
-                    width: status.width,
-                    height: status.height,
+                    width: options.viewport_width,
+                    height: options.viewport_height,
                     renderer: status.renderer,
                     body_text_len: status.body_text_len,
                     screenshot_path: options.screenshot_path.clone(),
                 };
+                let bridge_ready_navigation_count =
+                    require_live_control.then_some(client.main_frame_navigation_count);
                 return Ok(Self {
                     _session: session,
                     client,
                     report,
+                    options,
+                    require_frame: require_live_control,
+                    viewport_after: None,
+                    bridge_ready_navigation_count,
                 });
             }
+            last_viewport = measured;
             last_status = Some(status);
             std::thread::sleep(Duration::from_millis(100));
         }
         Err(anyhow!(
-            "browser{} test timed out for {}; last status: {:?}",
+            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}; last transient context error: {:?}",
             if require_live_control {
                 " live-control"
             } else {
                 " smoke"
             },
             options.url,
-            last_status
+            last_status,
+            last_context_error
         ))
     }
 
@@ -258,7 +311,7 @@ impl BrowserController {
     }
 
     pub(crate) fn evaluate_json(&mut self, expression: &str) -> Result<Value> {
-        let result = self.client.send(
+        let result = self.client.send_with_web_test_trace(
             "Runtime.evaluate",
             json!({ "expression": expression, "returnByValue": true }),
         )?;
@@ -275,16 +328,16 @@ impl BrowserController {
         relative_x: f32,
         relative_y: f32,
     ) -> Result<TestResponse> {
-        ensure_response_ok(self.send_bridge_command(TestCommand::ScrollIntoView {
+        ensure_response_ok(self.send_runtime_command(TestCommand::ScrollIntoView {
             query: query.clone().include_hidden(),
         })?)?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
-        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
+        let response = self.send_runtime_command(TestCommand::ResolveSelector { query })?;
         let TestResponse::SelectorResolved { node } = response else {
             return Ok(response);
         };
         let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
-        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let (offset_x, offset_y) = self.runtime_viewport_offset()?;
         let x = offset_x + f64::from(bounds.x + bounds.width * relative_x);
         let y = offset_y + f64::from(bounds.y + bounds.height * relative_y);
         self.client.send(
@@ -302,7 +355,7 @@ impl BrowserController {
             "Input.dispatchTouchEvent",
             json!({ "type": "touchEnd", "touchPoints": [] }),
         )?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
@@ -312,12 +365,12 @@ impl BrowserController {
         delta_x: f64,
         delta_y: f64,
     ) -> Result<TestResponse> {
-        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        let response = self.send_runtime_command(TestCommand::ResolveSelector { query })?;
         let TestResponse::SelectorResolved { node } = response else {
             return Ok(response);
         };
         let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
-        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let (offset_x, offset_y) = self.runtime_viewport_offset()?;
         let x = offset_x + f64::from(bounds.x + bounds.width * 0.5);
         let y = offset_y + f64::from(bounds.y + bounds.height * 0.5);
         self.client.send(
@@ -330,12 +383,25 @@ impl BrowserController {
                 "deltaY": delta_y
             }),
         )?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        if self.options.mode == BrowserSmokeMode::Website {
+            return self.send_site_test_command(command);
+        }
+        anyhow::ensure!(
+            self.options.mode != BrowserSmokeMode::Dom
+                || matches!(&command, TestCommand::SimulateResize { .. } | TestCommand::Wait { .. }
+                    | TestCommand::Screenshot { .. } | TestCommand::CaptureScreenshot {}),
+            "unsupported_page_mode: DOM sessions support host resize, wait and screenshots; semantic/input commands require a Web build compiled with FISSION_WEB_TEST_CONTROL=1"
+        );
         match command {
+            TestCommand::SimulateResize { width, height } => {
+                self.resize_viewport(width, height)?;
+                Ok(TestResponse::Ok {})
+            }
             TestCommand::Wait { ms } => {
                 std::thread::sleep(Duration::from_millis(ms));
                 Ok(TestResponse::Ok {})
@@ -390,16 +456,21 @@ impl BrowserController {
             TestCommand::SelectOption { query } => {
                 self.selector_action(query.clone(), TestCommand::SelectOption { query })
             }
-            TestCommand::Screenshot { path } => {
-                let bytes = self.capture_page_screenshot()?;
-                write_screenshot(&PathBuf::from(path), &bytes)?;
-                Ok(TestResponse::Ok {})
-            }
-            TestCommand::CaptureScreenshot {} => self.capture_page_response(),
+            TestCommand::Screenshot { path } => match self.capture_renderer_or_page_response()? {
+                TestResponse::Screenshot { png_base64, .. } => {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(png_base64)
+                        .context("invalid screenshot payload from browser")?;
+                    write_screenshot(&PathBuf::from(path), &bytes)?;
+                    Ok(TestResponse::Ok {})
+                }
+                response => Ok(response),
+            },
+            TestCommand::CaptureScreenshot {} => self.capture_renderer_or_page_response(),
             TestCommand::CaptureAt { ms } => {
                 ensure_response_ok(self.send_bridge_command(TestCommand::AdvanceClock { ms })?)?;
                 ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
-                self.capture_page_response()
+                self.capture_renderer_or_page_response()
             }
             TestCommand::PressKey { key, modifiers } => self.press_dom_key(&key, modifiers),
             command => self.send_bridge_command(command),
@@ -451,25 +522,38 @@ impl BrowserController {
 
     fn press_dom_key(&mut self, key: &str, modifiers: u8) -> Result<TestResponse> {
         let cdp_modifiers = cdp_modifiers(modifiers);
-        let (dom_key, code) = dom_key_and_code(key);
-        for event_type in ["keyDown", "keyUp"] {
-            let commands = if event_type == "keyDown" {
-                cdp_editing_commands(key, modifiers)
-            } else {
-                Vec::new()
-            };
-            self.client.send(
-                "Input.dispatchKeyEvent",
-                json!({
-                    "type": event_type,
-                    "key": dom_key,
-                    "code": code,
-                    "modifiers": cdp_modifiers,
-                    "commands": commands,
-                }),
-            )?;
-        }
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        let description = cdp_key_description(key, modifiers);
+        let down_type = if description.text.is_empty() {
+            "rawKeyDown"
+        } else {
+            "keyDown"
+        };
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": down_type,
+                "key": description.key,
+                "code": description.code,
+                "text": description.text,
+                "unmodifiedText": description.text,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+                "commands": cdp_editing_commands(key, modifiers),
+            }),
+        )?;
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": "keyUp",
+                "key": description.key,
+                "code": description.code,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+            }),
+        )?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
@@ -490,6 +574,14 @@ impl BrowserController {
             values.first().and_then(Value::as_f64).unwrap_or(0.0),
             values.get(1).and_then(Value::as_f64).unwrap_or(0.0),
         ))
+    }
+
+    fn runtime_viewport_offset(&mut self) -> Result<(f64, f64)> {
+        if self.options.mode == BrowserSmokeMode::FissionCanvas {
+            self.canvas_viewport_offset()
+        } else {
+            Ok((0.0, 0.0))
+        }
     }
 
     fn selector_action(
@@ -513,14 +605,22 @@ impl BrowserController {
     ) -> Result<TestResponse> {
         let started = Instant::now();
         let timeout = Duration::from_millis(timeout_ms);
+        let diagnostic_query = query.clone().with_candidates();
+        let polling_query = query.without_candidates();
         loop {
             let response = self.send_bridge_command(TestCommand::ResolveSelector {
-                query: query.clone(),
+                query: polling_query.clone(),
             })?;
             if selector_wait_matches(&condition, &response) {
                 return Ok(TestResponse::Ok {});
             }
             if started.elapsed() >= timeout {
+                let response = self.send_bridge_command(TestCommand::ResolveSelector {
+                    query: diagnostic_query.clone(),
+                })?;
+                if selector_wait_matches(&condition, &response) {
+                    return Ok(TestResponse::Ok {});
+                }
                 let candidates = match response {
                     TestResponse::SelectorResolved { node } => vec![SelectorCandidate {
                         node,
@@ -532,7 +632,7 @@ impl BrowserController {
                 return Ok(TestResponse::SelectorError {
                     failure: SelectorFailure {
                         kind: SelectorFailureKind::Timeout,
-                        selector: query,
+                        selector: diagnostic_query,
                         candidates,
                         message: format!(
                             "timed out after {timeout_ms}ms waiting for browser selector"
@@ -608,36 +708,77 @@ impl BrowserController {
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        anyhow::ensure!(
+            self.options.mode == BrowserSmokeMode::FissionCanvas,
+            "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
+        );
+        let retry_after_navigation = bridge_command_is_safe_to_retry(&command);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
+                self.wait_for_live_test_bridge(deadline)?;
+                self.viewport_after = None;
+                self.bridge_ready_navigation_count = Some(self.client.main_frame_navigation_count);
+            }
+            let navigation_count = self.client.main_frame_navigation_count;
+            match self.send_bridge_command_once(command.clone(), deadline) {
+                Ok(response) => return Ok(response),
+                Err(error)
+                    if retry_after_navigation && is_transient_bridge_context_error(&error) =>
+                {
+                    self.wait_for_main_frame_navigation(navigation_count, deadline)?;
+                    self.wait_for_live_test_bridge(deadline)?;
+                    self.viewport_after = None;
+                    self.bridge_ready_navigation_count =
+                        Some(self.client.main_frame_navigation_count);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn send_bridge_command_once(
+        &mut self,
+        command: TestCommand,
+        deadline: Instant,
+    ) -> Result<TestResponse> {
         let command_json = serde_json::to_string(&command)?;
-        let argument = serde_json::to_string(&command_json)?;
-        let submit = format!("globalThis.__FISSION_TEST__.submit({argument})");
-        let result = self.client.send(
-            "Runtime.evaluate",
-            json!({ "expression": submit, "returnByValue": true }),
-        )?;
+        let submit = format!(
+            "globalThis.__FISSION_TEST__.submit({})",
+            serde_json::to_string(&command_json)?
+        );
+        let result = self
+            .client
+            .send_with_web_test_trace(
+                "Runtime.evaluate",
+                json!({ "expression": submit, "returnByValue": true }),
+            )
+            .context("submitting a Fission browser test command over CDP")?;
         runtime_exception(&result)?;
         let request_id = result
             .pointer("/result/value")
             .and_then(Value::as_u64)
             .context("Fission browser test bridge returned no request id")?;
 
-        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             self.client.drain_events(Duration::from_millis(5))?;
             self.fail_on_browser_errors()?;
-            let poll = self.client.send(
+            let poll = self.client.send_with_web_test_trace(
                 "Runtime.evaluate",
                 json!({
                     "expression": format!(
-                        "globalThis.__FISSION_TEST__.poll({request_id})"
+                        "(() => {{ const raw=globalThis.__FISSION_TEST__.poll({request_id}); return JSON.parse(raw); }})()"
                     ),
                     "returnByValue": true
                 }),
-            )?;
+            )
+            .with_context(|| format!("polling Fission browser test request {request_id} over CDP"))?;
             runtime_exception(&poll)?;
-            if let Some(response_json) = poll.pointer("/result/value").and_then(Value::as_str) {
-                return serde_json::from_str(response_json)
-                    .context("failed to decode Fission browser test response");
+            if let Some(response) = poll
+                .pointer("/result/value")
+                .filter(|response| !response.is_null())
+            {
+                return decode_bridge_response(response.clone());
             }
             if Instant::now() >= deadline {
                 return Err(anyhow!(
@@ -648,28 +789,116 @@ impl BrowserController {
         }
     }
 
+    fn wait_for_live_test_bridge(&mut self, deadline: Instant) -> Result<()> {
+        loop {
+            self.client.drain_events(Duration::from_millis(5))?;
+            self.fail_on_browser_errors()?;
+            match read_runtime_status(&mut self.client) {
+                Ok(status) if browser_is_ready(&status, self.options.mode, true) => return Ok(()),
+                Ok(_) => {}
+                Err(error) if is_transient_execution_context_error(&error) => {}
+                Err(error) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                return Err(anyhow!(
+                    "timed out waiting for the Fission Web test bridge to become ready"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn wait_for_main_frame_navigation(&mut self, after: u64, deadline: Instant) -> Result<()> {
+        while self.client.main_frame_navigation_count <= after {
+            self.client.drain_events(Duration::from_millis(5))?;
+            self.fail_on_browser_errors()?;
+            if Instant::now() >= deadline {
+                return Err(anyhow!(
+                    "Fission browser test bridge was lost without a main-frame navigation"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
+    }
+
+    fn send_runtime_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        match self.options.mode {
+            BrowserSmokeMode::FissionCanvas => self.send_bridge_command(command),
+            BrowserSmokeMode::Website => self.send_site_command(command),
+            BrowserSmokeMode::Dom => Err(anyhow!(
+                "unsupported_page_mode: semantic commands require website() or fission_canvas()"
+            )),
+        }
+    }
+
     fn capture_page_response(&mut self) -> Result<TestResponse> {
         let bytes = self.capture_page_screenshot()?;
-        let status = read_runtime_status(&mut self.client)?;
+        let decoded = image::load_from_memory(&bytes)?;
         Ok(TestResponse::Screenshot {
             png_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
-            width: status.width,
-            height: status.height,
+            width: decoded.width(),
+            height: decoded.height(),
         })
     }
 
+    /// Prefer Fission's WebGPU-frame capture for a Fission canvas. Headless Chromium can omit the
+    /// WebGPU swapchain from `Page.captureScreenshot`, so that host screenshot may be black even
+    /// when the app has rendered. The Web shell captures its retained scene for this path; Canvas2D
+    /// and ordinary web pages continue to use the browser's viewport capture.
+    fn capture_renderer_or_page_response(&mut self) -> Result<TestResponse> {
+        if self.options.mode != BrowserSmokeMode::FissionCanvas {
+            return self.capture_page_response();
+        }
+
+        match self.send_bridge_command(TestCommand::CaptureScreenshot {})? {
+            TestResponse::Error { message }
+                if message.starts_with("renderer_screenshot_unavailable:") =>
+            {
+                self.capture_page_response()
+            }
+            response => Ok(response),
+        }
+    }
+
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
+        let previous = self.client.operation_deadline;
+        if previous.is_none() {
+            self.client.operation_deadline = Some(
+                Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
+            );
+        }
+        let result = self.capture_verified_viewport();
+        self.client.operation_deadline = previous;
+        result
+    }
+
+    fn capture_verified_viewport(&mut self) -> Result<Vec<u8>> {
+        self.paint_boundary()?;
+        let measured = viewport::read(&mut self.client)?;
+        self.reset_viewport_baseline_after_navigation();
+        anyhow::ensure!(viewport::acknowledged(&measured, &self.options, self.require_frame, self.viewport_after),
+            "capture_viewport: viewport/layout differs from requested dimensions; observed {measured}, expected frame after {:?} on navigation {}; retry LiveTestClient::simulate_resize before capturing", self.viewport_after, self.client.main_frame_navigation_count);
+        self.fail_on_browser_errors()?;
         let result = self.client.send(
             "Page.captureScreenshot",
-            json!({ "format": "png", "captureBeyondViewport": true }),
+            json!({ "format": "png", "captureBeyondViewport": false, "fromSurface": true }),
         )?;
         let data = result
             .get("data")
             .and_then(Value::as_str)
             .context("Page.captureScreenshot returned no data")?;
-        base64::engine::general_purpose::STANDARD
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
-            .context("Chrome returned invalid screenshot base64")
+            .context("Chrome returned invalid screenshot base64")?;
+        let decoded = image::load_from_memory(&bytes)?;
+        let (pixel_width, pixel_height) = viewport::pixel_dimensions(&self.options);
+        anyhow::ensure!(
+            decoded.width() == pixel_width && decoded.height() == pixel_height,
+            "capture_viewport: PNG dimensions differ from requested CSS viewport at device scale {} (expected {pixel_width}x{pixel_height})",
+            self.options.device_scale_factor
+        );
+        Ok(bytes)
     }
 
     fn fail_on_browser_errors(&mut self) -> Result<()> {
@@ -679,6 +908,30 @@ impl BrowserController {
             let errors = std::mem::take(&mut self.client.errors);
             Err(anyhow!("browser reported errors:\n{}", errors.join("\n")))
         }
+    }
+
+    pub(super) fn reset_viewport_baseline_after_navigation(&mut self) {
+        if self.require_frame
+            && self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count)
+        {
+            // The submitted frame counter belongs to one loaded Web runtime and
+            // can restart after a page reload. Never compare a new page's frame
+            // against a watermark captured from the old one.
+            self.viewport_after = None;
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_bridge_response(value: Value) -> Result<TestResponse> {
+    match value {
+        // Large semantic collections cross the Wasm boundary as one JSON string to avoid
+        // allocating a large graph of wasm-bindgen externref handles. Parse it in the native
+        // driver, where the response already needs to become a Rust TestResponse.
+        Value::String(json) => {
+            serde_json::from_str(&json).context("failed to decode string Fission browser response")
+        }
+        value => serde_json::from_value(value).context("failed to decode Fission browser response"),
     }
 }
 
@@ -755,33 +1008,78 @@ fn cdp_editing_commands(key: &str, modifiers: u8) -> Vec<&'static str> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn dom_key_and_code(key: &str) -> (String, String) {
+#[derive(Debug, PartialEq, Eq)]
+struct CdpKeyDescription {
+    key: String,
+    code: String,
+    text: String,
+    key_code: u32,
+    location: u8,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cdp_key_description(key: &str, modifiers: u8) -> CdpKeyDescription {
     let named = match key {
-        "Left" => Some(("ArrowLeft", "ArrowLeft")),
-        "Right" => Some(("ArrowRight", "ArrowRight")),
-        "Up" => Some(("ArrowUp", "ArrowUp")),
-        "Down" => Some(("ArrowDown", "ArrowDown")),
-        "Space" => Some((" ", "Space")),
-        "Esc" => Some(("Escape", "Escape")),
-        "Enter" | "Escape" | "Tab" | "Backspace" | "Delete" | "Home" | "End" | "PageUp"
-        | "PageDown" => Some((key, key)),
+        "Backspace" => Some(("Backspace", "Backspace", "", 8)),
+        "Tab" => Some(("Tab", "Tab", "", 9)),
+        "Enter" => Some(("Enter", "Enter", "\r", 13)),
+        "Esc" | "Escape" => Some(("Escape", "Escape", "", 27)),
+        "Space" => Some((" ", "Space", " ", 32)),
+        "PageUp" => Some(("PageUp", "PageUp", "", 33)),
+        "PageDown" => Some(("PageDown", "PageDown", "", 34)),
+        "End" => Some(("End", "End", "", 35)),
+        "Home" => Some(("Home", "Home", "", 36)),
+        "Left" => Some(("ArrowLeft", "ArrowLeft", "", 37)),
+        "Up" => Some(("ArrowUp", "ArrowUp", "", 38)),
+        "Right" => Some(("ArrowRight", "ArrowRight", "", 39)),
+        "Down" => Some(("ArrowDown", "ArrowDown", "", 40)),
+        "Delete" => Some(("Delete", "Delete", "", 46)),
         _ => None,
     };
-    if let Some((dom_key, code)) = named {
-        return (dom_key.to_owned(), code.to_owned());
+    if let Some((dom_key, code, text, key_code)) = named {
+        return CdpKeyDescription {
+            key: dom_key.to_owned(),
+            code: code.to_owned(),
+            text: if modifiers & !1 == 0 {
+                text.to_owned()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        };
     }
     let mut chars = key.chars();
     if let (Some(ch), None) = (chars.next(), chars.next()) {
-        let code = if ch.is_ascii_alphabetic() {
-            format!("Key{}", ch.to_ascii_uppercase())
+        let (code, key_code) = if ch.is_ascii_alphabetic() {
+            (
+                format!("Key{}", ch.to_ascii_uppercase()),
+                ch.to_ascii_uppercase() as u32,
+            )
         } else if ch.is_ascii_digit() {
-            format!("Digit{ch}")
+            (format!("Digit{ch}"), ch as u32)
         } else {
-            String::new()
+            (String::new(), ch as u32)
         };
-        (ch.to_string(), code)
+        CdpKeyDescription {
+            key: ch.to_string(),
+            code,
+            text: if modifiers & !1 == 0 {
+                ch.to_string()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        }
     } else {
-        (key.to_owned(), key.to_owned())
+        CdpKeyDescription {
+            key: key.to_owned(),
+            code: key.to_owned(),
+            text: String::new(),
+            key_code: 0,
+            location: 0,
+        }
     }
 }
 
@@ -800,11 +1098,53 @@ struct RuntimeStatus {
     ready_dom: bool,
     ready_canvas: bool,
     title: String,
-    width: u32,
-    height: u32,
     body_text_len: usize,
     renderer: Option<String>,
     test_bridge_ready: bool,
+    #[serde(default)]
+    rendered_frames: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn browser_is_ready(
+    status: &RuntimeStatus,
+    mode: BrowserSmokeMode,
+    require_live_control: bool,
+) -> bool {
+    (match mode {
+        BrowserSmokeMode::Dom => status.ready_dom,
+        BrowserSmokeMode::Website => status.ready_dom,
+        BrowserSmokeMode::FissionCanvas => {
+            status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
+        }
+    }) && (!require_live_control || status.test_bridge_ready)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    [
+        "cannot find default execution context",
+        "no default execution context found",
+        "cannot find context with specified id",
+        "execution context was destroyed",
+    ]
+    .iter()
+    .any(|phrase| message.contains(phrase))
+}
+
+fn is_transient_bridge_context_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    is_transient_execution_context_error(error)
+        || message.contains("cannot read properties of undefined (reading 'submit')")
+        || message.contains("cannot read properties of undefined (reading 'poll')")
+}
+
+fn bridge_command_is_safe_to_retry(command: &TestCommand) -> bool {
+    matches!(
+        command,
+        TestCommand::ResolveSelector { .. } | TestCommand::GetText {} | TestCommand::GetTree {}
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -818,10 +1158,9 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         ready_dom: document.readyState === 'complete' && !!body && body.innerText.trim().length > 0,
         ready_canvas: !!canvas && rect.width > 0 && rect.height > 0,
         title: document.title || '',
-        width: Math.round(rect.width || window.innerWidth || 0),
-        height: Math.round(rect.height || window.innerHeight || 0),
         body_text_len: body ? body.innerText.trim().length : 0,
         renderer: renderer ? renderer.active : null,
+        rendered_frames: globalThis.__FISSION_RENDERED_FRAME_COUNT || 0,
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
@@ -858,18 +1197,11 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
         match ureq::get(&format!("http://127.0.0.1:{cdp_port}/json/list")).call() {
             Ok(response) => {
                 let targets: Value = response.into_json()?;
-                if let Some(target) = targets.as_array().and_then(|items| {
-                    items.iter().find(|entry| {
-                        entry.get("type").and_then(Value::as_str) == Some("page")
-                            && entry
-                                .get("url")
-                                .and_then(Value::as_str)
-                                .is_some_and(|url| url.starts_with(expected_url))
-                    })
-                }) {
-                    if let Some(url) = target.get("webSocketDebuggerUrl").and_then(Value::as_str) {
-                        return Ok(url.to_string());
-                    }
+                if let Some(url) = targets
+                    .as_array()
+                    .and_then(|items| target_websocket(items, expected_url))
+                {
+                    return Ok(url.to_string());
                 }
             }
             Err(error) => last_error = Some(error.to_string()),
@@ -883,6 +1215,29 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn target_websocket<'a>(targets: &'a [Value], expected_url: &str) -> Option<&'a str> {
+    let pages = targets
+        .iter()
+        .filter(|entry| entry.get("type").and_then(Value::as_str) == Some("page"))
+        .collect::<Vec<_>>();
+    pages
+        .iter()
+        .copied()
+        .find(|entry| {
+            entry
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with(expected_url))
+        })
+        // Chrome is launched with a fresh profile and one requested page. If
+        // that page redirects before target discovery, its URL no longer
+        // matches the requested URL but it remains the only page owned by this
+        // browser session. Never guess when Chrome exposes multiple pages.
+        .or_else(|| (pages.len() == 1).then_some(pages[0]))
+        .and_then(|target| target.get("webSocketDebuggerUrl").and_then(Value::as_str))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn free_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
         .expect("failed to allocate local port")
@@ -893,7 +1248,7 @@ fn free_port() -> u16 {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct ChromeSession {
-    child: Option<Child>,
+    child: Option<SupervisedChild>,
     profile_dir: PathBuf,
 }
 
@@ -909,7 +1264,11 @@ impl ChromeSession {
                 .as_nanos()
         ));
         fs::create_dir_all(&profile_dir)?;
-        let child = Command::new(chrome)
+        let mut command = Command::new(chrome);
+        command
+            // Headless browser automation does not use the desktop session bus. A stale
+            // inherited address can otherwise block Chromium before its first navigation.
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
             .arg("--no-first-run")
@@ -922,8 +1281,8 @@ impl ChromeSession {
             ))
             .arg(&options.url)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+            .stderr(Stdio::null());
+        let child = SupervisedChild::spawn(&mut command)
             .with_context(|| format!("failed to start {}", chrome.display()))?;
         Ok(Self {
             child: Some(child),
@@ -933,8 +1292,7 @@ impl ChromeSession {
 
     fn kill(&mut self) {
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.terminate();
         }
     }
 }
@@ -943,7 +1301,16 @@ impl ChromeSession {
 impl Drop for ChromeSession {
     fn drop(&mut self) {
         self.kill();
-        let _ = fs::remove_dir_all(&self.profile_dir);
+        // Chromium descendants may briefly retain and rewrite profile files as
+        // they leave the owned process group. Remove only this session's
+        // freshly created directory, retrying for that bounded shutdown race.
+        for _ in 0..20 {
+            match fs::remove_dir_all(&self.profile_dir) {
+                Ok(()) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(_) => std::thread::sleep(Duration::from_millis(25)),
+            }
+        }
     }
 }
 
@@ -953,6 +1320,14 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
+    operation_deadline: Option<Instant>,
+    review_events: Vec<Value>,
+    web_test_trace: VecDeque<String>,
+    web_text_input_trace: VecDeque<String>,
+    report_only: bool,
+    network_requests: HashSet<String>,
+    network_last_activity: Instant,
+    main_frame_navigation_count: u64,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -968,17 +1343,32 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
+            operation_deadline: None,
+            review_events: Vec::new(),
+            web_test_trace: VecDeque::new(),
+            web_text_input_trace: VecDeque::new(),
+            report_only: false,
+            network_requests: HashSet::new(),
+            network_last_activity: Instant::now(),
+            main_frame_navigation_count: 0,
         })
     }
 
     fn send(&mut self, method: &str, params: Value) -> Result<Value> {
+        let deadline = self
+            .operation_deadline
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15));
+        self.set_socket_budget(deadline)?;
         let id = self.next_id;
         self.next_id += 1;
         self.socket.send(Message::Text(serde_json::to_string(
             &json!({ "id": id, "method": method, "params": params }),
         )?))?;
-        let deadline = Instant::now() + Duration::from_secs(15);
         loop {
+            if Instant::now() >= deadline {
+                return Err(anyhow!("CDP command timed out: {method}"));
+            }
+            self.set_socket_budget(deadline)?;
             if let Some(message) = self.backlog.pop_front() {
                 if message.get("id").and_then(Value::as_u64) == Some(id) {
                     return Self::command_result(method, message);
@@ -1014,6 +1404,21 @@ impl CdpClient {
             }
             self.handle_event(&value);
         }
+    }
+
+    fn send_with_web_test_trace(&mut self, method: &str, params: Value) -> Result<Value> {
+        self.send(method, params)
+            .map_err(|error| anyhow!("{error}{}", self.web_test_trace_context()))
+    }
+
+    fn set_socket_budget(&mut self, deadline: Instant) -> Result<()> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        anyhow::ensure!(!remaining.is_zero(), "CDP operation deadline expired");
+        if let tungstenite::stream::MaybeTlsStream::Plain(stream) = self.socket.get_mut() {
+            stream.set_read_timeout(Some(remaining.min(Duration::from_millis(100))))?;
+            stream.set_write_timeout(Some(remaining.min(Duration::from_secs(15))))?;
+        }
+        Ok(())
     }
 
     fn drain_events(&mut self, budget: Duration) -> Result<()> {
@@ -1058,6 +1463,67 @@ impl CdpClient {
     }
 
     fn handle_event(&mut self, message: &Value) {
+        let method = message.get("method").and_then(Value::as_str);
+        let request_id = message.pointer("/params/requestId").and_then(Value::as_str);
+        if method == Some("Page.frameNavigated")
+            && message.pointer("/params/frame/parentId").is_none()
+        {
+            self.main_frame_navigation_count = self.main_frame_navigation_count.saturating_add(1);
+        }
+        match (method, request_id) {
+            (Some("Network.requestWillBeSent"), Some(request_id)) => {
+                self.network_requests.insert(request_id.to_owned());
+                self.network_last_activity = Instant::now();
+            }
+            (Some("Network.loadingFinished" | "Network.loadingFailed"), Some(request_id)) => {
+                self.network_requests.remove(request_id);
+                self.network_last_activity = Instant::now();
+            }
+            _ => {}
+        }
+        if self.review_events.len() < 512
+            && matches!(
+                message.get("method").and_then(Value::as_str),
+                Some(
+                    "Network.requestWillBeSent"
+                        | "Network.responseReceived"
+                        | "Network.loadingFailed"
+                        | "Runtime.exceptionThrown"
+                        | "Runtime.consoleAPICalled"
+                        | "Log.entryAdded"
+                )
+            )
+        {
+            self.review_events.push(message.clone());
+        }
+        if method == Some("Runtime.consoleAPICalled") {
+            if let Some(trace) = message
+                .pointer("/params/args/0/value")
+                .and_then(Value::as_str)
+                .filter(|value| value.starts_with("FISSION_WEB_TEST_TRACE "))
+            {
+                let stage = trace
+                    .strip_prefix("FISSION_WEB_TEST_TRACE ")
+                    .and_then(|value| value.split_whitespace().next())
+                    .and_then(|value| value.parse::<u32>().ok());
+                if stage.is_some_and(is_web_text_input_trace_stage) {
+                    if self.web_text_input_trace.len() == 256 {
+                        self.web_text_input_trace.pop_front();
+                    }
+                    self.web_text_input_trace.push_back(trace.to_owned());
+                }
+                if self.web_test_trace.len() == 64 {
+                    self.web_test_trace.pop_front();
+                }
+                self.web_test_trace.push_back(trace.to_owned());
+            }
+        }
+        // Review attributes all errors to its typed per-case observations.
+        // Optional resource timing must not abort semantic bridge operations.
+        if self.report_only {
+            return;
+        }
+
         match message.get("method").and_then(Value::as_str) {
             Some("Runtime.exceptionThrown") => self.errors.push(format!(
                 "runtime exception: {}",
@@ -1075,11 +1541,8 @@ impl CdpClient {
                 }
             }
             Some("Log.entryAdded") => {
-                if message
-                    .pointer("/params/entry/level")
-                    .and_then(Value::as_str)
-                    == Some("error")
-                {
+                let entry = &message["params"]["entry"];
+                if entry.get("level").and_then(Value::as_str) == Some("error") {
                     let text = message
                         .pointer("/params/entry/text")
                         .and_then(Value::as_str)
@@ -1088,8 +1551,8 @@ impl CdpClient {
                         .pointer("/params/entry/url")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown URL");
-                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
-                    {
+                    let source = entry.get("source").and_then(Value::as_str).unwrap_or("");
+                    if !ignorable_browser_log(source, url, text) {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1098,6 +1561,59 @@ impl CdpClient {
             _ => {}
         }
     }
+
+    fn web_test_trace_context(&self) -> String {
+        let mut context = String::new();
+        if !self.web_test_trace.is_empty() {
+            context.push_str(&format!(
+                "; recent Fission Web LiveTest stages: {}",
+                self.web_test_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            ));
+        }
+        if !self.web_text_input_trace.is_empty() {
+            context.push_str(&format!(
+                "; Fission text-input stages: {}",
+                self.web_text_input_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            ));
+        }
+        context
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_web_text_input_trace_stage(stage: u32) -> bool {
+    // 410–435 cover bridge submit/query/poll stages; 450–470 and 473–476 cover
+    // FillText, redraw scheduling, callback exit, and sender cleanup. Keep the
+    // ranges separate because both are observed in the same CDP event stream.
+    (410..=435).contains(&stage) || (450..=470).contains(&stage) || (473..=476).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ignorable_browser_log(source: &str, url: &str, text: &str) -> bool {
+    text.contains("/__fission/renderer")
+        || url.contains("/__fission/renderer")
+        || (source == "network" && is_root_favicon_url(url))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_root_favicon_url(url: &str) -> bool {
+    let Some((scheme, remainder)) = url.split_once("://") else {
+        return false;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return false;
+    }
+    remainder
+        .find('/')
+        .is_some_and(|path_start| &remainder[path_start..] == "/favicon.ico")
 }
 
 #[cfg(test)]
@@ -1106,12 +1622,75 @@ mod tests {
     use crate::{Bounds, SemanticNode};
 
     #[test]
+    fn web_text_input_trace_keeps_bridge_and_fill_stages_disjoint() {
+        assert!(is_web_text_input_trace_stage(410));
+        assert!(is_web_text_input_trace_stage(435));
+        assert!(!is_web_text_input_trace_stage(436));
+        assert!(!is_web_text_input_trace_stage(449));
+        assert!(is_web_text_input_trace_stage(450));
+        assert!(is_web_text_input_trace_stage(466));
+        assert!(is_web_text_input_trace_stage(467));
+        assert!(is_web_text_input_trace_stage(470));
+        assert!(!is_web_text_input_trace_stage(471));
+        assert!(is_web_text_input_trace_stage(473));
+        assert!(is_web_text_input_trace_stage(476));
+    }
+
+    #[test]
     fn reduced_motion_is_an_explicit_browser_option() {
         let standard = BrowserTestOptions::new("http://127.0.0.1/");
         assert!(!standard.prefers_reduced_motion);
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_bridge_decodes_both_value_and_json_string_responses() {
+        assert!(matches!(
+            decode_bridge_response(json!({"status":"Ok"})).unwrap(),
+            TestResponse::Ok {}
+        ));
+
+        let encoded_tree = serde_json::to_string(&json!({
+            "status": "Tree",
+            "nodes": []
+        }))
+        .unwrap();
+        assert!(matches!(
+            decode_bridge_response(Value::String(encoded_tree)).unwrap(),
+            TestResponse::Tree { nodes } if nodes.is_empty()
+        ));
+    }
+
+    #[test]
+    fn browser_logs_ignore_only_the_root_network_favicon() {
+        assert!(ignorable_browser_log(
+            "network",
+            "http://localhost:8099/favicon.ico",
+            "Failed to load resource: status 404"
+        ));
+        assert!(ignorable_browser_log(
+            "network",
+            "https://example.com/favicon.ico",
+            "Failed to load resource"
+        ));
+        for url in [
+            "http://localhost:8099/assets/favicon.ico",
+            "http://localhost:8099/app.js",
+            "file:///favicon.ico",
+        ] {
+            assert!(!ignorable_browser_log(
+                "network",
+                url,
+                "Failed to load resource: status 404"
+            ));
+        }
+        assert!(!ignorable_browser_log(
+            "javascript",
+            "http://localhost:8099/favicon.ico",
+            "application error"
+        ));
     }
 
     fn resolved_node(
@@ -1233,6 +1812,95 @@ mod tests {
     }
 
     #[test]
+    fn only_transient_missing_execution_context_errors_are_retried() {
+        for message in [
+            "Runtime.evaluate: {\"code\":-32000,\"message\":\"Cannot find default execution context\"}",
+            "Cannot find context with specified id",
+            "Execution context was destroyed, most likely because of a navigation.",
+            "No default execution context found",
+        ] {
+            assert!(
+                is_transient_execution_context_error(&anyhow!(message)),
+                "expected transient context error: {message}"
+            );
+        }
+
+        for message in [
+            "Runtime.evaluate: target closed",
+            "CDP command timed out: Runtime.evaluate",
+            "browser runtime evaluation failed: TypeError: app crashed",
+        ] {
+            assert!(
+                !is_transient_execution_context_error(&anyhow!(message)),
+                "unexpectedly treated permanent error as transient: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_bridge_accessors_are_navigation_transients() {
+        for accessor in ["submit", "poll"] {
+            let error = anyhow!(format!(
+                "browser runtime evaluation failed: TypeError: Cannot read properties of undefined (reading '{accessor}')"
+            ));
+            assert!(is_transient_bridge_context_error(&error));
+        }
+        assert!(!is_transient_bridge_context_error(&anyhow!(
+            "browser runtime evaluation failed: TypeError: application state is invalid"
+        )));
+    }
+
+    #[test]
+    fn only_read_only_bridge_commands_retry_after_navigation() {
+        assert!(bridge_command_is_safe_to_retry(
+            &TestCommand::ResolveSelector {
+                query: SelectorQuery::label("Increment"),
+            }
+        ));
+        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetText {}));
+        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetTree {}));
+        assert!(!bridge_command_is_safe_to_retry(
+            &TestCommand::TapSelector {
+                query: SelectorQuery::label("Increment"),
+            }
+        ));
+        assert!(!bridge_command_is_safe_to_retry(&TestCommand::FillText {
+            query: SelectorQuery::label("Input"),
+            text: "value".into(),
+        }));
+    }
+
+    #[test]
+    fn a_canvas_and_bridge_without_a_submitted_frame_are_not_ready() {
+        let mut status: RuntimeStatus = serde_json::from_value(json!({
+            "ready_dom": false, "ready_canvas": true, "title": "Fission", "width": 1280, "height": 900,
+            "body_text_len": 0, "renderer": "webgpu-vello", "test_bridge_ready": true
+        })).unwrap();
+        assert!(!browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        status.rendered_frames = 1;
+        assert!(browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        status.test_bridge_ready = false;
+        assert!(!browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        assert!(browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            false
+        ));
+    }
+
+    #[test]
     fn browser_key_events_translate_fission_modifiers_to_cdp() {
         assert_eq!(cdp_modifiers(1), 8); // Shift
         assert_eq!(cdp_modifiers(2), 1); // Alt
@@ -1254,10 +1922,35 @@ mod tests {
     #[test]
     fn browser_key_events_use_dom_key_names() {
         assert_eq!(
-            dom_key_and_code("Left"),
-            ("ArrowLeft".into(), "ArrowLeft".into())
+            cdp_key_description("Left", 0),
+            CdpKeyDescription {
+                key: "ArrowLeft".into(),
+                code: "ArrowLeft".into(),
+                text: String::new(),
+                key_code: 37,
+                location: 0,
+            }
         );
-        assert_eq!(dom_key_and_code("a"), ("a".into(), "KeyA".into()));
-        assert_eq!(dom_key_and_code("7"), ("7".into(), "Digit7".into()));
+        assert_eq!(
+            cdp_key_description("Enter", 0),
+            CdpKeyDescription {
+                key: "Enter".into(),
+                code: "Enter".into(),
+                text: "\r".into(),
+                key_code: 13,
+                location: 0,
+            }
+        );
+        assert_eq!(
+            cdp_key_description("a", 0),
+            CdpKeyDescription {
+                key: "a".into(),
+                code: "KeyA".into(),
+                text: "a".into(),
+                key_code: 65,
+                location: 0,
+            }
+        );
+        assert_eq!(cdp_key_description("7", 4).text, "");
     }
 }

@@ -444,6 +444,9 @@ fn multiline_complete_value_scrolls_the_caret_into_view() -> Result<()> {
     driver.set_viewport(420.0, 280.0);
     driver.pump()?;
     focus(&mut driver, MULTILINE);
+    // Rebuild the tree after programmatically changing focus, just as the shell
+    // does after a focus event, before sending edits through the current IR.
+    driver.pump()?;
     let document = (0..30)
         .map(|line| format!("line {line}: mañana 東京 😀"))
         .collect::<Vec<_>>()

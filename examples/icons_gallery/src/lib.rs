@@ -1,47 +1,50 @@
-use fission::core::GlobalState;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::prelude::DesktopApp;
-use fission::widgets::{Column, Container, Text, Widget};
+use fission::prelude::*;
 
+mod icon_gallery_controls;
 mod icon_gallery_list;
 mod icon_gallery_row;
 mod layout;
+mod model;
 
+use icon_gallery_controls::IconGalleryControls;
 use icon_gallery_list::IconGalleryList;
 
-#[derive(Default, Clone, Debug)]
-pub struct State;
+pub use model::{
+    filter_icons, on_category_selected, on_search_changed, CategorySelected, IconEntry,
+    IconResults, SearchChanged, State,
+};
 
-impl GlobalState for State {}
-
-#[derive(Clone)]
-pub struct IconsApp;
-
-impl From<IconsApp> for Widget {
-    fn from(_component: IconsApp) -> Self {
-        let (_, view) = fission::build::current::<State>();
-        let tokens = &view.env().theme.tokens;
-        let total = fission::icons::material::all_icons().len();
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.l),
-            flex_grow: 1.0,
-            children: fission::widgets![
-                Text::new("Material Icons Gallery")
+fission_component! {
+    pub IconsApp<State>
+    view(_app, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let results = filter_icons(state);
+        let shown = results.visible.len();
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            flex_grow: 1.0_f32,
+            children: [
+                Text("Material Icons Gallery")
                     .size(tokens.typography.heading1_size)
                     .color(tokens.colors.heading),
-                Text::new(format!("{total} icon variants"))
-                    .size(tokens.typography.body_medium_size)
-                    .color(tokens.colors.text_secondary),
-                IconGalleryList,
+                IconGalleryControls {
+                    categories: results.categories,
+                    shown,
+                    total: results.total,
+                },
+                IconGalleryList {
+                    entries: results.visible,
+                },
             ],
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background)
-        .flex_grow(1.0)
-        .into()
-    }
+        ),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+    .flex_grow(1.0)
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]

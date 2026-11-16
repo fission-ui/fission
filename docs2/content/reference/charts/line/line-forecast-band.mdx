@@ -1,0 +1,67 @@
+---
+title: Forecast band
+sidebar_label: Forecast band
+description: Fission Charts reference for Forecast band.
+---
+
+# Forecast band
+
+![Forecast band screenshot](/img/charts/line-forecast-band.png)
+
+A forecast line needs context about the range within which its values are expected to fall. A shaded interval can provide that context, provided its meaning is defined by the model that produced it. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+MarkArea draws one constant numeric interval across the plot. It does not compute uncertainty, and it cannot represent bounds that vary for each date. Use it for a declared fixed planning range rather than calling any shaded region a confidence interval.
+
+## Data model
+
+Pass the forecast dispatch counts and ordered expected bounds into the component. All three use dispatches per day. Compute and validate the forecast outside the view; the widget only presents the supplied result.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ForecastBandChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            labels: Vec<String>,
+            forecast: Vec<f32>,
+            expected_min: f32,
+            expected_max: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            mark_areas: vec![MarkArea::y_range(&report.annotation_label, report.expected_min, report.expected_max)
+                .color(colors.primary_subtle.with_alpha(80))],
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.forecast.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test forecasts outside the band and invalid lower/upper bounds. Verify the forecasting method separately and make the range definition visible in text; correct rendering does not establish the reliability of the prediction.
+
+Tags: `line`, `forecast`.
+
+[Line family overview](./overview)

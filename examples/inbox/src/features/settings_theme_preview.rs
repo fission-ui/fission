@@ -1,12 +1,7 @@
 use crate::model::InboxState;
-use fission::core::op::Color;
-use fission::core::ui::widgets::{Clip, Spacer, Transform};
-use fission::core::ui::{Container, Positioned, Widget, ZStack};
-use fission::core::ActionEnvelope;
-use fission::icons::material;
+use fission::core::ui::{Clip, Transform};
 use fission::motion::MotionTransition;
-use fission::prelude::{Pressable, PressableRole, PressableStyle, WidgetId};
-use fission::widgets::{Badge, Icon};
+use fission::prelude::*;
 
 const PREVIEW_WIDTH: f32 = 160.0;
 const PREVIEW_HEIGHT: f32 = 96.0;
@@ -16,77 +11,59 @@ const PREVIEW_HOVER_OPACITY: f32 = 0.94;
 const PREVIEW_PRESSED_SCALE: f32 = 0.98;
 const PREVIEW_TRANSITION_MS: u64 = 120;
 
-pub struct SettingsThemePreview {
-    /// Dispatched when the preview is chosen.
-    pub on_press: ActionEnvelope,
-    pub theme_name: &'static str,
-    pub background: Color,
-    pub accent: Color,
-    pub is_active: bool,
-}
-
-impl From<SettingsThemePreview> for Widget {
-    fn from(preview: SettingsThemePreview) -> Self {
-        let (_, view) = fission::build::current::<InboxState>();
-        let active_label = view.tr("settings.theme.active");
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub SettingsThemePreview<InboxState> {
+        on_press: ActionEnvelope,
+        theme_name: &'static str,
+        background: Color,
+        accent: Color,
+        is_active: bool,
+    } |preview, _state, cx| {
+        let active_label = cx.tr("settings.theme.active");
+        let tokens = &cx.view.env().theme.tokens;
         let (sin, cos) = PREVIEW_ICON_ROTATION_RADIANS.sin_cos();
         let rotation = [
             cos, -sin, 0.0, 0.0, sin, cos, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ];
-
-        let active_badge = preview.is_active.then(|| {
-            Badge {
-                text: active_label,
-                ..Default::default()
-            }
-            .into()
-        });
-
         let identifier = format!("inbox.settings.theme.{}", preview.theme_name.to_lowercase());
-
-        Pressable::new(Clip {
-            id: None,
+    } =>
+        Pressable(
+            Clip(
             path: Some(format!("inset(0px round {}px)", tokens.radii.large)),
-            child: Container::new(ZStack {
-                children: vec![
-                    Container::new(Spacer::default())
+            child: Container(
+                ZStack(
+                children: [
+                    Container(Spacer())
                         .size(PREVIEW_WIDTH, PREVIEW_HEIGHT)
-                        .bg(preview.background)
-                        .into(),
-                    Positioned {
+                        .bg(preview.background),
+                    Positioned(
                         top: Some(tokens.spacing.s),
                         right: Some(tokens.spacing.s),
-                        child: active_badge,
-                        ..Default::default()
-                    }
-                    .into(),
-                    Positioned {
+                        child: if preview.is_active {
+                            Badge(text: active_label)
+                        },
+                    ),
+                    Positioned(
                         left: Some(tokens.spacing.s),
                         bottom: Some(tokens.spacing.s),
-                        child: Some(
-                            Transform::new(
+                        child: Transform(
                                 Icon::svg(material::action::check_circle::regular())
                                     .size(PREVIEW_ICON_SIZE)
                                     .color(preview.accent),
                                 rotation,
-                            )
-                            .into(),
                         ),
-                        ..Default::default()
-                    }
-                    .into(),
+                    ),
                 ],
-                ..Default::default()
-            })
+                ),
+            )
             .size(PREVIEW_WIDTH, PREVIEW_HEIGHT)
-            .into(),
-        })
+            ),
+        )
         .id(WidgetId::explicit(&identifier))
         .semantics_identifier(identifier)
         .label(format!("Use {} theme", preview.theme_name))
         .role(PressableRole::Button)
-        .on_press(preview.on_press)
+        .on_press(preview.on_press.clone())
         .hover(PressableStyle {
             opacity: Some(PREVIEW_HOVER_OPACITY),
             ..Default::default()
@@ -96,6 +73,4 @@ impl From<SettingsThemePreview> for Widget {
             ..Default::default()
         })
         .transition(MotionTransition::ease_out(PREVIEW_TRANSITION_MS))
-        .into()
-    }
 }

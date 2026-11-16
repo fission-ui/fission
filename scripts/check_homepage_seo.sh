@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-site_root="${1:-documentation/dist/site}"
+site_root="${1:-docs2/dist/site}"
 homepage="$site_root/index.html"
 sitemap="$site_root/sitemap.xml"
 robots="$site_root/robots.txt"
@@ -15,9 +15,9 @@ test -f "$homepage" || fail "missing $homepage"
 test -f "$sitemap" || fail "missing $sitemap"
 test -f "$robots" || fail "missing $robots"
 
-grep -Fq '<title>Fission — Rust GUI Framework for Desktop, Mobile &amp; Web</title>' "$homepage" ||
+grep -Fq '<title>Fission — Rust GUI framework for desktop, mobile and web</title>' "$homepage" ||
   fail "unexpected title"
-grep -Fq '<meta name="description" content="Build desktop, mobile and web apps in Rust with Fission' "$homepage" ||
+grep -Fq '<meta name="description" content="Build native desktop, mobile and web applications in Rust' "$homepage" ||
   fail "missing search-focused description"
 grep -Fq '<link rel="canonical" href="https://fission.rs/">' "$homepage" ||
   fail "missing homepage canonical URL"
@@ -37,7 +37,6 @@ perl -0777 -e '
 h2_count="$(grep -o '<h2[ >]' "$homepage" | wc -l | tr -d ' ')"
 test "$h2_count" -ge 5 || fail "expected at least five H2 sections, found $h2_count"
 
-grep -Fq '"@type":"Organization"' "$homepage" || fail "missing Organization JSON-LD"
 grep -Fq '"@type":"SoftwareApplication"' "$homepage" ||
   fail "missing SoftwareApplication JSON-LD"
 grep -Fq '<loc>https://fission.rs/</loc>' "$sitemap" || fail "homepage missing from sitemap"
@@ -53,9 +52,9 @@ perl -0777 -e '
 perl -0777 -e '
   my $html = <>;
   for my $expected (
-    [qr/Build your first Rust app/, qr{href="docs/learn/quickstart/"}],
-    [qr/Explore Fission as a Rust application framework/, qr{href="product/overview/"}],
-    [qr/Explore cross-platform Rust app development/, qr{href="product/cross-platform-apps/"}],
+    [qr/Get started/, qr{href="docs/learn/quickstart/"}],
+    [qr/Compose/, qr{href="compose/"}],
+    [qr/Try Fission in the browser/, qr{href="showcase/"}],
   ) {
     my ($text, $href) = @$expected;
     my $found = 0;

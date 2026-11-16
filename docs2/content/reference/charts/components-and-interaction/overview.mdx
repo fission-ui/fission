@@ -1,0 +1,61 @@
+---
+title: Components and interaction
+sidebar_label: Overview
+description: Add truthful chart annotations and real interactions through Compose and the existing reducer flow.
+---
+
+# Components and interaction
+
+A chart can explain its values, let users inspect them, or let users act on them. Those are separate responsibilities: a threshold line explains a reference, a tooltip reveals data, and a brush completion can dispatch a reducer.
+
+These twenty-three examples distinguish the actual mechanisms from their appearance. In particular, current timeline and toolbox graphics do not implement automatic playback or utility commands simply because labels are drawn.
+
+![Axis tooltip screenshot](/img/charts/tooltip-axis.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Axis tooltip](./tooltip-axis) | Tooltip::axis_trigger plus series data under shared axes. | Use it when several series share one x position and the user needs exact values. |
+| [Brush horizontal](./component-brush-horizontal) | ChartBrush plus ScatterSeries. | Use it for x-range selection. |
+| [Brush rectangle](./component-brush-rect) | ChartBrush plus ScatterSeries. | Use it for region selection. |
+| [Brush selection](./brush-select) | ChartBrush configuration plus hit-testable series data. | Use it when users need to select or inspect a region of points. |
+| [Data zoom](./data-zoom) | DataZoom start and end percentages plus ordered series data. | Use it when the user needs to inspect a slice of a longer series without leaving context. |
+| [Data zoom long](./component-data-zoom-long) | DataZoom plus LineSeries. | Use it for dashboards with focus ranges. |
+| [Data zoom short](./component-data-zoom-short) | DataZoom plus LineSeries. | Use it for local inspection of long series. |
+| [Graphic band](./component-graphic-band) | ChartGraphic plus LineSeries. | Use it for plot-relative decoration, not an automatically aligned time window. |
+| [Graphic callout](./component-graphic-callout) | ChartGraphic plus LineSeries. | Use it to explain a change in context. |
+| [Graphic overlay](./graphic-overlay) | ChartGraphic rect, text, line, or circle records. | Use it for callouts, annotations, labels, and lightweight explanatory overlays. |
+| [Mark area component](./component-mark-area) | MarkArea plus LineSeries. | Show a declared numeric operating range; the drawing does not establish safety. |
+| [Mark line and point](./mark-line-point) | MarkArea, MarkLine, and MarkPoint records attached to a chart. | Use it to explain thresholds, goals, anomalies, or operational bands directly on the chart. |
+| [Mark line component](./component-mark-line) | MarkLine plus LineSeries. | Use it for goals and alert thresholds. |
+| [Mark point component](./component-mark-point) | MarkPoint plus numeric observations. | Use it for incidents and milestones. |
+| [Timeline](./timeline-events) | ChartTimeline labels and current index. | Show an indicator driven by actual application snapshot selection. |
+| [Timeline releases](./component-timeline-release) | ChartTimeline plus series. | Select actual release snapshots with ordinary buttons and reducers. |
+| [Timeline years](./component-timeline-year) | ChartTimeline plus series. | Use it for step-based snapshots. |
+| [Toolbox actions](./toolbox-actions) | ChartInteraction toolbox action list. | Use actual semantic commands; built-in toolbox labels do not route operations. |
+| [Toolbox full](./component-toolbox-full) | ChartInteraction toolbox actions. | Provide real reset/export actions rather than decorative labels. |
+| [Toolbox zoom](./component-toolbox-zoom) | ChartInteraction toolbox actions. | Use the real DataZoom slider rather than a painted zoom label. |
+| [Tooltip axis component](./component-tooltip-axis) | Tooltip plus ChartInteraction. | Use it for exact values across series. |
+| [Tooltip item component](./component-tooltip-item) | Tooltip item trigger. | Use it for exact item readout. |
+| [Visual map component](./component-visual-map) | VisualMap plus HeatmapSeries. | Use it where color represents a numeric value. |
+
+## Match the mechanism to the claim
+
+Use data-coordinate marks for numeric observations and reference values. Use `ChartGraphic` for plot-relative decoration; its position does not follow a deployment timestamp through a changed window.
+
+Use actual `DataZoom` and `ChartBrush` configuration for their gestures. Brush completions arrive through `ChartBrushSelection::from_action_input(&cx.input)` in a reducer. Plot fractions and data indices are projection details, not durable application-record identities.
+
+The current timeline is an indicator. Its labels and interval field do not implement dataset selection or automatic playback. Likewise, toolbox labels are not functioning reset/save/zoom/brush commands. The relevant pages show standard Compose controls and reducers for operations the application must own.
+
+## Compose and required inputs
+
+Built-in chart configuration uses ordinary `Chart(...)` composition. Reusable prop components in these examples are constructed with fully specified Rust struct literals: their required fields are supplied explicitly rather than assuming a generated `Default` exists. No `rust { ... }` escape block or additional framework API is required.
+
+Keep translated labels and design-system colours in parent-supplied inputs. The actual chart fields include `graphics: Vec<ChartGraphic>`, `mark_points: Vec<MarkPoint>`, `mark_lines: Vec<MarkLine>` and `mark_areas: Vec<MarkArea>`; singular builder-method names are not field types.
+
+## Verify an interaction by using it
+
+A screenshot can show a preview region without proving that a drag works. Use LiveTest to activate controls, drag continuously, release, rebuild and inspect the resulting state. Test empty selections, boundary values, missing data and changed snapshots.
+
+Keep equivalent text, tables and input controls available when hover or pointer gestures are unsuitable. A painted annotation is not automatically a complete accessibility relationship or an application action. Gallery screenshots are reference fixtures, not a substitute for those checks.

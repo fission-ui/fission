@@ -1,0 +1,47 @@
+---
+title: Analytics score gauge
+sidebar_label: Analytics score gauge
+description: Present one declared 0–100 analytics score with a gauge and its calculation context.
+---
+
+# Analytics score gauge
+
+![Analytics score gauge screenshot](/img/charts/analytics-gauge-score.png)
+
+A scorecard compresses several facts into one number. That can be useful, but the number needs a definition before a dial gives it any meaning.
+
+For example, an onboarding score might be the percentage of eligible setup tasks completed. It is not a measure of product quality, and a score of eighty does not mean eighty percent of customers are satisfied.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries, Series};
+
+fission_component! {
+    pub SetupCompletionScore<()> {
+        props {
+            title: String,
+            score_label: String,
+            score_percent: f32,
+        }
+    }
+    view(score, _state, _cx) => Chart(
+        title: Some(score.title.clone()),
+        series: vec![Series::Gauge(
+            GaugeSeries::new(&score.score_label)
+                .data(vec![(score.score_label.as_str(), score.score_percent)]),
+        )],
+    )
+}
+```
+
+Calculate the score before building the component. Validate it as a finite value in 0–100, and show an unavailable state if there are no eligible tasks rather than inventing a zero.
+
+## The range is not configurable here
+
+The current gauge renderer uses the first data item and maps 0–100 onto its dial. Although values outside that range are clamped for geometry, clamping does not make an invalid score valid. This is not an arbitrary-range speedometer.
+
+Show the numerator, denominator and calculation period alongside the score. A reader should be able to understand what remains to do without decoding the dial. Test zero, complete and unavailable states, as well as a small rendering size. The gallery image uses a separate score fixture.
+
+[Analytics family overview](./overview)

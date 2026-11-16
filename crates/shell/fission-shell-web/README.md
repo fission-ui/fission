@@ -47,6 +47,12 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 ```
 
+Fission's Web build commands compile with WebAssembly `simd128` by default. This
+speeds up the Canvas2D/software renderer when WebGPU is unavailable. To build a
+scalar artifact for browsers without `simd128`, set
+`FISSION_WEB_WASM_SIMD=scalar` before `fission run`, `fission build`,
+`fission test`, or `platforms/web/build-wasm.sh`.
+
 Relevant paths:
 
 - `crates/shell/fission-shell-web/`

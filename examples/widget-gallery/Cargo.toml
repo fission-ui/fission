@@ -1,12 +1,16 @@
 [package]
 name = "widget-gallery"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 license = "Apache-2.0"
 
 [lib]
 name = "widget_gallery"
 crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["standalone-entry"]
+standalone-entry = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,57 @@
+---
+title: Quality outlier scatter
+sidebar_label: Quality outlier scatter
+description: Fission Charts reference for Quality outlier scatter.
+---
+
+# Quality outlier scatter
+
+![Quality outlier scatter screenshot](/img/charts/scatter-quality-outliers.png)
+
+A quality exception should be identified by a documented specification or analysis rule before it is highlighted. A point which looks isolated is not automatically a defective part. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This component presents samples flagged for review using diameter and weight. Keep the reason for each flag, and use the complete sample report when the ordinary observations are needed for context.
+
+## Data model
+
+`EffectScatterSeries` accepts numeric pairs and adds visual emphasis. It does not classify the samples or decide whether tolerance was exceeded. Supply only the validated flagged subset; preserve sample IDs separately.
+
+## Authoring from a Fission component
+
+The parent applies the quality policy and passes the prepared measurements with localized display labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, EffectScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FlaggedPartMeasurements<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![EffectScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test exact tolerance boundaries, no flags and an unavailable measurement. Provide an accessible flagged-sample list with values and reasons; emphasis rings must not be the only signal of a quality problem.
+
+Tags: `scatter`, `outlier`.
+
+[Statistical family overview](./overview)

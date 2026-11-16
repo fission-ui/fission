@@ -1,0 +1,37 @@
+---
+title: Service health map
+sidebar_label: Service health map
+description: Map an observable service measure instead of an unexplained health score.
+---
+
+# Service health map
+
+![Service health map screenshot](/img/charts/map-service-health.png)
+
+A health label can hide several unrelated failures. If the operational question is request reliability, the successful-request percentage over a defined window is a measure the operator can inspect.
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub fn request_success(
+    region_id: String,
+    successful: u64,
+    attempted: u64,
+) -> Option<RegionMeasure> {
+    if attempted == 0 || successful > attempted {
+        return None;
+    }
+    Some(RegionMeasure {
+        region_id,
+        value: 100.0 * successful as f32 / attempted as f32,
+    })
+}
+```
+
+Use the type and Compose widget from [choropleth maps](../geographic-and-route/map-choropleth), placed in `widgets/regional_report_map.rs`. Supply validated geometry, a consistent percentage colour scale and translated captions identifying the reporting window.
+
+No attempts means there is no measured success rate. Surface absent telemetry separately from a confirmed failure rate; neither should be silently presented as healthy. Keep the underlying successful/attempted counts and freshness timestamp in the report.
+
+Test low traffic, no traffic, impossible counts and a failed refresh over an older successful report. A map can identify a region to inspect, but exact values and incident details are still needed. The gallery image uses its own data.
+
+[Geo family overview](./overview)

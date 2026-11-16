@@ -1,0 +1,57 @@
+---
+title: Plan share pie
+sidebar_label: Plan share pie
+description: Fission Charts reference for Plan share pie.
+---
+
+# Plan share pie
+
+![Plan share pie screenshot](/img/charts/pie-plan-share.png)
+
+A subscription-plan breakdown can show how active accounts are distributed across plans. The count must refer to accounts, seats or subscriptions consistently; they need not produce the same distribution. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here each active account belongs to one current plan at the report snapshot. Preserve free and unknown classifications when they belong to the reporting population.
+
+## Data model
+
+Supply non-negative account totals by plan. `PieSeries` derives angles from their sum; it does not validate exclusivity, infer omitted plans or calculate upgrade conversion.
+
+## Authoring from a Fission component
+
+The parent supplies a prepared snapshot and localized plan names. No inner radius is used, so this is a pie rather than a donut.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ActiveAccountPlanShare<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            accounts_by_plan: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.accounts_by_plan.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test an account changing plans at the snapshot boundary and a plan with no accounts. Include total accounts and snapshot time outside the chart; do not count an account twice because it changed plans during the reporting month.
+
+Tags: `pie`, `share`.
+
+[Radial family overview](./overview)

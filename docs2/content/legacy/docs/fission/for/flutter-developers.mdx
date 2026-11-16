@@ -1,0 +1,280 @@
+---
+title: Fission for Flutter developers
+description: Compare Flutter widget trees, state ownership, platform channels, themes, routing and tests with Fission Compose.
+---
+
+# Fission for Flutter developers
+
+A Fission view will look familiar if you build Flutter apps: nested widgets,
+constraints and explicit children still describe the interface. The distinction
+is not the parentheses. It is the boundary between describing that interface,
+changing application state and asking a host to do work.
+
+These excerpts compare those responsibilities. They are not another complete
+app to keep in step with the tutorials. Use
+[Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/)
+for the full task app and its module structure, then use the same shared core
+from an Android or iOS shell.
+
+## The state ownership rule
+
+`StatefulWidget` is not a reason to hide all product data inside a widget. The
+same rule applies in Fission: keep a disclosure flag local, but keep task
+records shared when a list, detail screen and progress summary use them.
+
+- Parent inputs go in `props { ... }`.
+- Retained interface memory goes in `state { ... }`.
+- Shared app facts go in a type implementing `GlobalState`.
+- Reducers change those values; effects request outside work.
+- The runtime owns transient pointer, focus and press state.
+
+Compose generates local-state wiring from the `state` section. The explicit
+`#[with_local_state]` and `#[local_state]` attributes are still available when
+writing a lower-level Rust component.
+
+## 1. Static UI
+
+A Flutter widget can receive display data from its parent:
+
+```dart
+class TaskTitle extends StatelessWidget {
+  const TaskTitle(this.title, {super.key});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(title, style: Theme.of(context).textTheme.titleMedium);
+}
+```
+
+Fission declares the same parent-owned input:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub TaskTitle<()> {
+        props { title: String }
+    }
+    view(task, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(task.title.clone()).size(tokens.typography.font_size_base)
+}
+```
+
+The view reads a current value and describes a widget. It does not start a
+request, select an operating-system file or mutate app data while doing so.
+
+## 2. Product state and interaction
+
+A local draft can use retained component state without a separate widget-state
+class or message enum:
+
+```rust
+fission_component! {
+    pub TaskDraft<()> {
+        state { title: String = String::new() }
+    }
+    view(draft, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(
+        gap: tokens.spacing.s,
+        children: [
+            TextInput(
+                label: Some(cx.tr("tasks.new").into()),
+                bind: draft.title,
+            ),
+            Button(
+                child: Text(cx.tr("tasks.clear")),
+                key: "clear-draft",
+                disabled: draft.title.is_empty(),
+                on_press: reduce { draft.title.clear(); },
+            ),
+        ],
+    )
+}
+```
+
+The parent app loads translation bundles for the label keys. This component
+edits and clears an unsent title; it does not pretend that local memory is
+persistent storage.
+
+When a task is already part of the product model, update that authoritative
+record instead. This row assumes `TaskState` owns a collection of task records:
+
+```rust
+fission_component! {
+    pub TaskRow<TaskState> {
+        props {
+            task_id: u64,
+            title: String,
+            complete: bool,
+        }
+    }
+    view(row, state, _cx) =>
+    Checkbox(
+        label: Some(row.title.clone()),
+        checked: row.complete,
+        key: "toggle-complete",
+        on_toggle: reduce {
+            if let Some(task) = state.tasks.iter_mut().find(|task| task.id == row.task_id) {
+                task.done = !task.done;
+            }
+        },
+    )
+}
+```
+
+Give repeated rows `key: task.id` where they are constructed. The handler looks
+up the current record rather than hold a reference into the earlier list. If
+that task has been removed, a late toggle does not recreate it.
+
+## 3. Outside work
+
+Flutter's `initState` or an async controller method is not something to paste
+into a Fission view. Request one-time hydration through a startup action; put
+the implementation in a job or resource when it belongs to the app lifetime.
+
+For a component-owned request, use an `effect` with explicit start, success and
+failure handling:
+
+```rust
+Button(
+    child: Text(cx.tr("tasks.refresh")),
+    key: "refresh-tasks",
+    disabled: state.loading,
+    on_press: effect fetch_tasks(list.endpoint.clone()) {
+        on_start {
+            state.loading = true;
+            state.error = None;
+        }
+        on_ok(tasks) {
+            state.tasks = tasks;
+            state.loading = false;
+        }
+        on_err(error) {
+            state.error = Some(error);
+            state.loading = false;
+        }
+    },
+)
+```
+
+This contextual excerpt assumes an `endpoint: String` prop and an async
+`#[fission_effect] fetch_tasks(String) -> Result<Vec<Task>, String>` function.
+Only its owned URL crosses into the operation. The lifecycle blocks receive
+current state when they run. Keep the component mounted until completion, or
+move the request to an app-owned job/resource.
+
+The UI should render `Spinner` while loading and explain `error` with an
+`Alert`. Since refresh replaces the list, prevent concurrent edits or reject
+stale results using an operation generation. Disabling only the refresh button
+does not protect other controls from an older response.
+
+Platform channels have a different role: use Fission capabilities, services or
+native modules for typed host integration. Do not replace a supported
+capability with target checks and direct platform calls inside widgets.
+
+## 4. Styling and theme
+
+Keep the Flutter instinct to use the theme. Fission's generated design system
+provides tokens through the active environment:
+
+```rust
+fission_component! {
+    pub TaskSurface<()> {
+        props { title: String }
+    }
+    view(surface, _state, _cx) =>
+    Card(
+        child: Text(surface.title.clone()),
+        pattern: CardPattern::Plain,
+    )
+}
+```
+
+`Card` already owns its surface spacing and typography recipe. Do not add
+another padding layer simply because the original Flutter example had one.
+Use `Container` when the design really calls for a custom box; use the most
+specific widget when it already owns the required interaction or anatomy.
+
+A Fission `Column` still needs sensible constraints. It does not become a
+scrollable or virtualized list because it contains many children. Use `Scroll`
+or `LazyColumn` for those responsibilities, and use `Responsive` when a narrow
+layout needs a different independently constructed tree.
+
+## 5. Routing
+
+The closest counterpart to a Flutter navigator's route table is Fission's
+native `Router`:
+
+```rust
+fission_component! {
+    pub TaskRoutes<TaskState>
+    view(_routes, state, _cx) =>
+    Router::<TaskState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", TaskScreen)
+        .route_component("/tasks/:id", TaskDetailRoute)
+}
+```
+
+The shell reports route changes through its normal handler. App state holds
+`current_path`; a reducer requests navigation with `cx.effects.navigate(...)`.
+`TaskDetailRoute` reads and validates `RouteParams` instead of silently
+substituting zero for a malformed ID.
+
+The [Router reference](/reference/widgets/router/) describes that setup, and
+[ProtectedRoute](/reference/widgets/protected-route/) keeps protected component
+construction behind one resolved access decision. UI route protection does not
+replace authorization in an API or server action.
+
+## 6. Testing
+
+`testWidgets` and a Fission headless harness both let you inspect a rendered
+widget tree without proving every native host behaviour. Keep that boundary
+explicit:
+
+| Requirement | Fission test surface |
+| --- | --- |
+| State rule | Pure transition or reducer test |
+| Widget layout and semantics | `TestHarness` |
+| Real input, focus and screenshots | `LiveTestClient` and `/cmd` |
+| Camera, permissions or keyboard integration | A live test on the relevant device/shell |
+
+Give controls stable semantic identifiers. Test translated text and narrow
+layouts rather than assume a screenshot made with short English labels proves
+them. Follow [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) for a
+complete process launch and cleanup example.
+
+## Vocabulary map
+
+| Flutter concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| `Widget` | `Widget` composed with `fission_component!` | Compose generates ordinary Fission widget construction. |
+| `StatefulWidget` and `setState` | Component `state` or `GlobalState` plus reducers | Ownership follows the data's readers and lifetime. |
+| `InheritedWidget` / provider | Providers, app state and `Env` | Environment is not a catch-all domain-state container. |
+| Platform channel | Capability, service or native module | Host requests and results are explicit typed boundaries. |
+| `Navigator` | Native `Router` | The shell adapts route history for the target. |
+| `testWidgets` | `TestHarness` and `LiveTestClient` | Headless and actual-shell tests establish different things. |
+
+## Common instincts to adjust
+
+A retained widget identity is not the same as the row's current position.
+Construct independent trees for responsive cases and use durable data keys for
+reorderable stateful rows. Do not clone one retained widget into several
+branches.
+
+Native/mobile knowledge remains useful, but Fission also targets Web,
+Terminal, Static site and SSR. Use target-appropriate behaviour rather than
+claim every platform can offer the same permissions or host UI.
+
+## What to read next
+
+- [The complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose syntax and effects](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

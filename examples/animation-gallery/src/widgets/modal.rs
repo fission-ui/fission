@@ -2,8 +2,7 @@ use super::common::*;
 use super::modal_preview::ModalPreview;
 use crate::state::{AnimationGalleryState, MotionChoice};
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/modal";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Secondary,
 };
 
-pub struct ModalPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ModalPage<'_>> for Widget {
-    fn from(page: ModalPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(page.state.motion),
-            preview: ModalPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub ModalPage<AnimationGalleryState> {} |_page, state, _cx| {} => WidgetPage(case(state.motion), ModalPreview()) }
 
 fn case(motion: MotionChoice) -> GalleryCase {
     GalleryCase {
@@ -82,31 +62,26 @@ fn case(motion: MotionChoice) -> GalleryCase {
     }
 }
 
-const MODAL_NONE_SOURCE: &str = r#"Modal {
+const MODAL_NONE_SOURCE: &str = r#"Modal(
     id: WidgetId::explicit("gallery_modal"),
     title: "Archive thread".into(),
-    content: Text::new("This action can be undone from the archive.").into(),
+    content: Text("This action can be undone from the archive."),
     is_open: view.state().modal_open,
-    on_dismiss: Some(close_modal),
+    on_dismiss: close_modal,
     motion: None,
-    ..Default::default()
-}.into()"#;
+ )"#;
 
-const MODAL_DEFAULT_SOURCE: &str = r#"Modal {
+const MODAL_DEFAULT_SOURCE: &str = r#"Modal(
     id: WidgetId::explicit("gallery_modal"),
     title: "Archive thread".into(),
-    motion: Some(ModalMotion::Default), // explicit opt-in
-    ..Default::default()
-}.into()"#;
+    motion: ModalMotion::Default, // explicit opt-in
+)"#;
 
-const MODAL_COMPOSED_SOURCE: &str = r#"Modal {
+const MODAL_COMPOSED_SOURCE: &str = r#"Modal(
     id: WidgetId::explicit("gallery_modal"),
     title: "Archive thread".into(),
-    motion: Some(
-        ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale,
-    ),
-    ..Default::default()
-}.into()"#;
+    motion: ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale,
+)"#;
 
 const MODAL_NATIVE_SOURCE: &str = r#"Presence {
     id: WidgetId::explicit("gallery_modal.surface"),

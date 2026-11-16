@@ -1,0 +1,331 @@
+---
+title: How do I do file uploads in Fission?
+description: Use FileUpload for presentation, PICK_OPEN_FILES for the host picker, and FissionDataStream handles so large files are consumed by jobs or services instead of reducers.
+---
+
+# How do I do file uploads in Fission?
+
+A file upload has three parts:
+
+1. the widget renders the browse affordance;
+2. the reducer asks the host to pick files;
+3. a job or service consumes the selected file stream.
+
+The picker returns metadata and a `DataStreamId`, not a `Vec<u8>`. The ID points to a runtime-owned `FissionDataStream`. Async code opens it through `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or host capability code.
+
+This keeps file contents out of app state, action payloads, logs, diagnostics, and reducer replay.
+
+## 1. Render the upload control
+
+`FileUpload` is presentation only. It shows a button and the currently selected file label. It does not open the host picker by itself.
+
+```rust
+use fission::prelude::*;
+
+
+
+fission_component! {
+    pub AttachmentPicker<AppState> {
+        props { upload_url: String }
+    }
+    view(picker, state, cx) {
+        let browse = cx.bind(PickAttachment, reduce!(on_pick_attachment));
+        let upload = cx.bind(UploadAttachment(picker.upload_url.clone()), reduce!(on_upload_attachment));
+    }
+    => Column(children: [
+        if state.picking || state.uploading { Spinner(motion: SpinnerMotion::Default, label: cx.tr("attachments.pending")) }
+        else {
+            FileUpload(
+                label: cx.tr("attachments.choose"),
+                selected_file: state.pending_attachment.as_ref().map(|file| file.name.clone()),
+                error_text: state.upload_error.clone(),
+                on_browse: browse,
+            )
+        },
+        Button(
+            child: Text(cx.tr("attachments.upload")),
+            disabled: state.picking || state.uploading || state.upload_attempted
+                || state.pending_attachment.is_none() || picker.upload_url.is_empty(),
+            on_press: upload,
+        ),
+        if state.uploaded_object_id.is_some() { Text(cx.tr("attachments.uploaded")) },
+    ])
+}
+```
+The parent calls `AttachmentPicker(upload_url)` using the required-prop
+constructor. The upload control describes selection; it does not claim a file
+has been stored. Define the `attachments.*` messages in the app's translation bundles.
+Keep metadata in app state so the screen can show selection, pending work,
+errors, and the server's actual receipt separately.
+
+```rust
+#[derive(Debug, Clone, Default)]
+pub struct AppState {
+    pub pending_attachment: Option<PickedFile>,
+    pub picking: bool,
+    pub uploading: bool,
+    pub upload_attempted: bool,
+    pub upload_error: Option<String>,
+    pub uploaded_object_id: Option<String>,
+}
+
+impl GlobalState for AppState {}
+```
+
+## 2. Ask the host to pick files
+
+The browse reducer requests the picker through a capability. The shell opens the platform-specific picker UI.
+
+```rust
+use fission::prelude::*;
+
+#[fission_reducer(PickAttachment)]
+fn on_pick_attachment(
+    state: &mut AppState,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    if state.picking || state.uploading { return; }
+    state.picking = true;
+    state.upload_error = None;
+    let picked = ctx.effects.bind(AttachmentPicked, reduce!(on_attachment_picked));
+    let failed = ctx.effects.bind(AttachmentPickFailed, reduce!(on_attachment_pick_failed));
+
+    ctx.effects
+        .capability(
+            PICK_OPEN_FILES,
+            PickOpenFilesRequest {
+                allow_multiple: false,
+                mime_types: vec!["application/pdf".into(), "image/png".into()],
+                extensions: vec!["pdf".into(), "png".into()],
+                // Optional performance hint; stream consumers must accept any
+                // chunk size because hosts may return smaller chunks.
+                preferred_chunk_bytes: Some(1024 * 1024),
+            },
+        )
+        .on_ok(picked)
+        .on_err(failed);
+}
+```
+
+The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells can register their own provider for the same capability when their host supports file picking.
+
+`preferred_chunk_bytes` is optional and affects throughput and temporary memory use, not the maximum file size. The built-in native provider defaults to 256 KiB; the Web provider preserves browser-native stream chunks when no preference is supplied. Built-in providers constrain individual chunks to 16 MiB, and consumers must accept shorter chunks at any time.
+
+## 3. Store metadata, not bytes
+
+The success reducer reads the result from `ctx.input` and stores its metadata and stream handle. It does not open the stream or read file bytes.
+
+```rust
+#[fission_reducer(AttachmentPicked)]
+fn on_attachment_picked(
+    state: &mut AppState,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    state.picking = false;
+    let Some(result) = ctx.input.capability_ok(PICK_OPEN_FILES) else {
+        state.upload_error = Some("The host returned no picker result".into());
+        return;
+    };
+
+    let Some(file) = result.files.into_iter().next() else {
+        // Cancellation keeps the previous selection; it is not an upload error.
+        return;
+    };
+
+    state.pending_attachment = Some(file);
+    state.upload_attempted = false;
+    state.uploaded_object_id = None;
+    state.upload_error = None;
+}
+
+#[fission_reducer(AttachmentPickFailed)]
+fn on_attachment_pick_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.picking = false;
+    state.upload_error = Some(ctx.input.capability_error(PICK_OPEN_FILES)
+        .map(|error| error.message)
+        .or_else(|| ctx.input.capability_error_message(PICK_OPEN_FILES).map(str::to_owned))
+        .unwrap_or_else(|| "The host could not open the file picker".into()));
+}
+```
+
+`PickedFile` already contains the required metadata; there is no need to copy
+its fields into a second app type. Its stream is one-shot: while a job or
+service is consuming it, another open fails with `AlreadyConsumed`. Dropping
+the opened stream releases its registry entry; a later attempt with the old id
+returns `NotFound`. Picking another file gives a new handle. This flow requires
+a fresh selection after an upload attempt; a Retry button cannot replay
+consumed bytes automatically.
+
+## 4. Consume the stream in a job
+
+Use a job when the upload or import is one request with one result.
+
+```rust
+#[derive(Debug)]
+pub struct UploadAttachmentJob;
+
+impl JobSpec for UploadAttachmentJob {
+    type Request = UploadAttachmentRequest;
+    type Ok = UploadAttachmentResult;
+    type Err = String;
+
+    const NAME: &'static str = "app::upload-attachment";
+}
+
+pub const UPLOAD_ATTACHMENT_JOB: JobRef<UploadAttachmentJob> =
+    JobRef::new(UploadAttachmentJob::NAME);
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadAttachmentRequest {
+    pub upload_url: String,
+    pub name: String,
+    pub content_type: Option<String>,
+    pub byte_len: Option<u64>,
+    pub stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadAttachmentResult {
+    pub object_id: String,
+}
+```
+
+A reducer starts the job by passing the handle, still without reading the file.
+
+```rust
+#[fission_reducer(UploadAttachment)]
+fn on_upload_attachment(
+    state: &mut AppState,
+    upload_url: String,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    if state.picking || state.uploading || state.upload_attempted || upload_url.is_empty() { return; }
+    let Some(file) = state.pending_attachment.clone() else {
+        state.upload_error = Some("Choose a file first".into());
+        return;
+    };
+
+    state.uploading = true;
+    state.upload_attempted = true;
+    state.upload_error = None;
+    let uploaded = ctx.effects.bind(AttachmentUploaded, reduce!(on_attachment_uploaded));
+    let failed = ctx.effects.bind(AttachmentUploadFailed, reduce!(on_attachment_upload_failed));
+
+    ctx.effects
+        .app(
+            UPLOAD_ATTACHMENT_JOB,
+            UploadAttachmentRequest {
+                upload_url,
+                name: file.name,
+                content_type: file.content_type,
+                byte_len: file.byte_len,
+                stream: file.stream,
+            },
+        )
+        .on_ok(uploaded)
+        .on_err(failed);
+}
+
+#[fission_reducer(AttachmentUploaded)]
+fn on_attachment_uploaded(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.uploading = false;
+    match ctx.input.job_ok(UPLOAD_ATTACHMENT_JOB) {
+        Some(receipt) if !receipt.object_id.is_empty() => state.uploaded_object_id = Some(receipt.object_id),
+        _ => state.upload_error = Some("The server returned no attachment receipt".into()),
+    }
+}
+
+#[fission_reducer(AttachmentUploadFailed)]
+fn on_attachment_upload_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    state.uploading = false;
+    state.upload_error = Some(ctx.input.job_error_message(UPLOAD_ATTACHMENT_JOB)
+        .unwrap_or("Upload failed; choose the file again").to_owned());
+}
+```
+
+The Upload button dispatches `UploadAttachment(upload_url)` and uses the same
+pending/attempted guards as the reducer. The URL comes from trusted
+app configuration or an authenticated upload-authorisation flow, not from the
+picked filename. Register the job in the shell and send the stream through a
+real transport. This native example uses `reqwest` with `stream` and `json`
+features; the endpoint accepts PUT bytes and returns `UploadAttachmentResult`:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_async(|asyncs| {
+        asyncs.register_job(
+            UPLOAD_ATTACHMENT_JOB,
+            |request: UploadAttachmentRequest, ctx: JobCtx| async move {
+                let stream = ctx
+                    .open_data_stream(request.stream)
+                    .map_err(|error| error.to_string())?;
+
+                reqwest::Client::new()
+                    .put(request.upload_url)
+                    .header(reqwest::header::CONTENT_TYPE,
+                        request.content_type.as_deref().unwrap_or("application/octet-stream"))
+                    .body(reqwest::Body::wrap_stream(stream))
+                    .send().await.map_err(|error| error.to_string())?
+                    .error_for_status().map_err(|error| error.to_string())?
+                    .json::<UploadAttachmentResult>().await
+                    .map_err(|error| error.to_string())
+            },
+        );
+    })
+    .run()
+```
+
+Use `fission::core::collect_data_stream(...)` only at a boundary where a platform API or third-party SDK requires one contiguous buffer. The normal upload path should keep chunking.
+
+This transport is native, not the Web `reqwest` streaming API. A Web app needs
+its browser-compatible upload adapter behind the same typed job contract. The
+server must authenticate and authorise the upload, enforce actual size and
+content limits, and return a real object id. A byte count or an empty stream
+must never be reported as a successful stored attachment.
+
+## 5. Use a service when the upload is a conversation
+
+Use a service when the upload needs a longer-lived identity, such as resumable uploads, progress events, cancellation, virus scanning, previews, or a long-running import pipeline.
+
+The reducer still passes a `DataStreamId`, but the service opens it with `ServiceCtx::open_data_stream(...)` and emits progress events through `ServiceCtx::emit(...)`.
+
+```rust
+// Shape only: the stream boundary is the important part.
+let stream = ctx.open_data_stream(command.stream)?;
+while let Some(chunk) = stream.next().await {
+    let bytes = chunk?;
+    upload_part(bytes).await?;
+    ctx.emit(UploadProgress { uploaded_bytes }).await?;
+}
+```
+
+Choose a service when the UI needs progress, pause/resume, cancellation, or several events from one upload session.
+
+## Target support
+
+The portable Fission contract is `PICK_OPEN_FILES` plus `FissionDataStream` handles. Individual shells decide how they satisfy that contract.
+
+| Target | Default behavior |
+| --- | --- |
+| macOS, Windows, Linux | Native open-file picker with file contents streamed from disk. |
+| Web | Built-in browser picker with lazy, bounded streaming from each selected `File`. |
+| Android, iOS | Shell/provider-specific. Native pickers should return scoped streams or copied sandbox streams. |
+| Server, SSR, Static site, Terminal | Usually unsupported unless the host app registers an appropriate provider. |
+
+Unsupported targets should return a capability error. They must not fabricate an empty stream or fake file bytes.
+
+## Why not put bytes in reducers?
+
+Large bytes in reducers make apps harder to reason about:
+
+- action logs become huge and privacy-sensitive;
+- state snapshots accidentally retain file contents;
+- retries and tests become memory-heavy;
+- host permissions leak into app logic;
+- cancellation and backpressure are nearly impossible to model cleanly.
+
+Keep the `DataStreamId` in UI state; let runtime-managed async code handle the bytes.
+
+## Related
+
+Read [Why reducers are synchronous](/docs/guides/why-reducers-are-synchronous/) for the architectural reason behind this split. The widget API is documented on [`FileUpload`](/reference/widgets/file-upload/), and the broader async model is covered by [Resources and async](/docs/guides/resources-and-async/).

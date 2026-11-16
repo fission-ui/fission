@@ -1,0 +1,187 @@
+---
+title: Workers and islands
+description: Add progressive enhancement workers and focused WASM islands to Fission server-rendered pages.
+---
+
+# Workers and islands
+
+A server-rendered page doesn’t need to turn into a giant browser app. Fission has two smaller ways to add interaction, each with its own cost and boundary.
+
+A worker adds progressive enhancement. It runs as a small Rust-to-WASM module, receives browser events or startup messages, and sends constrained DOM commands through the generated bridge. Use it when you don’t need a full Fission widget app.
+
+An island is a focused interactive area that does need Fission widgets, state, and reducers in the browser. Use one for a cart drawer, configurator, chart editor, or media control when that interaction is worth a route-local WASM artifact.
+
+## 1. Declare workers on the route that needs them
+
+```rust
+.worker(
+    "/",
+    ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+        .entry("pokemon_card_store::workers::catalog_filters_boot")
+        .root_node_id("catalog-grid")
+        .description("Client-side filtering and sort controls over server-rendered cards."),
+)
+```
+
+Keep the worker ID stable. The artifact path is what the page loads in the browser; the entry path identifies the Rust function in the generated shim crate.
+
+A worker entry receives a JSON bridge message and returns bridge output. Keep the output constrained to the semantic targets the worker owns.
+
+```rust
+pub fn catalog_filters_boot(input: &str) -> String {
+    let Ok(message) = serde_json::from_str::<serde_json::Value>(input) else {
+        return serde_json::json!({ "messages": [], "bindings": [] }).to_string();
+    };
+
+    serde_json::json!({
+        "messages": [{
+            "type": "dom_batch",
+            "sequence": message.get("sequence").and_then(|v| v.as_u64()).unwrap_or(1),
+            "transaction_id": "catalog-filters",
+            "ops": [
+                {
+                    "op": "set_text_by_semantics",
+                    "semantics": "worker-status:catalog-filters",
+                    "text": "Worker bridge ready"
+                }
+            ]
+        }],
+        "bindings": []
+    }).to_string()
+}
+```
+
+This entry is a bridge-status probe, not an implemented catalogue filter. It
+does not bind filter controls or change catalogue order. A real filter worker
+must validate its event payload, use the generated bridge's binding contract,
+and touch only its owned semantic targets. Invalid JSON above produces no
+commands instead of being reinterpreted as a valid boot request. Keep durable
+product state on the server rather than making DOM changes another authority.
+
+## 2. Declare islands for focused app-like areas
+
+```rust
+.island(
+    "/",
+    WasmIsland::new(
+        "cart-drawer",
+        "/assets/islands/cart-drawer.wasm",
+        "cart-drawer",
+    )
+    .entry("pokemon_card_store::islands::cart_drawer_boot")
+    .description("Browser-side quantity selection inside the cart mount."),
+)
+```
+
+The mount ID should match the semantic region rendered by the server page. Each island has its own artifact, so the browser only downloads it on routes that need it.
+
+On the server-rendered page, render a fallback region that remains readable if JavaScript or WASM fails:
+
+```rust
+fission_component! {
+    pub CartIslandFallback<()> {}
+    view(_fallback, _state, cx) =>
+    SemanticsRegion(
+        id: WidgetId::explicit("cart-drawer"),
+        identifier: Some("cart-drawer".into()),
+        child: Column(children: [
+            Text(cx.tr("cart.quantity_fallback")),
+            Link::to(cx.tr("cart.open_full_cart"), "/cart"),
+        ]),
+    )
+}
+```
+
+The island is a normal Fission widget app. This small example controls one
+quantity; it does not claim to implement a drawer, persist a cart, or calculate
+checkout totals:
+
+```rust
+use fission::prelude::*;
+use fission::site::{run_browser_island, BrowserIslandApp};
+
+const MAX_QUANTITY: u16 = 99;
+
+#[derive(Debug, Clone)]
+pub struct BrowserCartState {
+    quantity: u16,
+}
+
+impl Default for BrowserCartState {
+    fn default() -> Self { Self { quantity: 1 } }
+}
+
+impl GlobalState for BrowserCartState {}
+
+fission_component! {
+    pub CartQuantityIsland<BrowserCartState> {}
+    view(_quantity, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("cart.quantity")),
+        Row(gap: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr("cart.remove_one")),
+                key: "decrease",
+                disabled: state.quantity <= 1,
+                on_press: reduce { if state.quantity > 1 { state.quantity -= 1; } },
+            ),
+            Text(state.quantity.to_string()),
+            Button(
+                child: Text(cx.tr("cart.add_one")),
+                key: "increase",
+                disabled: state.quantity >= MAX_QUANTITY,
+                on_press: reduce { if state.quantity < MAX_QUANTITY { state.quantity += 1; } },
+            ),
+        ]),
+    ])
+}
+
+pub fn cart_drawer_boot(input: &str) -> String {
+    run_browser_island("cart-drawer", input, || {
+        BrowserIslandApp::new(
+            "cart-drawer",
+            "cart-drawer",
+            BrowserCartState::default(),
+            CartQuantityIsland,
+        )
+        .with_env(crate::presentation::browser_env())
+    })
+}
+```
+`presentation::browser_env()` is an app-owned function returning the prepared
+`Env`, with the same theme, locale, and `cart.*` translation bundles as the
+surrounding page. An island owns its copy; it cannot read a server request's
+environment implicitly. Keep that setup in shared presentation code rather than
+repeating translation tables in every island.
+
+The standard buttons provide keyboard, focus, and activation semantics. There
+is no reason to imitate a button with a generic semantic region here. The
+bridge dispatches the reducer and patches only the island's mount.
+
+The 1–99 limit is a UI input constraint, not proof of stock or a valid order.
+The server must validate stock, price, account access, and quantity when a real
+cart mutation is submitted. This browser value resets with the island; use an
+explicit server-backed flow if it needs to survive navigation.
+
+## 3. Generate artifacts
+
+```sh
+fission server artifacts --project-dir examples/pokemon-card-store
+```
+
+The command creates shim crates and compiles one WASM output per worker or island. In development, files are served from `target/fission/server/assets/...`; packaging copies them into the server Docker image.
+
+`fission server check` builds these route-local artifacts too, so a broken worker or island fails before deployment.
+
+## 4. Prefer the smallest enhancement that works
+
+| Need | Use |
+| --- | --- |
+| Collapse a menu, toggle a filter, sort visible rows | Worker |
+| Cart drawer, live editor, rich control panel | Island |
+| Whole app runs in browser and owns the canvas/runtime | Web target |
+| Page has no runtime behavior beyond links | Static site or server-rendered HTML |
+
+This split keeps pages fast and crawlable, while still making room for richer interactions where they’re useful.

@@ -1,0 +1,189 @@
+---
+title: Fission for SwiftUI developers
+description: Map SwiftUI views, state, environment, tasks, navigation and tests to Fission Compose and its shared Rust app model.
+---
+
+# Fission for SwiftUI developers
+
+SwiftUI's value-shaped views make a useful starting point for Fission. Both
+describe an interface from inputs, but a Fission view is not an observable
+object and its fields are not property wrappers. Compose declares the inputs,
+retained state and handlers which the existing Fission runtime will use.
+
+The examples below isolate those differences. For a complete app organised
+into state, pages and reusable widgets, use
+[Build a single-page Web app in Rust](/blog/build-a-single-page-web-app-in-rust/).
+Its shared core is also the part an iOS or macOS entrypoint hosts.
+
+## The state ownership rule
+
+Choose ownership before translating `@State` or a model object.
+
+- A parent supplies `props` again on each build.
+- A component's `state` block retains interface memory for that widget identity.
+- `GlobalState` owns shared product data.
+- Reducers perform synchronous transitions.
+- Effects, jobs, services, resources and capabilities perform outside work.
+
+This is not a requirement to put every value in global state. A local
+disclosure belongs to its component until another part of the product needs to
+observe or persist it.
+
+## 1. Static UI
+
+A parent-supplied title remains a parent-supplied title, whether expressed as
+a Swift `let` property or a Compose prop:
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub AccountHeading<()> {
+        props { title: String }
+    }
+    view(heading, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Text(heading.title.clone()).size(tokens.typography.heading1_size)
+}
+```
+
+The parent supplies translated text. The component reads the active design
+system rather than choosing another heading size independently.
+
+## 2. Product state and interaction
+
+An account setting read by several screens belongs to app state. Its binding
+connects the current value to a generated update reducer:
+
+```rust
+#[derive(Debug, Default)]
+pub struct AccountState {
+    pub notifications: bool,
+}
+
+impl GlobalState for AccountState {}
+
+fission_component! {
+    pub NotificationSetting<AccountState>
+    view(_setting, state, cx) =>
+    FormControl(
+        label: Some(cx.tr("account.notifications").into()),
+        child: Switch(bind: state.notifications),
+        helper: Some(cx.tr("account.notifications.help")),
+    )
+}
+```
+
+This updates the running app. It does not save the preference across launches;
+that requires a separate Store or server operation. App state and persistence
+are different responsibilities even when the example is small.
+
+For a local disclosure use `state { open: bool = false }` and an inline
+`reduce { disclosure.open = !disclosure.open; }` handler instead. Compose
+generates the local-state wiring; `#[with_local_state]` and `#[local_state]`
+remain the lower-level alternative.
+
+## 3. Outside work
+
+A SwiftUI `.task` often expresses work associated with a view. Do not reproduce
+it by calling an async function while converting a Fission component.
+Conversion can run again for unrelated changes.
+
+For initial app data, dispatch one startup action and let its reducers request
+a registered job or resource. For an explicit user action, a Compose `effect`
+can call a `#[fission_effect]` async function and handle `on_ok` and `on_err`.
+The function receives owned snapshots; completion handlers read current state.
+
+That distinction has a lifetime consequence. Component-owned completion is
+ignored after the component unmounts. Account hydration or a save which must
+finish after leaving the screen belongs in app-owned work instead.
+[Compose effects](/compose/) shows both outcomes; [Resources and async](/docs/guides/resources-and-async/)
+explains jobs, services and resources.
+
+Use a real loading state and `Spinner`, and show a recoverable failure rather
+than leave a button labelled “Saving” indefinitely. A failure is part of the
+product flow, not just a log message.
+
+## 4. Styling and theme
+
+SwiftUI environment values and Fission `Env` both provide cross-cutting inputs,
+but they are not interchangeable stores for arbitrary application data.
+Fission's environment holds theme, locale, route and host context.
+
+Install the generated DSP design system at startup. Read its tokens in the
+view setup block and let standard widgets own their recipes. A `Card` already
+has surface styling; a `FormControl` already relates a label and validation
+message to a control. Rebuilding those from boxes loses more than convenience.
+
+The same declared paint must lower to the chosen target. A SwiftUI material
+effect does not imply that Terminal or Static site output can reproduce the
+same compositing result.
+
+## 5. Routing
+
+A `NavigationStack` stores navigation history. In Fission the shell adapts
+platform history and reports `ShellRouteChanged`; the app's route handler
+updates its current path and the native `Router` matches it.
+
+```rust
+fission_component! {
+    pub AccountRoutes<AppState>
+    view(_routes, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/account", AccountScreen)
+        .route_component("/account/settings", SettingsScreen)
+}
+```
+
+This excerpt assumes the named screens and a route handler on the app shell.
+Use `RouteParams` for validated dynamic segments. Use
+[ProtectedRoute](/reference/widgets/protected-route/) when session restoration
+must resolve before constructing a screen. That UI boundary does not authorize
+an API request on its own.
+
+## 6. Testing
+
+An XCTest which launches the app checks a different boundary from a pure
+state test. Keep that distinction in Fission:
+
+| Requirement | Fission test surface |
+| --- | --- |
+| State transition | Reducer or ordinary Rust unit test |
+| Layout, text and semantic tree | `TestHarness` |
+| Real keyboard, focus and pointer input | `LiveTestClient` and `/cmd` |
+| iOS permission or host behaviour | Simulator/device qualification as appropriate |
+
+Give interactive controls accessible labels and stable semantic identifiers.
+Test on a physical device for hardware behaviour rather than infer it from a
+Web preview. Follow [Write a live UI test](/docs/cookbook/write-a-live-ui-test/)
+for process lifecycle and screenshot capture.
+
+## Vocabulary map
+
+| SwiftUI concept | Closest Fission concept | Important difference |
+| --- | --- | --- |
+| `View` | `fission_component!` and `view(...)` | The macro generates a retained widget description. |
+| `@State` | Component `state` or `GlobalState` | Choose by ownership and lifetime. |
+| `@StateObject` / model | `GlobalState` and services/resources | State is not automatically durable storage. |
+| `Environment` | `Env` | Environment and product facts remain distinct. |
+| `.task` | Effect, job or resource | Work is requested outside component conversion. |
+| `NavigationStack` | Native `Router` plus shell history | Route state is app-owned and target-normalized. |
+
+## Common instincts to adjust
+
+Do not mistake a concise state field for ordinary mutable view data. Retained
+state belongs to a widget identity, so reorderable rows need durable data keys.
+Do not clone one retained widget into several responsive branches.
+
+Keep useful SwiftUI practices around accessibility and explicit data flow.
+Fission adds several target shells, not a reason to weaken those practices.
+
+## What to read next
+
+- [Complete task app](/blog/build-a-single-page-web-app-in-rust/)
+- [Compose API](/compose/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Resources and async](/docs/guides/resources-and-async/)
+- [Testing Fission apps](/docs/learn/testing/)

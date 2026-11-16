@@ -1,0 +1,64 @@
+---
+title: Priority queue bars
+sidebar_label: Priority queue bars
+description: Compare outstanding work by priority without sorting urgency away.
+---
+
+# Priority queue bars
+
+![Priority queue bars screenshot](/img/charts/bar-priority-queue.png)
+
+The largest queue is not necessarily the most urgent one. A priority overview should keep critical work visible even when there are only a few critical tickets. Preserve the application's priority order rather than sorting every view by ticket count.
+
+Rounded bars change presentation, not meaning. The priority labels and counts still need to be readable without relying on a colour associated with urgency.
+
+## Compose example
+
+The parent supplies rows in priority order, from most urgent to least urgent, and obtains their counts from the same outstanding-work query.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct PriorityCount {
+    pub priority_label: String,
+    pub open_tickets: f32,
+}
+
+fission_component! {
+    pub PriorityQueuesChart<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            corner_radius: f32,
+            rows: Vec<PriorityCount>,
+        }
+    }
+    view(queues, _state, _cx) {
+        let labels = queues.rows.iter().map(|row| row.priority_label.as_str()).collect();
+        let counts = queues.rows.iter().map(|row| row.open_tickets).collect();
+    } => Chart(
+        title: Some(queues.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![
+            Series::Bar(BarSeries::new(&queues.tickets_label)
+                .border_radius(queues.corner_radius)
+                .data(counts)),
+        ],
+    )
+}
+```
+
+Enable Fission's `charts` feature. `BarSeries::border_radius(f32)` supplies the rounding, whilst `data(Vec<f32>)` supplies the values. Take the radius from the parent's design system and provide translated labels as props.
+
+## Checks
+
+Test that a critical queue stays first when a lower-priority queue grows. Distinguish a genuine zero count from a failed query: an unavailable count must not make urgent work appear absent.
+
+Provide exact counts in an accessible list or table and inspect long translated priority names at narrow widths. If selecting a bar opens a filtered ticket list, handle that through a typed chart event and reducer using the priority's durable identifier, not its translated label. The screenshot uses gallery sample data.
+
+Tags: `bar`, `rounded`.
+
+[Bar family overview](./overview)

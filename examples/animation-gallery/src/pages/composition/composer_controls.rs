@@ -1,7 +1,6 @@
 use crate::state::{set_composition_atoms, AnimationGalleryState, MotionAtom, SetCompositionAtoms};
 use crate::style;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 
 const AVAILABLE_ATOMS: [MotionAtom; 6] = [
@@ -13,75 +12,66 @@ const AVAILABLE_ATOMS: [MotionAtom; 6] = [
     MotionAtom::Scale,
 ];
 
-pub(super) struct ComposerControls<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ComposerControls<'_>> for Widget {
-    fn from(controls: ComposerControls<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let mut undo = controls.state.composition_atoms.clone();
+fission_component! {
+    pub(super) ComposerControls<AnimationGalleryState> |_controls, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let mut undo = state.composition_atoms.clone();
         undo.pop();
-
-        let add_buttons = AVAILABLE_ATOMS
-            .into_iter()
-            .map(|atom| {
-                let mut next = controls.state.composition_atoms.clone();
-                next.push(atom);
-                ui::SmallButton {
-                    ctx: controls.ctx,
-                    label: add_atom_label(atom),
-                    action: SetCompositionAtoms(next),
-                    reducer: set_composition_atoms,
-                }
-                .into()
-            })
-            .collect();
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                ui::SectionTitle {
-                    title: "Composition Builder",
-                },
-                Wrap {
-                    direction: FlexDirection::Row,
-                    spacing: Some(tokens.spacing.s),
-                    run_spacing: None,
-                    children: add_buttons,
-                },
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        ui::SmallButton {
-                            ctx: controls.ctx,
-                            label: "Undo Last",
-                            action: SetCompositionAtoms(undo),
-                            reducer: set_composition_atoms,
-                        },
-                        ui::SmallButton {
-                            ctx: controls.ctx,
-                            label: "Clear",
-                            action: SetCompositionAtoms(Vec::new()),
-                            reducer: set_composition_atoms,
-                        },
-                        Text::new(format!("{} atoms", controls.state.composition_atoms.len()))
-                            .size(tokens.typography.font_size_sm)
-                            .color(style::text_muted()),
-                    ],
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        })
+    } =>
+        Container(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    SectionTitle("Composition Builder".to_string()),
+                    Wrap(
+                        direction: FlexDirection::Row,
+                        spacing: tokens.spacing.s,
+                        children: [
+                            for atom in AVAILABLE_ATOMS {
+                                SmallButton(
+                                    add_atom_label(atom).to_string(),
+                                    cx.bind(
+                                        SetCompositionAtoms({
+                                            let mut next = state.composition_atoms.clone();
+                                            next.push(atom);
+                                            next
+                                        }),
+                                        reduce_with!(set_composition_atoms),
+                                    ),
+                                    key: add_atom_label(atom),
+                                )
+                            },
+                        ],
+                    ),
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            SmallButton(
+                                "Undo Last".to_string(),
+                                cx.bind(
+                                    SetCompositionAtoms(undo),
+                                    reduce_with!(set_composition_atoms),
+                                ),
+                            ),
+                            SmallButton(
+                                "Clear".to_string(),
+                                cx.bind(
+                                    SetCompositionAtoms(Vec::new()),
+                                    reduce_with!(set_composition_atoms),
+                                ),
+                            ),
+                            Text(format!("{} atoms", state.composition_atoms.len()))
+                                .size(tokens.typography.font_size_sm)
+                                .color(style::text_muted()),
+                        ],
+                    ),
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.s)
         .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
         .bg(style::surface_sunken())
-        .into()
-    }
 }
 
 fn add_atom_label(atom: MotionAtom) -> &'static str {

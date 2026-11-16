@@ -1,0 +1,43 @@
+---
+title: Dynamic single-axis events
+sidebar_label: Dynamic single-axis events
+description: Refresh a meaningful one-dimensional departure/load strip through ordinary component inputs.
+---
+
+# Dynamic single-axis events
+
+![Dynamic single-axis events screenshot](/img/charts/dynamic-single-axis-events.png)
+
+A refreshed event strip should preserve what position and size mean. For departures, position can remain elapsed time from the declared service-day origin and size can remain passenger load.
+
+The [single-axis example](../coordinates/single-axis) defines `DepartureLoad` and `DepartureLoadStrip`. Put them in `widgets/departure_load_strip.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::departure_load_strip::{DepartureLoad, DepartureLoadStrip};
+
+fission_component! {
+    pub CurrentDepartureLoads<()> {
+        props {
+            title: String,
+            passengers_label: String,
+            explanation: TextContent,
+            departures: Vec<DepartureLoad>,
+        }
+    }
+    view(current, _state, _cx) => DepartureLoadStrip {
+        title: current.title.clone(),
+        passengers_label: current.passengers_label.clone(),
+        explanation: current.explanation.clone(),
+        departures: current.departures.clone(),
+    }
+}
+```
+
+The actual series is `SingleAxisSeries`, not an unrelated line chart. Validate finite positions and keep translated units, departure details and source IDs outside the plotted pairs.
+
+The renderer derives the horizontal scale from the current data and uses nonsemantic visual lanes with relative marker sizes. An update can therefore move unchanged observations as bounds change; this is not a fixed-scale live timetable.
+
+Test added and removed departures, coincident positions and a service-day boundary. Provide an accessible departure list with exact times and loads. Refresh it through normal effects and reducers, with explicit loading and error states. The gallery screenshot does not prove streaming behaviour.
+
+[Dataset and dynamic family overview](./overview)

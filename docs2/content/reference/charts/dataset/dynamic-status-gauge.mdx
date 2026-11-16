@@ -1,0 +1,50 @@
+---
+title: Live status gauge
+sidebar_label: Live status gauge
+description: Represent a refreshed completion percentage without inventing a gauge domain.
+---
+
+# Live status gauge
+
+![Live status gauge screenshot](/img/charts/dynamic-status-gauge.png)
+
+A status gauge needs a bounded quantity. For an import job, the percentage of validated records is meaningful; an unbounded record count is not a percentage just because a dial is convenient.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries, Series};
+
+fission_component! {
+    pub ImportValidationProgress<()> {
+        props {
+            title: String,
+            progress_label: String,
+            summary: TextContent,
+            validated: u32,
+            total: u32,
+        }
+    }
+    view(report, _state, _cx) {
+        let percent = if report.total == 0 {
+            None
+        } else {
+            Some(100.0 * report.validated as f32 / report.total as f32)
+        };
+    } => Column(children: [
+        Text(report.summary.clone()),
+        if let Some(percent) = percent {
+            Chart(
+                title: Some(report.title.clone()),
+                series: vec![Series::Gauge(GaugeSeries::new(&report.progress_label)
+                    .data(vec![(report.progress_label.as_str(), percent)]))],
+            )
+        },
+    ])
+}
+```
+
+The parent supplies translated text and must validate `validated <= total`. For a zero total, its summary should explain whether the job is empty or its size is not yet known. The omitted dial avoids displaying an invented 0%. Use a real spinner for an indeterminate running job.
+
+The gauge renderer uses the first datum on a fixed 0–100 scale. Keep the exact counts in the summary and update them together from a completed progress event or effect. Test zero, partial and complete jobs, invalid counts, failure and cancellation. This component does not run the import, and the gallery screenshot uses separate data.
+
+[Dataset family overview](./overview)

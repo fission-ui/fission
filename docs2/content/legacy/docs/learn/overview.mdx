@@ -1,0 +1,54 @@
+---
+title: Learn overview
+description: Understand what Fission is, why its architecture matters, and how one app model reaches macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
+---
+
+# Learn overview
+
+The hard part of a user interface is not drawing the buttons. It’s keeping the app understandable as it grows: knowing where state lives, what starts background work, and why the same interaction behaves differently on another target.
+
+Fission is a Rust UI framework for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR. It gives the app one shared model and makes state changes, outside work, and platform boundaries explicit. That structure is useful from the first screen, and it matters even more once several people are changing the same product.
+
+## Why someone chooses Fission
+
+Fission is built to make behavior repeatable. Given the same starting state and the same inputs in the same order, the app should reach the same result. That makes bugs easier to reproduce, tests more useful, and refactors easier to check.
+
+The app’s product data lives in Rust state. Actions name what the user did. Reducers apply the state change. Effects handle work outside the reducer, such as a network request or file picker. Rendering reads the current state and describes the UI; it does not quietly mutate product data or start outside work.
+
+## How a Fission app works
+
+The app flow is straightforward:
+
+1. **State** holds product data: the current route, selected message, open dialog, search query, or task progress.
+2. **Actions** name user intent, such as selecting a message or submitting a form.
+3. **Reducers** apply the rules and update state.
+4. **Widgets** read state and describe the current interface.
+5. **Shells** connect that shared app to a desktop window, browser, phone, terminal, static-site build, or SSR process.
+
+The shell handles platform input, lifecycle events, output, and supported accessibility bridges. It does not redefine product behavior. Browser setup, mobile packaging, and simulator workflows differ, but the shared state and reducer flow do not.
+
+## Why this architecture helps production teams
+
+When something goes wrong, start at the layer that owns it: state and reducers for incorrect data, widgets and layout for a wrong screen, or the shell for platform input. Fission also exposes layout, semantics, paint order, and action traces so tests can check more than screenshots. The same shared behavior can then run through different hosts without copying the product rules into each one.
+
+Fission is Rust-first: types and explicit transitions are part of the app model, not a wrapper around a separate UI language.
+
+## A concrete mental picture
+
+Take a mail app. State holds the mailbox, selected conversation, search query, and whether compose is open. Selecting a message dispatches an action; its reducer updates the selection, and the widgets render the matching list and detail pane. Loading more messages is requested as outside work, and its result returns through another action. Desktop, Web, Android, and iOS can host the same app model; only their host setup and validation differ.
+
+## Read next
+
+Open [Quickstart](/docs/learn/quickstart) next if you want to run something immediately and make the model concrete.
+
+Then read [Runtime model](/docs/learn/runtime-model) to learn what your app owns, what the runtime owns, and why Fission separates long-lived product state from cross-frame interaction state.
+
+After that, read [Rendering pipeline](/docs/learn/rendering-pipeline) to see how widgets become layout, accessibility information, and painted output.
+
+Then read [Accessibility in Fission](/docs/learn/accessibility) to understand how roles, labels, semantic identifiers, focus, text selection, and control actions reach screen readers, LiveTest selectors, static HTML, and target-specific shells.
+
+Then read [Testing Fission apps](/docs/learn/testing) to connect the architecture
+to reducer tests, headless integration tests, LiveTest, selector-driven
+automation, screenshots, and the `/cmd` protocol.
+
+For runnable examples and the available hosts, continue to [Examples and targets](/docs/learn/examples-and-targets).

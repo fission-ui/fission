@@ -17,8 +17,8 @@ api-status = "alpha"
 
 [dependencies]
 base64 = "0.22"
-fission-core = { path = "../fission-core", version = "0.15.1" }
-fission-ir = { path = "../fission-ir", version = "0.15.1" }
+fission-core = { path = "../fission-core", version = "0.16.0" }
+fission-ir = { path = "../fission-ir", version = "0.16.0" }
 fission-scene = { path = "../fission-scene", version = "=0.1.0-alpha.1" }
 glam = { version = "0.29", features = ["serde"] }
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }

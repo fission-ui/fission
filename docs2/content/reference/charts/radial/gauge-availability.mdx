@@ -1,0 +1,54 @@
+---
+title: Availability gauge
+sidebar_label: Availability gauge
+description: Fission Charts reference for Availability gauge.
+---
+
+# Availability gauge
+
+![Availability gauge screenshot](/img/charts/gauge-availability.png)
+
+Availability is a measurement over a defined interval, not a permanent property of a service. A gauge can summarise that interval, but the reader still needs its boundaries and the definition of an available observation. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example presents successful eligible requests as a percentage of all eligible requests in a service report. It is not time-based uptime. A small denominator or a missing observation window must remain visible rather than appearing as an ordinary healthy percentage.
+
+## Data model
+
+Calculate the percentage from the authoritative success and eligible counts before rendering. `GaugeSeries` displays only its first pair on a fixed 0–100 arc. Its rounded label and needle are not precise enough to compare nearby high-availability targets.
+
+## Authoring from a Fission component
+
+The component receives the prepared percentage and parent-localized labels. Show the exact rate, counts and reporting period beside it when assessing a service objective.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RequestAvailabilityGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            value_label: String,
+            success_percent: f32,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![GaugeSeries::new(&report.series_label)
+            .data(vec![(&report.value_label, report.success_percent)])
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test no eligible requests, partial collection and a rate just below the service objective. Do not let rounded display text convert a failed objective into an apparent pass. Keep objective evaluation in the domain policy and preserve incident details outside the gauge.
+
+Tags: `gauge`, `availability`.
+
+[Radial family overview](./overview)

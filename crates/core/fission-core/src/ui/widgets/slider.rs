@@ -1,4 +1,5 @@
 use crate::authoring::Lower;
+use crate::input::slider::normalize_slider_value;
 use crate::lowering::wrap_zstack_child;
 use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ActionEnvelope;
@@ -12,8 +13,8 @@ use serde::{Deserialize, Serialize};
 /// thumb.
 ///
 /// The thumb position is determined by `value` within the `[min, max]` range.
-/// Dragging dispatches the `on_change` action with the new value carried as
-/// pointer input (see [`crate::ActionInput::as_pointer`]).
+/// Dragging dispatches the `on_change` action with its numeric payload updated
+/// to the new value while preserving a transparent, tuple or named action shape.
 ///
 /// # Example
 ///
@@ -36,12 +37,23 @@ pub struct Slider {
     /// Stable identifier exposed on the slider's interactive semantics node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantics_identifier: Option<String>,
+    /// Accessible name announced by assistive technology.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Semantic label nodes that name this slider.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labelled_by: Vec<WidgetId>,
     /// Current value (clamped to `[min, max]`).
     pub value: f32,
     /// Minimum value (default: 0.0).
     pub min: f32,
     /// Maximum value (default: 1.0).
     pub max: f32,
+    /// Optional increment used for pointer snapping and keyboard adjustment.
+    /// Without one, pointer movement is continuous and keyboard input moves by
+    /// one percent of the configured range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f32>,
     /// Visual track height in layout points. Defaults to twice the design system's
     /// thick border width (4px in Fission's default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,6 +86,24 @@ impl Slider {
         self.semantics_identifier = Some(identifier.into());
         self
     }
+
+    /// Sets the accessible name announced for this slider.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Associates this slider with one or more semantic label nodes.
+    pub fn labelled_by(mut self, labelled_by: impl IntoIterator<Item = WidgetId>) -> Self {
+        self.labelled_by = labelled_by.into_iter().collect();
+        self
+    }
+
+    /// Sets the positive increment used for snapping and keyboard adjustment.
+    pub fn step(mut self, step: f32) -> Self {
+        self.step = Some(step);
+        self
+    }
 }
 
 impl Default for Slider {
@@ -81,9 +111,12 @@ impl Default for Slider {
         Self {
             id: None,
             semantics_identifier: None,
+            label: None,
+            labelled_by: Vec::new(),
             value: 0.0,
             min: 0.0,
             max: 1.0,
+            step: None,
             track_height: None,
             thumb_size: None,
             track_fill: None,
@@ -97,6 +130,7 @@ impl Default for Slider {
 impl Lower for Slider {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
+        let value = normalize_slider_value(self.value, self.min, self.max, self.step);
         let layout_id = cx.with_scope(id, |cx| {
             let tokens = &cx.env.theme.tokens;
             let thumb_size = self.thumb_size.unwrap_or(tokens.sizing.icon_md).max(1.0);
@@ -107,7 +141,7 @@ impl Lower for Slider {
             let control_height = thumb_size.max(track_height);
 
             let range = (self.max - self.min).max(0.0001);
-            let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
+            let pct = ((value - self.min) / range).clamp(0.0, 1.0) * 100.0;
 
             let layout_id = cx.next_node_id();
             let stack_id = cx.next_node_id();
@@ -382,12 +416,15 @@ impl Lower for Slider {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Slider,
             identifier: self.semantics_identifier.clone(),
-            value: Some(format!("{:.2}", self.value)),
+            label: self.label.clone(),
+            labelled_by: self.labelled_by.clone(),
+            value: Some(format!("{value:.2}")),
             focusable: true,
             draggable: true,
             min_value: Some(self.min),
             max_value: Some(self.max),
-            current_value: Some(self.value),
+            current_value: Some(value),
+            step_value: self.step.filter(|step| step.is_finite() && *step > 0.0),
             ..fission_ir::Semantics::default()
         };
 

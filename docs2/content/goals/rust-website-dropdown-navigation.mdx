@@ -1,0 +1,328 @@
+---
+layout: goal
+title: Build a Rust website with accessible dropdown navigation
+description: Build a responsive Rust website with an accessible dropdown menu, direct page routes, and a static build using Fission.
+goal: Publish a responsive Rust website with an accessible Products menu
+path: /tutorials/build-a-rust-website-with-dropdown-navigation/
+order: 1
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission site serve --project-dir ."
+app: rust-website-dropdown-navigation
+outcomes:
+  - Render product links in the site header
+  - Use a browser-owned disclosure instead of duplicate app state
+  - Check every destination and keyboard path
+---
+
+A Products link and a control that reveals more links do different jobs. Combining both into one ambiguous target makes visitors guess whether activation navigates or expands something.
+
+We will build Harbour with a separate overview link and a browser-owned disclosure for the other product pages. The Static site shell emits native links, details and summary elements from Compose. This is document navigation, not an ARIA application menu: ordinary Tab navigation is appropriate, and we are not promising menu-style arrow keys or Escape dismissal.
+
+## Create the project
+
+```sh
+cargo install cargo-fission
+fission init harbour-site --template website
+cd harbour-site
+cargo add serde_yaml
+```
+
+Keep the generated launcher, replace `src/lib.rs`, and add the modules below. Every checkpoint builds this actual HTML project. No local active_page enum or preview-only copy of its content is involved. Replace the reserved public origin before publishing.
+
+<!-- fission:step id="start-screen" -->
+## Establish the destinations before hiding them
+
+Start with visible links. Each destination is a real route that can be opened directly, refreshed or shared. `Page` keeps stable paths separate from translated wording; `root` accounts for the route's depth so links also work beneath an embedded preview directory.
+
+<Tabs>
+<TabItem label="fission.toml">
+<!-- fission:file path="fission.toml" -->
+```toml
+targets = ["static-site"]
+
+[app]
+name = "harbour-site"
+app_id = "rs.example.harbour.site"
+
+[site]
+routes = []
+entry = "crate::site_app"
+title = "Harbour software"
+description = "Project tools for desktop and mobile work."
+base_url = "https://harbour-site.example.com"
+out_dir = "dist/site"
+default_locale = "en-US"
+locales = ["en-US", "es-ES"]
+generate_sitemap = true
+generate_robots = true
+asset_dirs = ["assets"]
+css_files = ["assets/navigation.css"]
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod page;
+mod navigation;
+mod translations;
+pub fn site_app() -> fission::site::FissionSite {
+    use page::{Page, ProductPage};
+    let mut site = fission::site::FissionSite::new().with_env(translations::create_env());
+    for page in [Page::Home, Page::Overview, Page::Desktop, Page::Mobile] {
+        site = site.route_widget::<(), _>(page.path(), page.title(),
+            Some(page.description().into()), ProductPage::new(page));
+    }
+    site
+}
+pub fn build_site() -> anyhow::Result<()> {
+    fission::site::build_from_cli(site_app())
+}
+```
+</TabItem>
+
+<TabItem label="src/page.rs">
+<!-- fission:file path="src/page.rs" -->
+```rust
+use crate::navigation::ProductNavigation;
+use fission::prelude::*;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page { Home, Overview, Desktop, Mobile }
+impl Page {
+    pub fn path(self) -> &'static str {
+        match self { Self::Home => "/", Self::Overview => "/products/",
+            Self::Desktop => "/products/desktop/", Self::Mobile => "/products/mobile/" }
+    }
+    pub fn root(self) -> &'static str {
+        match self { Self::Home => "", Self::Overview => "../", _ => "../../" }
+    }
+    pub fn title(self) -> &'static str {
+        match self { Self::Home => "Harbour software", Self::Overview => "Harbour products",
+            Self::Desktop => "Harbour desktop tools", Self::Mobile => "Harbour mobile tools" }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Home => "Keep a project plan available at the desk and in the field.",
+            Self::Overview => "Compare Harbour's desktop and mobile project tools.",
+            Self::Desktop => "Review the plan and assign the next task from a desktop.",
+            Self::Mobile => "Take the next task into the field on Android and iOS.",
+        }
+    }
+    pub fn content_keys(self) -> (&'static str, &'static str) {
+        match self { Self::Home => ("home.title", "home.body"),
+            Self::Overview => ("overview.title", "overview.body"),
+            Self::Desktop => ("desktop.title", "desktop.body"),
+            Self::Mobile => ("mobile.title", "mobile.body") }
+    }
+}
+fission_component! {
+    pub ProductPage<()> { props { page: Page } }
+    view(site, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let (title, body) = site.page.content_keys();
+    } =>
+    Container(Column(gap: tokens.spacing.xl, children: [
+        ProductNavigation(site.page),
+        SemanticsRegion(identifier: Some("site-main".into()), child:
+            Column(gap: tokens.spacing.m, children: [
+                SemanticsRegion(identifier: Some("site-heading-1:title".into()), child:
+                    Text(cx.tr(title)).size(tokens.typography.heading1_size)),
+                Text(cx.tr(body)),
+                Link::to(cx.tr("nav.overview"), format!("{}products/", site.page.root())),
+            ])),
+    ])).padding_all(tokens.spacing.l).bg(tokens.colors.background)
+}
+```
+</TabItem>
+
+<TabItem label="src/navigation.rs">
+<!-- fission:file path="src/navigation.rs" -->
+```rust
+use crate::page::Page;
+use fission::prelude::*;
+fission_component! {
+    pub ProductNavigation<()> { props { page: Page } }
+    view(nav, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let root = nav.page.root();
+    } =>
+    SemanticsRegion(identifier: Some("site-navigation".into()), label: Some(cx.tr("nav.label")), child:
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+            Link::to(cx.tr("brand"), if root.is_empty() { "./" } else { root }),
+            Link::to(cx.tr("nav.overview"), format!("{root}products/")),
+            Link::to(cx.tr("nav.desktop"), format!("{root}products/desktop/")),
+            Link::to(cx.tr("nav.mobile"), format!("{root}products/mobile/")),
+        ]))
+}
+```
+</TabItem>
+
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in translations must be valid YAML");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+brand: "Harbour"
+nav.label: "Product navigation"
+nav.overview: "Products overview"
+nav.desktop: "Desktop tools"
+nav.mobile: "Mobile tools"
+nav.pages: "Product pages"
+home.title: "Keep the plan available where the work happens"
+home.body: "A team needs the same task and owner at the desk and in the field. Harbour's product pages explain what each interface is intended to do."
+overview.title: "Choose the interface for the next task"
+overview.body: "Use a desktop to review and assign work. Use a phone to consult the next task away from the desk. These are fictional product descriptions, not downloads or promises of an implemented service."
+desktop.title: "Review the plan at a desk"
+desktop.body: "Compare tasks, check the owner and decide what should happen next. A wider screen makes those related facts easier to inspect together."
+mobile.title: "Take the next task into the field"
+mobile.body: "A phone view should put the assigned task and useful context first. It should not shrink a desktop dashboard until every control becomes difficult to reach."
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+brand: "Harbour"
+nav.label: "Navegación de productos"
+nav.overview: "Resumen de productos"
+nav.desktop: "Herramientas de escritorio"
+nav.mobile: "Herramientas móviles"
+nav.pages: "Páginas de productos"
+home.title: "Mantén el plan disponible donde se realiza el trabajo"
+home.body: "El equipo necesita la misma tarea y responsable en la oficina y fuera de ella. Estas páginas explican para qué sirve cada interfaz."
+overview.title: "Elige la interfaz para la siguiente tarea"
+overview.body: "Usa el escritorio para revisar y asignar trabajo. Consulta la tarea en el teléfono fuera de la oficina. Son descripciones de productos ficticios, no descargas ni servicios implementados."
+desktop.title: "Revisa el plan en el escritorio"
+desktop.body: "Compara tareas, revisa quién es responsable y decide qué sigue. Una pantalla amplia permite consultar esos datos relacionados juntos."
+mobile.title: "Lleva la siguiente tarea contigo"
+mobile.body: "La vista móvil debe mostrar primero la tarea asignada y su contexto. No debe reducir un panel de escritorio hasta volver difíciles sus controles."
+```
+</TabItem>
+
+<TabItem label="assets/navigation.css">
+<!-- fission:file path="assets/navigation.css" -->
+```css
+a:focus-visible, summary:focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Follow Desktop tools, then Mobile tools, then Harbour. Reload each direct URL. Check that the title and description identify the page you opened.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Let the browser own the disclosure
+
+The `site-disclosure:` and matching `site-disclosure-summary:` identifiers are the Static site shell's existing HTML conventions. The summary must belong to the disclosure with the same suffix. A named component owns that structure, so another screen cannot accidentally separate them.
+
+The browser owns open and closed state. There is no effect, reducer or menu_open field to duplicate it. The Products overview remains an independent link, including when the disclosure is closed.
+
+<Tabs>
+<TabItem label="src/navigation.rs">
+<!-- fission:file path="src/navigation.rs" -->
+```rust
+use crate::page::Page;
+use fission::prelude::*;
+fission_component! {
+    pub ProductNavigation<()> { props { page: Page } }
+    view(nav, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let root = nav.page.root();
+    } =>
+    SemanticsRegion(identifier: Some("site-navigation".into()), label: Some(cx.tr("nav.label")), child:
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+            Link::to(cx.tr("brand"), if root.is_empty() { "./" } else { root }),
+            Link::to(cx.tr("nav.overview"), format!("{root}products/")),
+            SemanticsRegion(identifier: Some("site-disclosure:products".into()), child:
+                Column(children: [
+                    SemanticsRegion(identifier: Some("site-disclosure-summary:products".into()), child:
+                        Text(cx.tr("nav.pages"))),
+                    SemanticsRegion(identifier: Some("product-links".into()), child:
+                        Container(Column(gap: tokens.spacing.m, children: [
+                            Link::to(cx.tr("nav.desktop"), format!("{root}products/desktop/")),
+                            Link::to(cx.tr("nav.mobile"), format!("{root}products/mobile/")),
+                        ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface)
+                            .border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium)),
+                ])),
+        ]))
+}
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Use Tab to reach Product pages and Enter or Space to toggle it. Tab into the revealed links and follow Desktop tools. Confirm the separate overview link remains usable when the disclosure is closed.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Make the wide-screen dropdown fit a narrow page
+
+On a wide screen the links can sit beneath their summary. On a phone they return to document flow, where opening them cannot cover the article or push a destination outside the viewport. The surface colours still come from the component's theme tokens; CSS supplies only the positioning rule.
+
+Native details does not automatically close when you click elsewhere, and it is not a modal. Do not describe those behaviours as implemented. Following a link loads another document with its own initially closed disclosure.
+
+<Tabs>
+<TabItem label="assets/navigation.css">
+<!-- fission:file path="assets/navigation.css" -->
+```css
+a:focus-visible, summary:focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+[data-fission-semantics="site-disclosure:products"] { position: relative; }
+[data-fission-semantics="product-links"] { position: absolute; inset-block-start: 100%; inset-inline-end: 0; min-width: 14rem; z-index: 2; }
+@media (max-width: 40rem) {
+  [data-fission-semantics="product-links"] { position: static; min-width: 0; max-width: 100%; }
+}
+```
+</TabItem>
+
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+At phone width, open the disclosure with a long translation and reach both destinations. On desktop, confirm its surface does not clip the links. Repeat with JavaScript disabled.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Build and qualify the navigation
+
+```sh
+fission site build --project-dir .
+fission site check --project-dir .
+fission site serve --project-dir . --port 8123
+curl http://127.0.0.1:8123/products/desktop/
+```
+
+Inspect the response for real href destinations and a details/summary pair. A coloured rectangle that looks like a dropdown does not establish keyboard behaviour; activate the rendered controls and verify each destination.
+
+- [Static sites](/docs/guides/static-sites/)
+- [Accessibility](/reference/platform/accessibility/)

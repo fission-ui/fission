@@ -1,0 +1,57 @@
+---
+title: Visual map component
+sidebar_label: Visual map component
+description: Map heatmap values through an explicit design-system colour range.
+---
+
+# Visual map component
+
+![Visual map component screenshot](/img/charts/component-visual-map.png)
+
+When colour represents a number, the scale is part of the report. Letting each view choose unrelated endpoints can make identical colours mean different amounts.
+
+For a support workload matrix, use one known scale for ticket counts by hour and team. Keep unavailable cells distinct from observed zeros.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, HeatmapSeries, Series, VisualMap};
+
+fission_component! {
+    pub TeamHourWorkload<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            hours: Vec<String>,
+            teams: Vec<String>,
+            counts: Vec<Vec<Option<u32>>>,
+            scale_max: f32,
+            scale_colours: Vec<Color>,
+        }
+    }
+    view(workload, _state, _cx) {
+        let hours = workload.hours.iter().map(String::as_str).collect();
+        let teams = workload.teams.iter().map(String::as_str).collect();
+        let cells = workload.counts.iter().enumerate().flat_map(|(team, row)|
+            row.iter().enumerate().filter_map(move |(hour, count)|
+                count.map(|value| (hour, team, value as f32))
+            )
+        ).collect();
+    } => Chart(
+        title: Some(workload.title.clone()),
+        x_axis: Some(Axis::category(hours)),
+        y_axis: Some(Axis::category(teams)),
+        visual_map: Some(VisualMap::new().min(0.0).max(workload.scale_max)
+            .in_range_colors(workload.scale_colours.clone())),
+        series: vec![Series::Heatmap(
+            HeatmapSeries::new(&workload.tickets_label).data(cells),
+        )],
+    )
+}
+```
+
+Put the component in `widgets/team_hour_workload.rs`. Validate matrix dimensions against the axes, finite positive scale maximum and a deliberate theme-derived colour sequence. Require observed values within the declared range or explain saturation explicitly.
+
+Missing cells are omitted; they must not become zero counts through aggregation. Supply translated team/hour labels and an accompanying value table and scale explanation. Test missing and zero cells, the upper bound and narrow layouts. Do not rely on a red/green pair as the only distinction. The gallery image uses separate data.
+
+[Components and interaction family overview](./overview)

@@ -1,0 +1,63 @@
+---
+title: Deployment event line
+sidebar_label: Deployment event line
+description: Fission Charts reference for Deployment event line.
+---
+
+# Deployment event line
+
+![Deployment event line screenshot](/img/charts/line-deployment-events.png)
+
+A deployment-event line puts recorded releases beside the measurements around them. That gives an operator somewhere to begin an investigation without forcing a separate comparison of timestamps. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The events establish timing, not causation. A release followed by increased latency may be relevant, but the chart cannot rule out a traffic change or another service's failure.
+
+## Data model
+
+Line values are response times in milliseconds. Deployment MarkPoint values use category indices on x and milliseconds on y, so resolve each release into the same buckets before constructing the chart. Pass a collection to support several deployments without losing their names.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching labels. This component does not start work or mutate application state while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkPoint};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeploymentEventLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            response_ms: Vec<f32>,
+            deployments: Vec<MarkPoint>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            mark_points: report.deployments.clone(),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.response_ms.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check two deployments in one reporting window, a deployment between buckets and one outside the window. Re-map the event indices when filtering data so an old index cannot annotate the wrong sample.
+
+Tags: `line`, `deployment`.
+
+[Line family overview](./overview)

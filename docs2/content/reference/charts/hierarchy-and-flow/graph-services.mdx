@@ -1,0 +1,109 @@
+---
+title: Service graph
+sidebar_label: Service graph
+description: Fission Charts reference for Service graph.
+---
+
+# Service graph
+
+![Service graph screenshot](/img/charts/graph-services.png)
+
+A service graph puts observed or declared calls in their system context. This helps explain which downstream service may be involved when a request through the gateway fails. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Decide whether the graph represents configured dependencies or calls observed during a time window. An absent observed edge might mean no traffic was recorded, not that a dependency is impossible. The example represents declared service calls.
+
+## Data model
+
+Each service has a stable ID independent of its displayed name. Edges connect those IDs. Keep node values equal unless you also explain the measure represented by marker size; a larger circle must not silently mean higher request volume.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `GraphSeries::nodes` | `Vec<GraphNode>` | Supplies identified and named nodes. |
+| `GraphSeries::edges` | `Vec<GraphEdge>` | Connects source IDs to target IDs. |
+| `Chart::series` | `Vec<Series>` | Adds the relationship series without Cartesian axes. |
+
+`GraphEdge` is imported from `fission::charts::series::graph`.
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+let relationships = GraphSeries::new("Service calls")
+    .nodes(vec![
+        GraphNode {
+            id: "gateway".into(),
+            name: "Gateway".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "catalog".into(),
+            name: "Catalog".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "payments".into(),
+            name: "Payments".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "gateway".into(),
+            target: "catalog".into(),
+        },
+        GraphEdge {
+            source: "gateway".into(),
+            target: "payments".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Calls between application services")
+    .series(vec![relationships.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records outside the build, then pass them as props. The component does not discover services or run network requests while constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceGraphChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![GraphSeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check renamed services, missing endpoints and a temporarily disconnected service. If using observed calls, show the observation window and telemetry gaps outside the chart.
+
+Give users a readable list of connections as well as the visual. If selecting a node opens details, dispatch that selection through a reducer and resolve it against the current records.
+
+Tags: `graph`, `service`.
+
+[Hierarchy and flow family overview](./overview)

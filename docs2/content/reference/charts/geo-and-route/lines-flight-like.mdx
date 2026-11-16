@@ -1,0 +1,42 @@
+---
+title: Flight-like lines
+sidebar_label: Flight-like lines
+description: Distinguish an emphasized flight connection from tracked aircraft movement.
+---
+
+# Flight-like lines
+
+![Flight-like lines screenshot](/img/charts/lines-flight-like.png)
+
+A flight connection chart can show which airports exchanged passengers during a reporting period. It cannot establish the current location of an aircraft from only two endpoints and a passenger total.
+
+Use `ServiceConnections` from [lines](../geographic-and-route/lines-basic), placed in `widgets/service_connections.rs`. Its `emphasize` property selects the real `LinesSeries.effect` option:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::service_connections::{ServiceConnection, ServiceConnections};
+
+fission_component! {
+    pub FlightConnectionReport<()> {
+        props {
+            title: String,
+            passengers_label: String,
+            explanation: TextContent,
+            connections: Vec<ServiceConnection>,
+        }
+    }
+    view(report, _state, _cx) => ServiceConnections {
+        title: report.title.clone(),
+        connections_label: report.passengers_label.clone(),
+        explanation: report.explanation.clone(),
+        connections: report.connections.clone(),
+        emphasize: true,
+    }
+}
+```
+
+Supply actual aggregate records, with finite airport coordinates and passenger counts projected into each connection's value. Translate all visible text in the parent. The effect adds a marker around the connection midpoint; it does not animate a live aircraft along a geodesic or fetch flight data.
+
+The schematic normalises its own endpoints. Crossing the date line, comparing route lengths or locating an aircraft requires a geographical model not provided by this example. Test empty routes and routes sharing endpoints, and retain an exact route table. The gallery image is independent.
+
+[Geo and route family overview](./overview)

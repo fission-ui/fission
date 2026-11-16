@@ -1,0 +1,66 @@
+---
+title: Switch
+description: Toggle an immediate on or off setting with switch semantics.
+slug: /widgets/switch
+---
+# Switch
+
+`Switch` is for a setting that takes effect as soon as it changes, such as
+notifications or audio.
+
+Use [`Checkbox`](/reference/widgets/checkbox) when the choice is part of a
+form submission or a set of independent selections.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Default)]
+pub struct Preferences { notifications_enabled: bool }
+impl GlobalState for Preferences {}
+
+fission_component! {
+    pub NotificationSetting<Preferences> {}
+
+    view(_setting, state, cx) =>
+        FormControl(
+            label: Some(cx.tr("preferences.notifications")),
+            child: Switch(bind: state.notifications_enabled),
+        )
+}
+```
+
+The short binding supplies both the current value and its update action.
+This changes an app-wide preference in memory; a preference that must survive
+restart also needs the application's explicit Store save/hydration flow.
+Enabling notifications in this flag is not an operating-system permission grant.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `checked` | `bool` | Whether the switch is currently on. | Defaults to `false`. |
+| `disabled` | `bool` | Whether the control is unavailable. | Defaults to `false`; does not replace reducer-side permission checks. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the switch is pressed. | Defaults to `None`. |
+
+## Semantics and state flow
+
+`Switch` lowers a semantic switch role with the current checked state. That makes it a better accessibility match than styling a generic button to look like a switch.
+
+The action flow is straightforward: press the switch, dispatch `on_toggle`, update the boolean in the reducer, reconvert with the new `checked` value.
+
+## Specific advice
+
+Pair a switch with clear nearby text so the user knows what is being turned on or off. If the choice is part of a multi-select form or agreement checklist rather than an immediate setting, a checkbox is usually clearer.
+
+## Production checklist
+
+- Verify the visible label is attached to the actual switch node.
+- Test retained preference state separately from host notification permission.
+- Test Store failure and restart hydration if the setting is persisted.
+
+## Related
+
+[`Checkbox`](/reference/widgets/checkbox), [`Radio`](/reference/widgets/radio), [`Button`](/reference/widgets/button), and [`FormControl`](/reference/widgets/form-control).

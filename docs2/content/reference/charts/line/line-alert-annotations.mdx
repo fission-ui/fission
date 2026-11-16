@@ -1,0 +1,67 @@
+---
+title: Alert annotations
+sidebar_label: Alert annotations
+description: Fission Charts reference for Alert annotations.
+---
+
+# Alert annotations
+
+![Alert annotations screenshot](/img/charts/line-alert-annotations.png)
+
+An alert annotation keeps a recorded alert near the measurement it concerns. This gives a reader a starting point for investigation without requiring a separate search through incident history. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The marker identifies when the alert was opened. It does not explain the cause of the response-time change, and it should not move simply because the chart's reporting window was filtered.
+
+## Data model
+
+MarkPoint::xy takes chart coordinates: a category index on this x-axis and a response time in milliseconds on the y-axis. Resolve the alert into the same time buckets as the samples before building the component.
+
+## Authoring from a Fission component
+
+The example keeps four reporting buckets so the relationship between labels and samples is explicit. For a variable period, pass the matching labels with the values.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries, MarkPoint};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AlertAnnotationsChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            annotation_label: String,
+            category_labels: Vec<String>,
+            samples: Vec<f32>,
+            alert_index: f32,
+            alert_response_ms: f32,
+        }
+    }
+    view(report, _state, cx) {
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                report.category_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::value()),
+            mark_points: vec![MarkPoint::xy(
+                &report.annotation_label, report.alert_index, report.alert_response_ms,
+            ).color(colors.primary)],
+            series: vec![LineSeries::new(&report.series_label)
+                .data(report.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test alerts between buckets and outside the reporting range. Recompute category indices when the visible data changes, and keep the alert name and time available as readable text. Check the mark's label and contrast in both themes rather than relying on colour alone.
+
+Tags: `line`, `markers`.
+
+[Line family overview](./overview)

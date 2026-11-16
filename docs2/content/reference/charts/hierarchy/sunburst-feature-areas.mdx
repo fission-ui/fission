@@ -1,0 +1,92 @@
+---
+title: Feature area sunburst
+sidebar_label: Feature area sunburst
+description: Fission Charts reference for Feature area sunburst.
+---
+
+# Feature area sunburst
+
+![Feature area sunburst screenshot](/img/charts/sunburst-feature-areas.png)
+
+A feature-area sunburst shows how a set of completed work is distributed through the product. The hierarchy gives context to each item count rather than leaving a reader to compare an unrelated list of totals. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example counts completed work items, not developer effort or customer value. Equal counts can represent very different amounts of work. Use a named effort measure only when the source data genuinely supports that interpretation.
+
+## Data model
+
+Map each completed item to one leaf category, then build nested TreemapNode counts. Parent totals should be consistent with their children. Keep uncategorised work visible instead of dropping it to produce a cleaner diagram.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SunburstSeries::data` | `Vec<TreemapNode>` | Supplies the roots of the hierarchy. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Supplies each node's next level. |
+| `TreemapNode::value` | `f32` | Carries the numeric value associated with the node. |
+| `Chart::series` | `Vec<Series>` | Presents the hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Product".into(),
+    value: 80.0,
+    children: vec![
+        TreemapNode {
+            name: "Search".into(),
+            value: 35.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Checkout".into(),
+            value: 45.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Completed work by feature area")
+    .series(vec![SunburstSeries::new("Completed work items")
+        .data(nodes)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent prepares the hierarchy and its loading or error state. The chart component only presents the records supplied to it.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, SunburstSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FeatureAreaSunburstChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![SunburstSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check recategorised items and a feature area with no completed work. Reconcile the hierarchy against the completion list, and do not let a small slice hide work that needs explicit discussion.
+
+Tags: `sunburst`, `feature`.
+
+[Hierarchy family overview](./overview)

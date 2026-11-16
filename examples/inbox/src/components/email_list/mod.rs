@@ -8,20 +8,12 @@ mod toolbar;
 
 use crate::model::list::set_page;
 use crate::model::{Category, Email, Folder, InboxState, SetPage};
-use fission::core::ui::{Button, Container, Text, Widget};
-use fission::core::{reduce_with, WidgetId};
-use fission::icons::material;
-use fission::widgets::center::Center;
-use fission::widgets::{EmptyState, Icon, LazyColumn, Pagination, VStack};
+use fission::prelude::*;
 use header::ListHeader;
 use row::EmailRow;
 use std::sync::Arc;
 use tabs::FolderTabs;
 use toolbar::ListToolbar;
-
-pub struct EmailList {
-    pub folder: String,
-}
 
 /// Layout decisions that depend on the space available.
 ///
@@ -79,14 +71,12 @@ fn folder_path(folder: &Folder) -> String {
     }
 }
 
-impl From<EmailList> for Widget {
-    fn from(component: EmailList) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-        let viewport = view.viewport_size();
+fission_component! {
+    pub EmailList<InboxState> { folder: String } |list, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport = cx.view.viewport_size();
         let layout = ListLayout::for_viewport(viewport.width, viewport.height);
-        let folder = folder_from_route(&component.folder);
+        let folder = folder_from_route(&list.folder);
 
         let mut emails: Vec<&Email> = state
             .emails
@@ -132,100 +122,77 @@ impl From<EmailList> for Widget {
             .iter()
             .filter(|email| email.folders.contains(&folder) && !email.is_read)
             .count();
-
-        let list_body: Widget = if emails.is_empty() {
-            EmptyState {
-                icon: Some(
-                    Icon::svg(material::content::inbox::regular())
-                        .size(tokens.spacing.xxl)
-                        .color(tokens.colors.text_primary)
-                        .into(),
+        let page = &emails[start..end];
+        let path = folder_path(&folder);
+        let pages: Vec<_> = (0..=total_pages)
+            .map(|page| cx.bind(SetPage(page), reduce_with!(set_page)))
+            .collect();
+    } =>
+    Container(
+        VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                VStack(
+                    spacing: tokens.spacing.xs,
+                    children: [
+                        ListHeader(folder.clone(), unread_count, layout.compact),
+                        ListToolbar(),
+                        FolderTabs(),
+                    ],
                 ),
-                title: view.tr("empty.no_emails"),
-                description: Some(view.tr("empty.caught_up")),
-                action: Some(
-                    Button {
-                        child: Some(Text::new(view.tr("action.refresh")).into()),
-                        on_press: None,
-                        ..Default::default()
-                    }
-                    .into(),
-                ),
-            }
-            .into()
-        } else {
-            let page = &emails[start..end];
-            let path = folder_path(&folder);
-            Container::new(LazyColumn {
-                id: Some(WidgetId::explicit(&format!(
-                    "email_list_page_{current_page}"
-                ))),
-                children: page
-                    .iter()
-                    .enumerate()
-                    .map(|(index, email)| {
-                        EmailRow {
-                            email: (*email).clone(),
-                            path: format!("/{path}/{}", email.id),
-                            compact: layout.compact_rows,
-                            last: index + 1 == page.len(),
-                        }
-                        .into()
-                    })
-                    .collect(),
-                item_height: 0.0,
-            })
-            .flex_grow(1.0)
-            .min_height(0.0)
-            .into()
-        };
-
-        let mut children: Vec<Widget> = vec![
-            VStack {
-                spacing: Some(tokens.spacing.xs),
-                children: vec![
-                    ListHeader {
-                        folder: folder.clone(),
-                        unread_count,
-                        compact: layout.compact,
-                    }
-                    .into(),
-                    ListToolbar.into(),
-                    FolderTabs.into(),
-                ],
-            }
-            .into(),
-            Container::new(list_body)
+                Container(
+                    if emails.is_empty() {
+                        EmptyState(
+                            icon: Some(
+                                Widget::from(
+                                    Icon::svg(material::content::inbox::regular())
+                                        .size(tokens.spacing.xxl)
+                                        .color(tokens.colors.text_primary)
+                                )
+                            ),
+                            title: cx.tr("empty.no_emails"),
+                            description: Some(cx.tr("empty.caught_up")),
+                            action: Some(Button(child: Text(cx.tr("action.refresh")))),
+                        )
+                    } else {
+                        LazyColumn(
+                            id: Some(WidgetId::explicit(&format!(
+                                "email_list_page_{current_page}"
+                            ))),
+                            children: [
+                                for (index, email) in page.iter().enumerate() {
+                                    EmailRow(
+                                        (*email).clone(),
+                                        format!("/{path}/{}", email.id),
+                                        layout.compact_rows,
+                                        index + 1 == page.len(),
+                                        key: email.id,
+                                    )
+                                },
+                            ],
+                            item_height: 0.0,
+                        )
+                    },
+                )
                 .flex_grow(1.0)
-                .min_height(0.0)
-                .into(),
-        ];
-        if !state.show_compose {
-            let pages: Vec<_> = (0..=total_pages)
-                .map(|page| ctx.bind(SetPage(page), reduce_with!(set_page)))
-                .collect();
-            children.push(
-                Center {
-                    child: Pagination {
-                        current_page,
-                        total_pages,
-                        on_change: Some(Arc::new(move |page| pages[page.min(total_pages)].clone())),
-                    }
-                    .into(),
-                }
-                .into(),
-            );
-        }
-
-        Container::new(VStack {
-            spacing: Some(tokens.spacing.s),
-            children,
-        })
-        .padding_all(tokens.spacing.s)
-        .flex_grow(1.0)
-        .bg(tokens.colors.background)
-        .into()
-    }
+                .min_height(0.0),
+                if !state.show_compose {
+                    Center(
+                        Pagination(
+                            current_page: current_page,
+                            total_pages: total_pages,
+                            on_change: Arc::new(move |page: usize| {
+                                pages[page.min(total_pages)].clone()
+                            }) as Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+                        ),
+                    )
+                },
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.s)
+    .flex_grow(1.0)
+    .bg(tokens.colors.background)
 }
 
 #[cfg(test)]
@@ -250,16 +217,8 @@ mod tests {
 
     #[test]
     fn filter_mode_changes_list_contents() -> Result<()> {
-        #[derive(Clone)]
-        struct Root;
-        impl From<Root> for Widget {
-            fn from(_component: Root) -> Self {
-                let (_ctx, _view) = fission::build::current::<InboxState>();
-                EmailList {
-                    folder: "inbox".into(),
-                }
-                .into()
-            }
+        fission_component! {
+            Root<InboxState> |_root, _state, _cx| => EmailList("inbox".into())
         }
         let mut h = TestHarness::new(InboxState::default()).with_root_widget(Root);
         h.pump()?;

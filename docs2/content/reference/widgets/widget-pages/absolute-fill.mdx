@@ -1,0 +1,61 @@
+---
+title: absolute_fill
+description: Stretch one child to the full bounds of its parent stack.
+slug: /widgets/absolute-fill
+---
+# absolute_fill
+
+`absolute_fill(...)` wraps one child in an `AbsoluteFill` node and gives it the
+same width and height as the available parent space. Use it for scrims, loading
+overlays, and backgrounds that need to cover a stack.
+
+Use it when the child should fill an existing layered area. Do not reach for it when you only need ordinary full-width layout in a `Row`, `Column`, or `Container`; those cases are better handled with normal box constraints, flex, or padding.
+
+## Example
+
+A common pattern is a dimming scrim behind a modal or popover.
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DimmedContent<()> {
+        props { content: Widget }
+    }
+    view(layer, _state, cx) {
+        let shade = cx.view.env().theme.tokens.colors.text_primary.with_alpha(140);
+        let scrim = absolute_fill(
+            Container::new(Spacer::default()).bg(shade),
+        );
+    } =>
+    ZStack(children: [layer.content.clone(), scrim])
+}
+```
+
+The helper does not add styling or input behaviour. Here `Container` supplies
+the shade and `absolute_fill(...)` gives it the stack's bounds. For a real
+dialog use `Modal`, which also owns the focus and dismissal boundary; this
+example isolates only the sizing operation.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `child` | `Widget` | The node that should fill the parent's bounds. | Required. The helper returns a `Widget` rather than a widget struct with public fields. |
+
+## Behavior and advice
+
+`absolute_fill(...)` is most useful inside layered layouts such as [`ZStack`](/reference/widgets/z-stack) or widgets that already build a stack internally, such as [`Overlay`](/reference/widgets/overlay). The layout engine treats `AbsoluteFill` specially and gives the child tight constraints equal to the available parent size.
+
+If you need an anchored overlay such as "top-right badge" or "bottom sheet handle," use [`Positioned`](/reference/widgets/positioned) instead. If you need more than one layer and explicit painting order, use [`ZStack`](/reference/widgets/z-stack).
+
+A good rule is simple: use `absolute_fill(...)` when the child should cover everything, and use `Positioned` when the child should sit at a specific edge or corner.
+
+## Check it in your app
+
+- Use `absolute_fill(...)` only when the child should cover the whole parent; it does not add styling or input behavior.
+- Try it inside the actual stack with both bounded and unbounded parent constraints.
+
+## Related
+
+[`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`ZStack`](/reference/widgets/z-stack).

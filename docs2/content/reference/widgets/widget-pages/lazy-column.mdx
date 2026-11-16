@@ -1,0 +1,91 @@
+---
+title: LazyColumn
+description: Render a large vertical list efficiently by only lowering visible items.
+slug: /widgets/lazy-column
+---
+# LazyColumn
+
+`LazyColumn` lowers only the visible part of a long vertical list, with spacer
+regions for items above and below it. Its plain `children` form still constructs
+all child widgets first. Use the keyed item-builder form when construction itself
+must be limited to visible rows.
+
+Use it when you have many items with a uniform height. For short lists,
+irregular item heights, or a one-off form, a
+[`Scroll`](/reference/widgets/scroll) containing a
+[`Column`](/reference/widgets/column) is simpler.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct MessageSummary {
+    pub id: String,
+    pub subject: String,
+}
+
+fission_component! {
+    pub MessageSubjects<()> {
+        props {
+            messages: Arc<Vec<MessageSummary>>,
+            row_height: f32,
+        }
+    }
+
+    view(list, _state, _cx) {
+        let messages = list.messages.clone();
+        let message_keys = messages.clone();
+        let row_count = messages.len();
+    } =>
+        LazyColumn::with_keyed_item_builder(
+            row_count,
+            list.row_height,
+            move |index| WidgetId::explicit(&format!("message.{}", message_keys[index].id)),
+            move |index| {
+                let message = &messages[index];
+                Text::new(message.subject.clone()).into()
+            },
+        )
+}
+```
+
+The parent supplies real query results and a row height that matches its
+single-line presentation. The callback retains owned data, not a build handle.
+Its ordinary Rust `Text::new` call is a leaf in the list's real factory API;
+a richer row should be a named Compose component. This avoids constructing
+hundreds of invisible row widgets merely to demonstrate virtualisation.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity used for scroll tracking. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Already-constructed list items in the plain form. | Only the visible slice is lowered; all items were constructed before that. |
+| `with_keyed_item_builder(count, height, key, factory)` | Returns `LazyColumnBuilder` | Construct visible rows and overscan during the normal build pass. | The key selector returns a durable `WidgetId` before the factory constructs that row. |
+| `with_item_builder(count, height, factory)` | Returns `LazyColumnBuilder` | Position-keyed factory. | Use only when row identity cannot change through insertion/filtering/reorder. |
+| `item_height` | `f32` | Uniform height for each item. | Required for virtualization. If `item_height <= 0.0`, virtualization is disabled. |
+
+## How it differs from `Scroll`
+
+A [`Scroll`](/reference/widgets/scroll) always lowers its entire child subtree. A `LazyColumn` lowers only the visible range of items and represents the rest with spacer boxes.
+
+That makes `LazyColumn` the right choice for large lists, but only when the list can honestly be treated as uniform-height rows. If your items vary greatly in height, the simplification that makes virtualization efficient also makes it less accurate.
+
+## Specific advice
+
+Be realistic about `item_height`. If the value is wrong, scroll math and perceived visibility can feel off. For lists with mixed content heights, prefer a normal scroll container until the framework offers a list model that matches that complexity.
+
+Another important detail is that `LazyColumn` already owns vertical scrolling. Do not wrap it in another vertical `Scroll` unless you intentionally want nested scrolling behavior.
+
+## Production checklist
+
+- Test real uniform heights and viewport resizing, not only a row count.
+- Filter/reorder while scrolled and confirm durable ids retain the correct row state.
+- Use bounded row factories; do not capture build contexts or start effects in them.
+
+## Related
+
+[`Scroll`](/reference/widgets/scroll), [`Column`](/reference/widgets/column), and [`Spacer`](/reference/widgets/spacer).

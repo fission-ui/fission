@@ -1,0 +1,72 @@
+---
+title: Channel stack
+sidebar_label: Channel stack
+description: Show total volume and the contribution of each acquisition channel.
+---
+
+# Channel stack
+
+![Channel stack screenshot](/img/charts/bar-channel-stack.png)
+
+A total can hide a change in where work comes from. Two months with the same number of orders may have quite different contributions from direct and partner channels. Stacking those contributions makes the total and its composition visible together.
+
+That only works when the channels partition the same measure. If an order is counted in both channels, the top of the stack overstates total orders.
+
+## Compose example
+
+Keep both channel counts with their period so that sorting or filtering cannot separate values from their labels. The application should supply validated, non-negative display values for the same reporting window.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct ChannelPeriod {
+    pub period: String,
+    pub direct: f32,
+    pub partner: f32,
+}
+
+fission_component! {
+    pub OrderChannelsChart<()> {
+        props {
+            title: String,
+            direct_label: String,
+            partner_label: String,
+            rows: Vec<ChannelPeriod>,
+        }
+    }
+    view(channels, _state, _cx) {
+        let labels = channels.rows.iter().map(|row| row.period.as_str()).collect();
+        let direct = channels.rows.iter().map(|row| row.direct).collect();
+        let partner = channels.rows.iter().map(|row| row.partner).collect();
+    } => Chart(
+        title: Some(channels.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&channels.direct_label)
+                .stack("order-channels").data(direct)),
+            Series::Bar(BarSeries::new(&channels.partner_label)
+                .stack("order-channels").data(partner)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. The matching `stack(&str)` values make the two `BarSeries` add within each category. The key is internal; user-visible series names and period labels come from the parent and can be translated.
+
+## What this comparison does not show well
+
+The bottom segment has a shared baseline, whilst the partner segment starts at a different height in each period. If the task is to compare partner volume precisely, use grouped bars or a separate series view. Do not make the reader infer a small segment's change from a large total.
+
+Provide the source counts and totals in an accessible table. Series colours help separate segments, but the legend and text must preserve their identity without colour.
+
+## Checks
+
+Test that each stack total agrees with the independently calculated order total, and that channel assignment does not double-count orders. Inspect the rendered chart with long period labels and the expected number of channels. The gallery screenshot uses fixture data, not the component's props.
+
+Tags: `bar`, `stack`.
+
+[Bar family overview](./overview)

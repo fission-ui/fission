@@ -1,0 +1,42 @@
+---
+title: Geo network
+sidebar_label: Geo network
+description: Keep regional measurements and connection topology readable without a false overlay.
+---
+
+# Geo network
+
+![Geo network screenshot](/img/charts/geo-network.png)
+
+A network operations report has two different questions: which regions need attention, and which sites are connected? Putting both in one picture only helps if their coordinates agree.
+
+The current map and route renderers fit their bounds independently. Adding `MapSeries` and `LinesSeries` to the same chart therefore does not guarantee a correctly aligned geographical overlay. Until a shared projection is available, use two explicitly labelled views.
+
+Put [RegionalReportMap](../geographic-and-route/map-choropleth) in `widgets/regional_report_map.rs` and [ServiceConnections](../geographic-and-route/lines-basic) in `widgets/service_connections.rs`. This composition accepts their complete presentation inputs:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::regional_report_map::RegionalReportMap;
+use crate::widgets::service_connections::ServiceConnections;
+
+fission_component! {
+    pub NetworkRegionReport<()> {
+        props {
+            heading: TextContent,
+            regions: RegionalReportMap,
+            connections: ServiceConnections,
+        }
+    }
+    view(report, _state, _cx) => Column(children: [
+        Text(report.heading.clone()),
+        report.regions.clone(),
+        report.connections.clone(),
+    ])
+}
+```
+
+These are concrete component descriptions, not already-retained `Widget` clones shared between responsive branches. Build a separate description for each retained branch if adapting the layout. Supply translated captions explaining that the route panel is schematic.
+
+Join both reports through durable site and region IDs, not their fitted screen positions. A line crossing a coloured polygon in the gallery is not evidence of a correct geographical join. Test region values and network endpoints independently, retain an accessible exact-value list, and do not claim this report supplies routing or navigation.
+
+[Geo and route family overview](./overview)

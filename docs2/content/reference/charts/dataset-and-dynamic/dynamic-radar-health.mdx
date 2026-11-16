@@ -1,0 +1,43 @@
+---
+title: Dynamic radar health
+sidebar_label: Dynamic radar health
+description: Refresh a defined product-health profile without changing its dimensions or denominators.
+---
+
+# Dynamic radar health
+
+![Dynamic radar health screenshot](/img/charts/dynamic-radar-health.png)
+
+A health profile is only comparable across updates if its dimensions keep the same meaning. Reordering them changes the polygon even when all values remain unchanged, whilst changing a denominator can move a point without any product improvement.
+
+The [product radar](../analytics/analytics-radar-product) defines `ProductHealth` and `ProductHealthProfile`. Put them in `widgets/product_health_profile.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::product_health_profile::{ProductHealth, ProductHealthProfile};
+
+fission_component! {
+    pub CurrentProductHealth<()> {
+        props {
+            title: String,
+            profile_label: String,
+            dimension_key: TextContent,
+            health: ProductHealth,
+        }
+    }
+    view(current, _state, _cx) => ProductHealthProfile {
+        title: current.title.clone(),
+        profile_label: current.profile_label.clone(),
+        dimension_key: current.dimension_key.clone(),
+        health: current.health.clone(),
+    }
+}
+```
+
+The base component uses real `RadarSeries` data on the current renderer's fixed 0–100 range. Supply translated labels and an explicit key naming setup, activation, retention and successful-task dimensions in their defined order.
+
+Update the authoritative snapshot through reducers, and distinguish unavailable measures from zero. The chart does not subscribe to updates itself or combine the polygon into an overall health score.
+
+Test one changed dimension, an unavailable refresh and stable dimension order. Keep exact values and denominators in an accessible table; the gallery image is a static fixture.
+
+[Dataset and dynamic family overview](./overview)

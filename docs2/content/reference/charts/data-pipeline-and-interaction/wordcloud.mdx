@@ -1,0 +1,54 @@
+---
+title: Word cloud
+sidebar_label: Word cloud
+description: Show already-aggregated feedback terms with explicit display weights and exact counts retained.
+---
+
+# Word cloud
+
+![Word cloud screenshot](/img/charts/wordcloud.png)
+
+A word cloud can draw attention to frequently mentioned terms, but it does not explain sentiment or the reason a term appeared. The word slow may occur in praise of a deliberate workflow as well as a performance complaint.
+
+Aggregate and review terms before rendering. The chart is not a natural-language analysis pipeline.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, Series, WordcloudSeries};
+
+#[derive(Clone)]
+pub struct FeedbackTerm {
+    pub term: String,
+    pub mentions: u32,
+}
+
+fission_component! {
+    pub FeedbackTermsCloud<()> {
+        props {
+            title: String,
+            mentions_label: String,
+            terms: Vec<FeedbackTerm>,
+        }
+    }
+    view(feedback, _state, _cx) {
+        let largest = feedback.terms.iter().map(|term| term.mentions)
+            .max().unwrap_or(0).max(1) as f32;
+        let weights = feedback.terms.iter().map(|term| (
+            term.term.as_str(), term.mentions as f32 / largest * 100.0,
+        )).collect();
+    } => Chart(
+        title: Some(feedback.title.clone()),
+        series: vec![Series::Wordcloud(
+            WordcloudSeries::new(&feedback.mentions_label).data(weights),
+        )],
+    )
+}
+```
+
+The parent supplies translated report labels and already-approved term content. The source terms are data, not translation keys. Keep language-specific aggregation separate instead of merging unrelated inflections or meanings solely to simplify display.
+
+The projection normalises display weights to 0–100 because the current layout derives font size from that range. Keep original mention counts authoritative and show them in a ranked list. The layout uses approximate text bounds, not a guarantee that every term fits within the plot.
+
+Test long terms, ties, an empty report and a bounded representative set. Use bars or the list when exact comparisons matter. The screenshot is a gallery fixture.
+
+[Data pipeline and interaction family overview](./overview)

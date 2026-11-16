@@ -1,0 +1,54 @@
+---
+title: Radial tree
+sidebar_label: Radial tree
+description: Fission Charts reference for Radial tree.
+---
+
+# Radial tree
+
+![Radial tree screenshot](/img/charts/tree-radial.png)
+
+A radial tree arranges hierarchy depth around a centre. For a shallow product taxonomy, that can keep the branches of one catalogue visible together without assigning an artificial numeric axis. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The layout communicates parent/child structure, not product popularity. Use a conventional tree when long names or deep branches make radial reading difficult.
+
+## Data model
+
+Supply nested `TreemapNode` records and enable `TreeSeries::radial(true)`. Node values remain required by the model; use equal values when size is not a measure. Preserve a true tree rather than duplicating shared nodes as though they were independent records.
+
+## Authoring from a Fission component
+
+The parent prepares the taxonomy and localized names. This example actually selects the radial option.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ProductTaxonomyRadialTree<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            taxonomy: Vec<TreemapNode>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![TreeSeries::new(&report.series_label)
+            .data(report.taxonomy.clone())
+            .radial(true)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test a single branch, uneven depth and long translated names. Inspect overlap in real output and provide the same taxonomy as an accessible list. The radial chart does not automatically provide category selection or disclosure behaviour.
+
+Tags: `tree`, `radial`.
+
+[Relationships and hierarchy family overview](./overview)

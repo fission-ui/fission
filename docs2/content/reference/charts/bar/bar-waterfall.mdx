@@ -1,0 +1,45 @@
+---
+title: Waterfall bar
+sidebar_label: Waterfall bar
+description: Use cumulative offsets to explain how an opening balance changes into a closing balance.
+---
+
+# Waterfall bar
+
+![Waterfall bar screenshot](/img/charts/bar-waterfall.png)
+
+A waterfall is a reconciliation. It starts with a total, applies ordered changes, and ends with another total. Positive and negative bars drawn independently from zero do not show that relationship.
+
+The [quarter waterfall](./bar-quarter-waterfall) defines the actual offset construction using a transparent base and a signed change series in one stack. Put `QuarterBridgeChart` and `QuarterAdjustment` in `widgets/quarter_bridge.rs` to reuse it.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::quarter_bridge::{QuarterAdjustment, QuarterBridgeChart};
+
+fission_component! {
+    pub InventoryBalanceBridge<()> {
+        props {
+            title: String,
+            opening_label: String,
+            closing_label: String,
+            movement_label: String,
+            opening_units: f32,
+            movements: Vec<QuarterAdjustment>,
+        }
+    }
+    view(inventory, _state, _cx) => QuarterBridgeChart {
+        title: inventory.title.clone(),
+        opening_label: inventory.opening_label.clone(),
+        closing_label: inventory.closing_label.clone(),
+        change_label: inventory.movement_label.clone(),
+        opening: inventory.opening_units,
+        adjustments: inventory.movements.clone(),
+    }
+}
+```
+
+For inventory, receipts increase the running balance and shipments decrease it. Translate the movement labels in the parent, retain their order and ensure the projection uses the same inventory scope as the closing total.
+
+Reconcile in the application's inventory model before rendering. An unexplained difference is an error or adjustment to investigate, not a reason to force the last bar to match. Test positive and negative changes, no movements and crossing zero. Provide a table of opening, movements and closing values; the gallery screenshot alone does not verify a cumulative construction.
+
+[Bar family overview](./overview)

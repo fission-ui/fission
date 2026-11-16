@@ -1,0 +1,356 @@
+---
+layout: goal
+title: Add responsive motion to an Android Fission app
+description: "Reveal inspection guidance through Fission's built-in Drawer motion, while keeping the recorded check and an explicit reduced-motion choice independent of animation."
+goal: "Use framework motion to reveal inspection help without delaying the inspection transition or hiding essential information when motion is reduced."
+path: /blog/add-responsive-motion-to-an-android-fission-app/
+order: 37
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-add-responsive-motion-to-an-android-fission-app
+outcomes:
+  - "Use the built-in Drawer and its motion policy rather than handwritten opacity tracks"
+  - "Keep opening guidance distinct from recording an inspection check"
+  - "Offer an explicit reduced-motion path without claiming automatic Android preference integration"
+  - "Preserve the same content and actions when animation is disabled"
+---
+
+Motion is useful when it explains where a panel came from or where it went. It should not decide whether a piece of work is complete. Those are separate concerns: the reducer changes state, and the widget presents that state with or without a transition.
+
+Here, an engineer can consult a compressor inspection procedure in a drawer and record that the filter has been checked. Opening the procedure does not complete the inspection. Closing an animation midway must not clear the recorded check.
+
+## Create the project and add the target
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first.
+
+```sh
+fission init android-add-responsive-motion-to-an-android-fission-app
+cd android-add-responsive-motion-to-an-android-fission-app
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+Keep the generated `src/main.rs`. Replace `src/lib.rs` so both Android and the Web preview run the inspection component, not the scaffold counter. The shared translation module installs English and Spanish in every shell.
+
+<!-- fission:step id="start-screen" -->
+## Make the state change correct without motion
+
+Use the built-in `Drawer` because this is an edge-attached overlay, not a box whose position we need to animate by hand. It already owns the backdrop and dismissal interaction. Initially we explicitly select `DrawerMotion::None` so the behaviour can be checked without animation.
+
+The procedure is illustrative maintenance copy, not a substitute for the equipment manufacturer's safety instructions. The checkbox records a statement by the user; opening the procedure is not evidence that the physical inspection happened.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub InspectionInstructions<()> {
+        state {
+            instructions_open: bool = false,
+            reduce_panel_motion: bool = false,
+            filter_checked: bool = false,
+        }
+    }
+    view(inspection, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("inspection.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("inspection.context")).color(tokens.colors.text_secondary),
+            Checkbox(
+                label: Some(cx.tr("inspection.filter_checked")),
+                checked: inspection.filter_checked,
+                bind(on_toggle): to(inspection.filter_checked),
+            ),
+            Text(cx.tr(if inspection.filter_checked {
+                "inspection.checked"
+            } else {
+                "inspection.pending"
+            })),
+            Button(
+                child: Text(cx.tr("inspection.open")),
+                key: "open-instructions",
+                on_press: reduce { inspection.instructions_open = true; },
+            ).semantics_identifier("inspection.instructions.open"),
+            Drawer(
+                id: WidgetId::explicit("inspection.instructions"),
+                side: DrawerSide::Right,
+                is_open: inspection.instructions_open,
+                motion: Some(DrawerMotion::None),
+                on_dismiss: reduce { inspection.instructions_open = false; },
+                dismiss_semantics_identifier: "inspection.instructions.dismiss".to_string(),
+                content: SafeArea(child: Scroll(child:
+                    Container(Column(gap: tokens.spacing.m, children: [
+                        Text(cx.tr("inspection.instructions.title"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("inspection.instructions.one")),
+                        Text(cx.tr("inspection.instructions.two")),
+                        Text(cx.tr("inspection.instructions.three")),
+                        Button(
+                            child: Text(cx.tr("inspection.close")),
+                            key: "close-instructions",
+                            on_press: reduce { inspection.instructions_open = false; },
+                        ).semantics_identifier("inspection.instructions.close"),
+                    ])).padding_all(tokens.spacing.l),
+                )),
+            ),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(720.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::InspectionInstructions;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(InspectionInstructions::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), InspectionInstructions> {
+    let app = MobileApp::<(), _>::new(InspectionInstructions::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(InspectionInstructions::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+inspection.title: "Compressor filter inspection"
+inspection.context: "Consult the procedure before recording the visual filter check."
+inspection.filter_checked: "The filter condition has been checked"
+inspection.checked: "Filter check recorded for this visit."
+inspection.pending: "Filter check is still outstanding."
+inspection.open: "Read inspection procedure"
+inspection.close: "Return to inspection"
+inspection.reduce_motion: "Reduce motion for this panel"
+inspection.instructions.title: "Visual filter check"
+inspection.instructions.one: "Follow the equipment manufacturer's isolation and safety procedure before inspection."
+inspection.instructions.two: "Inspect the filter for visible damage, contamination and obstruction."
+inspection.instructions.three: "Record the condition. Follow the approved maintenance procedure if cleaning or replacement is needed."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+inspection.title: "Inspección del filtro del compresor"
+inspection.context: "Consulta el procedimiento antes de registrar la comprobación visual."
+inspection.filter_checked: "Se ha comprobado el estado del filtro"
+inspection.checked: "Comprobación del filtro registrada para esta visita."
+inspection.pending: "La comprobación del filtro sigue pendiente."
+inspection.open: "Leer el procedimiento de inspección"
+inspection.close: "Volver a la inspección"
+inspection.reduce_motion: "Reducir el movimiento de este panel"
+inspection.instructions.title: "Comprobación visual del filtro"
+inspection.instructions.one: "Sigue el procedimiento de aislamiento y seguridad del fabricante antes de inspeccionar."
+inspection.instructions.two: "Comprueba si hay daños visibles, contaminación u obstrucciones."
+inspection.instructions.three: "Registra el estado. Sigue el procedimiento de mantenimiento aprobado si hace falta limpiar o sustituir."
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::InspectionInstructions::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Open the procedure, close it and mark the filter checked. Reopen the procedure and dismiss it using the backdrop. The check should remain recorded. It lasts for this app run only; no persistence or submission is implied.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Let the drawer own its transition
+
+Now enable the drawer's built-in side-slide and fade preset. We do not add a timer, delay the reducer or hold a view handle until an animation completes. The stable drawer ID lets Fission associate the entering and exiting surface with the same retained widget.
+
+A local reduced-motion switch makes both paths easy to exercise. It sets `DrawerMotion::None` for this panel, not a second implementation of the inspection. Fission's broader `MotionPreference::Reduced` environment setting also resolves declared motion immediately; `WidgetMotion::Off` only disables defaults on widgets whose motion was left unset.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub InspectionInstructions<()> {
+        state {
+            instructions_open: bool = false,
+            reduce_panel_motion: bool = false,
+            filter_checked: bool = false,
+        }
+    }
+    view(inspection, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("inspection.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("inspection.context")).color(tokens.colors.text_secondary),
+            Checkbox(
+                label: Some(cx.tr("inspection.filter_checked")),
+                checked: inspection.filter_checked,
+                bind(on_toggle): to(inspection.filter_checked),
+            ),
+            Text(cx.tr(if inspection.filter_checked {
+                "inspection.checked"
+            } else {
+                "inspection.pending"
+            })),
+            FormControl(
+                label: Some(cx.tr("inspection.reduce_motion")),
+                child: Switch(
+                    checked: inspection.reduce_panel_motion,
+                    bind(on_toggle): to(inspection.reduce_panel_motion),
+                ),
+            ),
+            Button(
+                child: Text(cx.tr("inspection.open")),
+                key: "open-instructions",
+                on_press: reduce { inspection.instructions_open = true; },
+            ).semantics_identifier("inspection.instructions.open"),
+            Drawer(
+                id: WidgetId::explicit("inspection.instructions"),
+                side: DrawerSide::Right,
+                is_open: inspection.instructions_open,
+                motion: Some(if inspection.reduce_panel_motion { DrawerMotion::None } else { DrawerMotion::Default }),
+                on_dismiss: reduce { inspection.instructions_open = false; },
+                dismiss_semantics_identifier: "inspection.instructions.dismiss".to_string(),
+                content: SafeArea(child: Scroll(child:
+                    Container(Column(gap: tokens.spacing.m, children: [
+                        Text(cx.tr("inspection.instructions.title"))
+                            .size(tokens.typography.heading2_size),
+                        Text(cx.tr("inspection.instructions.one")),
+                        Text(cx.tr("inspection.instructions.two")),
+                        Text(cx.tr("inspection.instructions.three")),
+                        Button(
+                            child: Text(cx.tr("inspection.close")),
+                            key: "close-instructions",
+                            on_press: reduce { inspection.instructions_open = false; },
+                        ).semantics_identifier("inspection.instructions.close"),
+                    ])).padding_all(tokens.spacing.l),
+                )),
+            ),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(720.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Compare the panel with its reduced-motion switch on and off. Open and dismiss it repeatedly before the transition completes. The underlying filter check must not change, and you should not have to wait for motion before using the controls.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check interruption, resizing and the Android host
+
+The Web shell reads the browser's reduced-motion preference. This checkout does not automatically map Android's system animation setting into `Env.motion_preference`; do not claim that changing an Android setting has exercised that integration. The explicit panel switch above works on both targets. An app-wide Android preference can be stored in app state and mapped to the environment through the normal shell configuration.
+
+Run on an emulator or phone:
+
+```sh
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Resize or rotate with the panel open, background and resume the app, and repeat the rapid open/dismiss sequence. Check that the drawer remains within the viewport and its content can scroll at a larger font size. These are rendered interaction checks; compilation cannot establish them.
+
+### Current references
+
+- [Motion](/docs/guides/media-animation-portals-and-3d/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

@@ -1,0 +1,67 @@
+---
+title: Equity session candlestick
+sidebar_label: Equity session candlestick
+description: Fission Charts reference for Equity session candlestick.
+---
+
+# Equity session candlestick
+
+![Equity session candlestick screenshot](/img/charts/candlestick-equity-session.png)
+
+An equity-session report summarises observed price movement within the exchange's trading calendar. Session boundaries, auctions and corporate adjustments affect what comparisons mean. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one instrument and a consistent adjusted or unadjusted price policy. Do not mix those price bases across intervals and present the resulting discontinuity as ordinary trading movement.
+
+## Data model
+
+`CandlestickSeries` expects `[open, close, low, high]`, with low/high bounding open and close. Prepare equal-duration bucket labels and retain exact prices and timestamps outside the f32 projection.
+
+## Authoring from a Fission component
+
+The parent performs market-data preparation and supplies localized labels plus distinguishable rising/falling colours.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, CandlestickSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub EquitySessionPriceIntervals<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            interval_labels: Vec<String>,
+            open_close_low_high: Vec<[f32; 4]>,
+            rising_color: Color,
+            falling_color: Color,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.interval_labels.iter().map(String::as_str).collect();
+        let rows = report.open_close_low_high.iter().map(|row| row.to_vec()).collect();
+        let prices = CandlestickSeries {
+            data: rows,
+            color_up: report.rising_color,
+            color_down: report.falling_color,
+            ..CandlestickSeries::new(&report.series_label)
+        };
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![prices.into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test no-trade intervals, equal open/close and exchange-session boundaries. Provide exact values, price basis and movement direction as accessible text. The chart does not apply corporate actions or recommend a trade.
+
+Tags: `candlestick`, `finance`.
+
+[Statistical family overview](./overview)

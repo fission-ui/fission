@@ -1,0 +1,698 @@
+---
+layout: goal
+title: Record audio with the iOS microphone capability
+description: "Record three seconds, consume the actual audio stream and export it without losing a previous clip when a replacement fails."
+goal: "Turn a real microphone response into bounded audio bytes and an explicitly confirmed file export."
+path: /blog/record-audio-with-the-ios-microphone-capability/
+order: 97
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-record-audio-with-the-ios-microphone-capability
+outcomes:
+  - Request permission before capture and decode real completion input
+  - Consume the one-shot stream asynchronously with a two-MiB limit
+  - Preserve the clip on export cancellation and release the selected directory grant
+---
+
+A permission response is not a recording, and recording metadata is not an attached voice note. The useful result is the audio itself. We will request microphone access from a button, capture three seconds and consume the returned stream before offering to export a file.
+
+The distinction matters because the stream is a one-shot runtime handle. Showing its duration whilst forgetting its bytes would leave the user with a plausible-looking success state and nothing they can keep.
+
+## Create the app and configure the host
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) and [select a simulator](/blog/choose-boot-and-launch-an-ios-simulator-with-fission/) first. Use a physical iPhone for the final microphone and permission checks.
+
+```sh
+cargo install cargo-fission
+fission init ios-record-audio-with-the-ios-microphone-capability
+cd ios-record-audio-with-the-ios-microphone-capability
+fission add-target ios --project-dir .
+fission add-capability microphone filesystem --project-dir .
+cargo add serde --features derive
+cargo add serde_yaml
+```
+
+Use the capability command rather than adding Cargo features alone. Review the generated `NSMicrophoneUsageDescription` in the iOS host's Info.plist and give the app an accurate explanation of why it records. Permission text is part of the user's decision, not a build-time formality.
+
+Keep the generated `src/main.rs` and replace the shared library below. Its normal native and Web entrypoints register the stream-processing job; the browser preview uses the real Web microphone provider, not `MemoryMicrophoneHost`.
+
+<!-- fission:step id="start-screen" -->
+## Keep recording and stream consumption out of the view
+
+The view requests work through synchronous reducers. Permission, capture, collection and export each have explicit completion actions which decode `cx.input`; no callback action manufactures a successful payload.
+
+Only one operation is admitted at a time. This keeps a later recording from replacing the bytes whilst an export is using them. A failed replacement preserves the previous recording, and cancelling a folder selection leaves it available for another attempt.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+pub mod jobs;
+mod screen;
+pub mod state;
+pub use screen::AudioScreen;
+pub use state::AudioState;
+```
+</TabItem>
+
+<TabItem label="src/app/jobs.rs">
+<!-- fission:file path="src/app/jobs.rs" -->
+```rust
+use fission::core::{JobCtx, JobRef, JobSpec, MicrophoneCapture};
+use serde::{Deserialize, Serialize};
+
+const MAX_AUDIO_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AudioRequest {
+    pub capture: MicrophoneCapture,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedAudio {
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+    pub duration_ms: u64,
+}
+
+impl RecordedAudio {
+    pub fn file_name(&self) -> &'static str {
+        match self.content_type.split(';').next().unwrap_or("").trim() {
+            "audio/mp4" => "voice-note.m4a",
+            "audio/webm" => "voice-note.webm",
+            "audio/ogg" => "voice-note.ogg",
+            "audio/wav" | "audio/x-wav" => "voice-note.wav",
+            _ => "voice-note.audio",
+        }
+    }
+}
+
+pub struct CollectAudio;
+impl JobSpec for CollectAudio {
+    type Request = AudioRequest;
+    type Ok = RecordedAudio;
+    type Err = String;
+    const NAME: &'static str = "voice-note.collect-audio";
+}
+pub const COLLECT_AUDIO: JobRef<CollectAudio> = JobRef::new(CollectAudio::NAME);
+
+pub async fn collect_audio(request: AudioRequest, cx: JobCtx) -> Result<RecordedAudio, String> {
+    // Open first: the one-shot handle is removed from the registry even on a size error.
+    let mut stream = cx
+        .open_data_stream(request.capture.stream)
+        .map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        let length = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or("Audio is too large")?;
+        if length > MAX_AUDIO_BYTES {
+            return Err("Audio exceeds the two-MiB limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.is_empty() {
+        return Err("The recording contained no audio bytes".into());
+    }
+    Ok(RecordedAudio {
+        bytes,
+        content_type: request.capture.content_type,
+        duration_ms: request.capture.duration_ms,
+    })
+}
+```
+</TabItem>
+
+<TabItem label="src/app/state.rs">
+<!-- fission:file path="src/app/state.rs" -->
+```rust
+use super::jobs::{AudioRequest, RecordedAudio, COLLECT_AUDIO};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioState {
+    pub locale: Locale,
+    pub busy: bool,
+    pub status_key: String,
+    pub error: Option<String>,
+    pub cleanup_error: Option<String>,
+    pub export_directory: Option<DirectoryHandleId>,
+    pub audio: Option<RecordedAudio>,
+}
+
+impl Default for AudioState {
+    fn default() -> Self {
+        Self {
+            locale: Locale::from("en-US"),
+            busy: false,
+            status_key: "audio.ready".into(),
+            error: None,
+            cleanup_error: None,
+            export_directory: None,
+            audio: None,
+        }
+    }
+}
+impl GlobalState for AudioState {}
+
+fn unexpected(state: &mut AudioState) {
+    state.busy = false;
+    state.status_key = "audio.unexpected".into();
+}
+
+pub fn record(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    if state.busy {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.status_key = "audio.permission_pending".into();
+    let ok = cx
+        .effects
+        .bind(PermissionReceived, reduce_with!(permission_received));
+    let err = cx
+        .effects
+        .bind(MicrophoneFailed, reduce_with!(microphone_failed));
+    cx.effects
+        .microphone()
+        .request_permission(MicrophonePermissionRequest { reason: None })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(PermissionReceived)]
+fn permission_received(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    match cx.input.capability_ok(REQUEST_MICROPHONE_PERMISSION) {
+        Some(MicrophonePermission::Granted) => {
+            state.status_key = "audio.recording".into();
+            let ok = cx.effects.bind(Captured, reduce_with!(captured));
+            let err = cx
+                .effects
+                .bind(MicrophoneFailed, reduce_with!(microphone_failed));
+            cx.effects
+                .microphone()
+                .capture_audio(MicrophoneCaptureRequest {
+                    device_id: None,
+                    duration_ms: 3_000,
+                    sample_rate_hz: Some(16_000),
+                    channels: Some(1),
+                    sample_format: AudioSampleFormat::F32,
+                })
+                .on_ok(ok)
+                .on_err(err);
+        }
+        Some(MicrophonePermission::Denied | MicrophonePermission::Restricted) => {
+            state.busy = false;
+            state.status_key = "audio.denied".into();
+        }
+        Some(MicrophonePermission::Unknown) | None => unexpected(state),
+    }
+}
+
+#[fission_reducer(Captured)]
+fn captured(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    let Some(capture) = cx.input.capability_ok(CAPTURE_MICROPHONE_AUDIO) else {
+        unexpected(state);
+        return;
+    };
+    state.status_key = "audio.processing".into();
+    let ok = cx
+        .effects
+        .bind(AudioCollected, reduce_with!(audio_collected));
+    let err = cx
+        .effects
+        .bind(CollectionFailed, reduce_with!(collection_failed));
+    cx.effects
+        .app(COLLECT_AUDIO, AudioRequest { capture })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(AudioCollected)]
+fn audio_collected(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    let Some(audio) = cx.input.job_ok(COLLECT_AUDIO) else {
+        unexpected(state);
+        return;
+    };
+    state.audio = Some(audio);
+    state.busy = false;
+    state.status_key = "audio.recorded".into();
+}
+
+#[fission_reducer(CollectionFailed)]
+fn collection_failed(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.busy = false;
+    state.status_key = "audio.failed".into();
+    state.error = cx
+        .input
+        .job_err(COLLECT_AUDIO)
+        .or_else(|| cx.input.job_error_message(COLLECT_AUDIO).map(str::to_owned));
+}
+
+#[fission_reducer(MicrophoneFailed)]
+fn microphone_failed(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.busy = false;
+    state.status_key = "audio.failed".into();
+    state.error = cx
+        .input
+        .capability_error(REQUEST_MICROPHONE_PERMISSION)
+        .or_else(|| cx.input.capability_error(CAPTURE_MICROPHONE_AUDIO))
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            cx.input
+                .capability_error_message(REQUEST_MICROPHONE_PERMISSION)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            cx.input
+                .capability_error_message(CAPTURE_MICROPHONE_AUDIO)
+                .map(str::to_owned)
+        });
+}
+
+pub fn choose_export_folder(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    if state.busy || state.audio.is_none() {
+        return;
+    }
+    state.busy = true;
+    state.error = None;
+    state.cleanup_error = None;
+    state.status_key = "audio.choose_folder".into();
+    let ok = cx
+        .effects
+        .bind(FolderSelected, reduce_with!(folder_selected));
+    let err = cx.effects.bind(FileFailed, reduce_with!(file_failed));
+    cx.effects
+        .file_system()
+        .pick_directory(PickDirectoryRequest {
+            access: FileSystemAccessMode::ReadWrite,
+            persistence_key: None,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(FolderSelected)]
+fn folder_selected(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    let Some(result) = cx.input.capability_ok(PICK_DIRECTORY) else {
+        unexpected(state);
+        return;
+    };
+    let Some(directory) = result.directory else {
+        state.busy = false;
+        state.status_key = "audio.export_cancelled".into();
+        return;
+    };
+    let Some(audio) = &state.audio else {
+        unexpected(state);
+        return;
+    };
+    state.export_directory = Some(directory.id);
+    let location = FileSystemLocation::directory(directory.id, audio.file_name());
+    let source = FileWriteSource::Bytes(audio.bytes.clone());
+    state.status_key = "audio.exporting".into();
+    let ok = cx.effects.bind(FileWritten, reduce_with!(file_written));
+    let err = cx.effects.bind(FileFailed, reduce_with!(file_failed));
+    cx.effects
+        .file_system()
+        .write(WriteFileRequest {
+            location,
+            source,
+            create_parents: false,
+            overwrite: false,
+        })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(FileWritten)]
+fn file_written(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.status_key = if cx.input.capability_ok(WRITE_FILE).is_some() {
+        "audio.exported"
+    } else {
+        "audio.unexpected"
+    }
+    .into();
+    release_export_directory(state, cx);
+}
+
+#[fission_reducer(FileFailed)]
+fn file_failed(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.status_key = "audio.failed".into();
+    state.error = cx
+        .input
+        .capability_error(PICK_DIRECTORY)
+        .or_else(|| cx.input.capability_error(WRITE_FILE))
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            cx.input
+                .capability_error_message(PICK_DIRECTORY)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            cx.input
+                .capability_error_message(WRITE_FILE)
+                .map(str::to_owned)
+        });
+    release_export_directory(state, cx);
+}
+
+fn release_export_directory(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    let Some(directory) = state.export_directory.take() else {
+        state.busy = false;
+        return;
+    };
+    let ok = cx
+        .effects
+        .bind(DirectoryReleased, reduce_with!(directory_released));
+    let err = cx.effects.bind(
+        DirectoryReleaseFailed,
+        reduce_with!(directory_release_failed),
+    );
+    cx.effects
+        .file_system()
+        .release(ReleaseDirectoryRequest { directory })
+        .on_ok(ok)
+        .on_err(err);
+}
+
+#[fission_reducer(DirectoryReleased)]
+fn directory_released(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.busy = false;
+    if cx.input.capability_ok(RELEASE_DIRECTORY).is_none() {
+        state.cleanup_error = Some("Missing directory-release result".into());
+    }
+}
+
+#[fission_reducer(DirectoryReleaseFailed)]
+fn directory_release_failed(state: &mut AudioState, cx: &mut ReducerContext<AudioState>) {
+    state.busy = false;
+    state.cleanup_error = cx
+        .input
+        .capability_error(RELEASE_DIRECTORY)
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .or_else(|| {
+            cx.input
+                .capability_error_message(RELEASE_DIRECTORY)
+                .map(str::to_owned)
+        })
+        .or_else(|| Some("Missing directory-release error".into()));
+}
+```
+</TabItem>
+
+<TabItem label="src/app/screen.rs">
+<!-- fission:file path="src/app/screen.rs" -->
+```rust
+use super::state::{choose_export_folder, record, AudioState};
+use fission::prelude::*;
+
+fission_component! {
+    pub AudioScreen<AudioState> {}
+    view(_screen, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } => SafeArea(
+        child: Scroll(
+            child: Container(Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("audio.heading")).size(tokens.typography.heading2_size),
+                Text(cx.tr("audio.explanation")),
+                Row(gap: tokens.spacing.s, children: [
+                    Button(
+                        child: Text(cx.tr("language.english")), key: "english",
+                        on_press: reduce { state.locale = Locale::from("en-US"); },
+                    ),
+                    Button(
+                        child: Text(cx.tr("language.spanish")), key: "spanish",
+                        on_press: reduce { state.locale = Locale::from("es-ES"); },
+                    ),
+                ]),
+                Button(
+                    child: Text(cx.tr("audio.record")), key: "record-audio",
+                    disabled: state.busy,
+                    on_press: reduce { record(state, cx); },
+                ),
+                if state.busy {
+                    Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr(&state.status_key)))
+                },
+                Text(cx.tr(&state.status_key)),
+                if let Some(error) = &state.error { Code(text: error.clone()) },
+                if let Some(error) = &state.cleanup_error {
+                    Column(children: [
+                        Text(cx.tr("audio.cleanup_failed")),
+                        Code(text: error.clone()),
+                    ])
+                },
+                if let Some(audio) = &state.audio {
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("audio.bytes").replace("{count}", &audio.bytes.len().to_string())),
+                        Text(cx.tr("audio.duration").replace("{count}", &audio.duration_ms.to_string())),
+                        Text(audio.content_type.clone()),
+                        Text(audio.file_name()),
+                        Text(cx.tr("audio.export_help")),
+                        Button(
+                            child: Text(cx.tr("audio.export")), key: "export-audio",
+                            disabled: state.busy,
+                            on_press: reduce { choose_export_folder(state, cx); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("audio.discard")), key: "discard-audio",
+                            disabled: state.busy,
+                            on_press: reduce {
+                                state.audio = None;
+                                state.error = None;
+                                state.status_key = "audio.ready".into();
+                            },
+                        ),
+                    ])
+                },
+            ]))
+            .padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
+
+<TabItem label="src/i18n.rs">
+<!-- fission:file path="src/i18n.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid voice note translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::app::AudioState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+```
+</TabItem>
+
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod i18n;
+
+use app::{AudioScreen, AudioState};
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<AudioState, _>::new(AudioScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_AUDIO, |request, cx| async move {
+                app::jobs::collect_audio(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<AudioState, _>::new(AudioScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_AUDIO, |request, cx| async move {
+                app::jobs::collect_audio(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = MobileApp::<AudioState, _>::new(AudioScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_AUDIO, |request, cx| async move {
+                app::jobs::collect_audio(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<AudioState, _>::new(AudioScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_AUDIO, |request, cx| async move {
+                app::jobs::collect_audio(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod i18n;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<app::AudioState, _>::new(app::AudioScreen)
+        .with_env(i18n::create_env())
+        .with_async(|asyncs| {
+            asyncs.register_job(app::jobs::COLLECT_AUDIO, |request, cx| async move {
+                app::jobs::collect_audio(request, cx).await
+            });
+        })
+        .with_sync_env(i18n::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+audio.heading: "Record a short voice note"
+audio.explanation: "Press Record when you are ready to speak. Recording starts after permission is granted and ends after three seconds. Only your action requests microphone access."
+audio.record: "Record for three seconds"
+audio.ready: "No recording has been made."
+audio.permission_pending: "Waiting for microphone permission…"
+audio.recording: "Recording your voice note…"
+audio.processing: "Reading the recorded audio…"
+audio.recorded: "Audio is ready in memory. Export it to keep a file."
+audio.denied: "Microphone access was not granted. Your previous recording is unchanged. Review the device's permission settings before retrying."
+audio.unexpected: "The host returned no usable result. Your previous recording is unchanged."
+audio.failed: "The operation failed. Review the details, then retry; any previous recording remains available."
+audio.bytes: "Recorded bytes: {count}"
+audio.duration: "Reported duration in milliseconds: {count}"
+audio.export_help: "Choose a folder for this file. Existing files are never overwritten; choose another folder if that name already exists."
+audio.export: "Choose folder and export audio"
+audio.discard: "Discard recording from memory"
+audio.choose_folder: "Waiting for your export folder…"
+audio.export_cancelled: "Export cancelled. The recording remains in memory."
+audio.exporting: "Writing the audio file…"
+audio.exported: "The file provider confirmed the write. Check the exported file before discarding your recording."
+audio.cleanup_failed: "Releasing the folder grant could not be confirmed. This does not undo a confirmed file write; close the app before continuing if the provider remains busy."
+language.english: "English"
+language.spanish: "Español"
+```
+</TabItem>
+
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+audio.heading: "Grabar una nota de voz breve"
+audio.explanation: "Pulsa Grabar cuando estés preparado para hablar. La grabación empieza tras conceder permiso y termina después de tres segundos. Solo tu acción solicita acceso al micrófono."
+audio.record: "Grabar durante tres segundos"
+audio.ready: "Todavía no se ha grabado nada."
+audio.permission_pending: "Esperando permiso para el micrófono…"
+audio.recording: "Grabando tu nota de voz…"
+audio.processing: "Leyendo el audio grabado…"
+audio.recorded: "El audio está en memoria. Expórtalo para conservar un archivo."
+audio.denied: "No se ha concedido acceso al micrófono. La grabación anterior no ha cambiado. Revisa los permisos del dispositivo antes de reintentarlo."
+audio.unexpected: "El host no devolvió un resultado utilizable. La grabación anterior no ha cambiado."
+audio.failed: "La operación ha fallado. Revisa los detalles y vuelve a intentarlo; la grabación anterior sigue disponible."
+audio.bytes: "Bytes grabados: {count}"
+audio.duration: "Duración indicada en milisegundos: {count}"
+audio.export_help: "Elige una carpeta para este archivo. Nunca se sobrescriben archivos; elige otra carpeta si el nombre ya existe."
+audio.export: "Elegir carpeta y exportar audio"
+audio.discard: "Descartar grabación de la memoria"
+audio.choose_folder: "Esperando la carpeta de exportación…"
+audio.export_cancelled: "Exportación cancelada. La grabación permanece en memoria."
+audio.exporting: "Escribiendo el archivo de audio…"
+audio.exported: "El proveedor ha confirmado la escritura. Comprueba el archivo antes de descartar la grabación."
+audio.cleanup_failed: "No se ha podido confirmar la liberación del acceso a la carpeta. Esto no deshace una escritura confirmada; cierra la aplicación si el proveedor sigue ocupado."
+language.english: "Inglés"
+language.spanish: "Español"
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Press Record, grant permission if asked and speak after the status changes to Recording. Check that non-empty bytes become available. Deny permission in a fresh permission context and confirm that the app leaves its pending state without claiming to have recorded audio.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Consume the stream once and export the actual encoding
+
+The collection job opens the runtime stream and reads its chunks asynchronously. Opening removes the one-shot handle from the registry; returning an error drops the opened stream rather than retaining an unreachable recording. The result has a two-MiB limit because this example deliberately keeps one very short clip in memory. A long-recording app should stream directly to its chosen sink instead of increasing that limit indefinitely.
+
+Export operates on an owned byte snapshot, so a failed file write can be retried without reopening a consumed microphone stream. Its directory grant is released after the write completes or fails; a release failure is reported separately because it does not undo a confirmed write. The file extension comes from the returned MIME type, not the requested sample format. The current iOS provider records AAC in an MP4 container and reports `audio/mp4`; calling those bytes WAV or raw floating-point samples would be incorrect.
+
+There is deliberately no Stop button here. The current iOS `cancel_capture` implementation acknowledges cancellation without stopping the active recorder, so it cannot support an honest "stopped now" state. This tutorial uses the provider's bounded duration instead. Do not claim immediate cancellation until that host behavior has been implemented and verified.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Choose a folder and export the recording. Open the exported file in an audio player and listen to it; a byte count does not prove the recording is useful. Try exporting to the same folder again: the existing file must not be overwritten. Cancel a later folder selection and confirm that the recording remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify permission, interruptions and the real microphone
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+Follow [the iPhone installation guide](/blog/install-a-fission-app-on-a-physical-iphone/) for signing and physical-device installation. The simulator command is not proof of an iPhone recording. Test first grant, denial, a later Settings change and an interruption whilst recording. An interrupted or failed operation must preserve any prior clip and allow a retry rather than remain indefinitely pending.
+
+Web recording additionally depends on a secure context, browser microphone support and embedding permissions. The iframe can therefore report an unavailable or denied capability even when native iOS works. Conversely, a successful browser capture says nothing about the native privacy description or iPhone audio session.
+
+The file provider may reject folder access, and a cloud-backed folder may introduce further failures. Those errors must remain visible; do not substitute an app-managed path and call it the user's selected destination. The example makes no background-recording, upload, playback-widget or persistence guarantee. Its export is the path for keeping the bounded voice note, and a real device must verify that path before release.
+<!-- /fission:step -->

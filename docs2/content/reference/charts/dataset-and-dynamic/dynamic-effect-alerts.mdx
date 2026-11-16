@@ -1,0 +1,52 @@
+---
+title: Dynamic alert scatter
+sidebar_label: Dynamic alert scatter
+description: Highlight application-selected alert observations using the real EffectScatterSeries.
+---
+
+# Dynamic alert scatter
+
+![Dynamic alert scatter screenshot](/img/charts/dynamic-effect-alerts.png)
+
+An alert must be established by application rules before a chart highlights it. The chart should not infer an incident merely because a point looks distant from the others.
+
+`EffectScatterSeries` names a visual series. It is unrelated to asynchronous `effect` syntax and does not fetch alerts, dispatch notifications or evaluate thresholds.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, EffectScatterSeries, Series};
+
+fission_component! {
+    pub ActiveServiceAlerts<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            alerts_label: String,
+            payload_label: String,
+            latency_label: String,
+            alert_points: Vec<(f32, f32)>,
+            alert_colour: Color,
+        }
+    }
+    view(alerts, _state, _cx) {
+        let mut series = EffectScatterSeries::new(&alerts.alerts_label)
+            .data(alerts.alert_points.clone());
+        series.color = Some(alerts.alert_colour);
+    } => Chart(
+        id: Some(alerts.chart_id),
+        title: Some(alerts.title.clone()),
+        x_axis: Some(Axis::value().name(alerts.payload_label.clone())),
+        y_axis: Some(Axis::value().name(alerts.latency_label.clone())),
+        series: vec![Series::EffectScatter(series)],
+    )
+}
+```
+
+The public series exposes its colour field but no colour builder, so setup assigns it directly. Supply a design-system colour, translated labels and finite coordinates in declared units.
+
+The renderer draws concentric emphasis rings. That alone is not evidence of continuous pulsing or a live update source. Refresh alert state through effects and reducers, then pass the latest valid snapshot.
+
+Keep alert IDs, severity and explanations in an accessible list. Test no active alerts, stale data and a failed refresh as distinct states. The image uses gallery data.
+
+[Dataset and dynamic family overview](./overview)

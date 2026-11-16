@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Inline presentation for source code or another monospace fragment.
 ///
 /// This widget displays text only; it does not perform syntax highlighting.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Code {
     /// Literal code text to display.
     pub text: String,
@@ -54,7 +54,7 @@ impl From<Code> for Widget {
 }
 
 /// Keyboard-key label with a compact keycap border and background.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Kbd {
     /// Key name or shortcut displayed on the keycap.
     pub text: String,

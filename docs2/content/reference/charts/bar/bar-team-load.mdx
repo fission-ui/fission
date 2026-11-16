@@ -1,0 +1,55 @@
+---
+title: Team load bars
+sidebar_label: Team load bars
+description: Compare committed team effort without pretending raw task counts measure capacity.
+---
+
+# Team load bars
+
+![Team load bars screenshot](/img/charts/bar-team-load.png)
+
+Ten tasks can represent very different amounts of work. If this chart is intended to compare team load, use a shared effort unit and retain the team's available capacity beside it.
+
+Here the measure is committed hours for one planning period. It describes allocation, not employee productivity.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct TeamCommitment {
+    pub team_id: String,
+    pub label: String,
+    pub committed_hours: f32,
+}
+
+fission_component! {
+    pub TeamCommitments<()> {
+        props {
+            title: String,
+            hours_label: String,
+            teams: Vec<TeamCommitment>,
+        }
+    }
+    view(load, _state, _cx) {
+        let mut teams = load.teams.clone();
+        teams.sort_by(|a, b| b.committed_hours.total_cmp(&a.committed_hours)
+            .then_with(|| a.team_id.cmp(&b.team_id)));
+        let labels = teams.iter().map(|team| team.label.as_str()).collect();
+        let values = teams.iter().map(|team| team.committed_hours).collect();
+    } => Chart(
+        title: Some(load.title.clone()),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![Series::Bar(
+            BarSeries::new(&load.hours_label).horizontal().data(values),
+        )],
+    )
+}
+```
+
+Require unique team IDs and finite non-negative effort estimates. Supply translated names and an explicit planning window. The chart creates a sorted projection without changing the source order.
+
+A larger commitment does not establish overload unless capacity is known. Use the [capacity comparison](./bar-utilization-capacity) when that is the actual question. Test ties and unavailable estimates, and expose exact hours with the same team identity in the report list. The image is a gallery fixture.
+
+[Bar family overview](./overview)

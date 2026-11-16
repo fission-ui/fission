@@ -1,0 +1,37 @@
+---
+title: Risk map
+sidebar_label: Risk map
+description: Map a defined risk measure rather than an unexplained score.
+---
+
+# Risk map
+
+![Risk map screenshot](/img/charts/map-risk.png)
+
+A risk map needs a definition of risk. For regional service incidents, the share of monitored sites exceeding an agreed threshold is a concrete measure; a colour labelled simply high tells the operator much less.
+
+Use `RegionMeasure` from the [choropleth example](../geographic-and-route/map-choropleth), in `widgets/regional_report_map.rs`:
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub fn affected_site_share(
+    region_id: String,
+    affected_sites: u32,
+    monitored_sites: u32,
+) -> Option<RegionMeasure> {
+    if monitored_sites == 0 || affected_sites > monitored_sites {
+        return None;
+    }
+    Some(RegionMeasure {
+        region_id,
+        value: 100.0 * affected_sites as f32 / monitored_sites as f32,
+    })
+}
+```
+
+Pass valid results to `RegionalReportMap` with a fixed 0–100 `VisualMap`, translated captions and an explanation of the threshold and monitoring window. `None` needs an explicit incomplete/invalid-data indication; it is not zero risk.
+
+The ratio compares monitored sites, not population or absolute incident severity. Keep affected and monitored counts visible so a reader can distinguish one affected site out of two from fifty out of a hundred. Validate geometry IDs and use a sequential palette rather than relying on red versus green. Test zero denominator and invalid counts. The gallery is a separate fixture.
+
+[Geo and route family overview](./overview)

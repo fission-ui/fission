@@ -184,7 +184,7 @@ pub enum PointerEvent {
 ///     modifiers: 0,
 /// });
 /// ```
-pub use fission_ir::{KeyBinding, KeyCode, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER};
+pub use fission_ir::{KeyAction, KeyBinding, KeyCode, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER};
 
 /// A keyboard key press or release event.
 ///

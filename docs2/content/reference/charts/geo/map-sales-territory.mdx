@@ -1,0 +1,27 @@
+---
+title: Sales territory map
+sidebar_label: Sales territory map
+description: Join sales to the territory definition used by the report.
+---
+
+# Sales territory map
+
+![Sales territory map screenshot](/img/charts/map-sales-territory.png)
+
+Territories change. A current boundary map joined to last year's totals can imply that the new territory generated revenue before it existed. Keep the territory definition or reporting version alongside the totals.
+
+Use [the regional sales projection](../geo-and-route/map-sales) with [RegionalReportMap](../geographic-and-route/map-choropleth). Amounts remain exact minor units in the source and are projected to floating-point values only for the chart. The join uses a stable string region ID from the supplied GeoJSON, not the translated territory name.
+
+A useful additional measure is target attainment:
+
+```rust
+pub fn target_attainment(actual_minor: u64, target_minor: u64) -> Option<f32> {
+    (target_minor > 0).then(|| 100.0 * actual_minor as f32 / target_minor as f32)
+}
+```
+
+Keep this distinct from revenue totals. Values above 100% are meaningful; an absent target is not zero attainment. Use one currency and comparable reporting periods, and supply translated labels that name the selected measure.
+
+Test reassigned accounts, territory splits, missing targets and unmatched geometry. Provide exact revenue/target values and a ranked table when comparing performance; geographical area is not contribution. The gallery is a separate fixture, not an attribution policy.
+
+[Geo family overview](./overview)

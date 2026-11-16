@@ -1,0 +1,94 @@
+---
+title: Slider
+description: Adjust one continuous numeric value by dragging a thumb along a track.
+slug: /widgets/slider
+---
+# Slider
+
+`Slider` lets the user adjust one continuous value, such as volume, zoom, or
+opacity. It reads the current value from state and sends a new value to the
+reducer when the user drags it.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug)]
+pub struct PlayerState { volume: f32 }
+
+impl Default for PlayerState {
+    fn default() -> Self { Self { volume: 0.5 } }
+}
+
+impl GlobalState for PlayerState {}
+
+#[fission_reducer(SetVolume, no_eq)]
+fn set_volume(state: &mut PlayerState, value: f32) {
+    if value.is_finite() {
+        state.volume = value.clamp(0.0, 1.0);
+    }
+}
+
+fission_component! {
+    pub VolumeControl<PlayerState> {}
+
+    view(_control, state, cx) {
+        let change = cx.bind(SetVolume(state.volume), reduce!(set_volume));
+    } =>
+        Slider(
+            id: WidgetId::explicit("player.volume"),
+            semantics_identifier: Some("player.volume".into()),
+            label: Some(cx.tr("player.volume")),
+            value: state.volume,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            on_change: change,
+        )
+}
+```
+
+The bound current value establishes the action's numeric payload shape. When the user drags, the runtime replaces that payload with the real `f32` value under the pointer.
+
+The payload is a float, so the action uses `no_eq`: Rust does not implement
+`Eq` for `f32`. This changes the generated derives, not the slider's event
+contract. The reducer still receives the proposed value and rejects non-finite
+input before updating the preference.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `value` | `f32` | Current slider value. | Defaults to `0.0`. Values are rendered relative to `min` and `max`. |
+| `min` | `f32` | Minimum value in the domain. | Defaults to `0.0`. |
+| `max` | `f32` | Maximum value in the domain. | Defaults to `1.0`. |
+| `label` | `Option<String>` | Accessible name. | Supply the operation rather than a generic slider label. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Independent of translated copy. |
+| `step` | `Option<f32>` | Positive snapping/key increment. | Omit for continuous pointer movement. |
+| `labelled_by` | `Vec<WidgetId>` | Visible label relationships. | Refer to the actual named label nodes. |
+| `on_change` | `Option<ActionEnvelope>` | Action dispatched while the user drags. | The runtime serializes the new `f32` value into the action payload. |
+
+## Interaction and semantics behavior
+
+`Slider` lowers slider semantics with a current value, minimum, and maximum, so keyboard focus, assistive technology, and test tools can treat it as a real range control. The current implementation dispatches a fresh numeric payload on pointer down and pointer move while the slider is active.
+
+The widget proposes a value and applies declared stepping for input. The
+reducer remains authoritative and validates finite values and product bounds.
+This updates the app's volume preference; actually changing host playback
+volume still requires the player's effect/capability path.
+
+## Specific advice
+
+Use a slider only when approximate dragging feels natural. If the user must enter an exact invoice number, postal code, or integer count, a slider is usually the wrong control. Also validate `min < max` in your own code path; the visual widget guards against a zero-width range, but meaningful product ranges still belong to you.
+
+## Production checklist
+
+- Test pointer capture through repeated rebuilds and keyboard/semantic adjustment.
+- Verify finite ordered bounds and declared step handling.
+- Keep shared playback state and host volume work in their authoritative reducer/effect flow.
+
+## Related
+
+[`RangeSlider`](/reference/widgets/range-slider), [`NumberInput`](/reference/widgets/number-input), [`Switch`](/reference/widgets/switch), and [`SegmentedControl`](/reference/widgets/segmented-control).

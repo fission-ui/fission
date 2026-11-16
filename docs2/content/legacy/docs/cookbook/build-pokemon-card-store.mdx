@@ -1,0 +1,202 @@
+---
+title: Build a server-rendered store
+sidebar_position: 21
+description: Recreate the Pokémon Card Store example with server routes, cache configuration, jobs, workers, islands, and Docker packaging.
+---
+
+# Build a server-rendered store
+
+This walkthrough separates a storefront's responsibilities: load catalogue
+data through a typed server job, render product information as HTML, and keep
+session-specific cart work out of shared cache entries. It follows the
+repository's Pokémon Card Store example, but a production store must replace
+that example's in-memory catalogue and cart service with its real authority.
+Rendering a storefront is not an implemented checkout or inventory system.
+
+## 1. Configure the server target
+
+```toml
+targets = ["ssr"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "rs.fission.examples.pokemon_card_store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "server_private"
+render_pass_limit = 4
+
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+```
+
+The route mode says the storefront is rendered per session, which is the right default for a cart. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file. Before production, add `[server.sessions]` with a signed cookie secret as described in [Server security](/docs/guides/server-site-security/).
+
+## 2. Model the data
+
+Use typed Rust data rather than loosely shaped maps. This mirrors the example's `CardProduct` idea.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CardProduct {
+    pub id: u32,
+    pub name: String,
+    pub set: String,
+    pub price_pence: u32,
+    pub stock: u32,
+    pub image_url: String,
+}
+
+```
+
+Integer pence keep money out of floating-point arithmetic. The model here is
+single-currency; use an explicit currency and locale-aware formatting if the
+store supports more. Product ids come from the catalogue authority, not each
+render's list position. The UI receives these records instead of inventing a
+successful catalogue inside its conversion function.
+
+## 3. Register a catalog job
+
+```rust
+pub struct CatalogJob;
+
+impl JobSpec for CatalogJob {
+    type Request = ();
+    type Ok = Vec<CardProduct>;
+    type Err = String;
+    const NAME: &'static str = "store::catalog";
+}
+
+pub const CATALOG_JOB: JobRef<CatalogJob> = JobRef::new(CatalogJob::NAME);
+
+use fission::server::ServerJobRegistry;
+
+let jobs = ServerJobRegistry::new().register_job(CATALOG_JOB, |(), _ctx| {
+    let file = std::fs::File::open("data/catalog.json").map_err(|error| error.to_string())?;
+    serde_json::from_reader(std::io::BufReader::new(file)).map_err(|error| error.to_string())
+});
+```
+
+This file-backed example reads a trusted, deployment-owned catalogue file, not
+fixture rows built into the widget. Set a stable working directory and package
+that data source deliberately. A larger store can replace the handler with its
+catalogue service while retaining the same job contract. Attach `jobs` to the
+server app using `.jobs(jobs)`.
+
+The page declares a job resource; the server shell executes it between render
+passes. A successful result can populate the returned HTML. Failure must render
+an error, not a fabricated empty catalogue. Do not read files or make HTTP calls
+directly from the component setup block.
+
+## 4. Render the page as widgets
+
+```rust
+#[derive(Debug, Default)]
+pub struct StoreState {
+    products: Option<Vec<CardProduct>>,
+    catalog_error: Option<String>,
+}
+
+impl GlobalState for StoreState {}
+
+#[fission_reducer(CatalogLoaded)]
+fn catalog_loaded(state: &mut StoreState, ctx: &mut ReducerContext<StoreState>) {
+    state.products = ctx.input.job_ok(CATALOG_JOB);
+    state.catalog_error = if state.products.is_some() { None }
+        else { Some("The catalogue job returned no result".into()) };
+}
+
+#[fission_reducer(CatalogFailed)]
+fn catalog_failed(state: &mut StoreState, ctx: &mut ReducerContext<StoreState>) {
+    state.catalog_error = Some(ctx.input.job_error_message(CATALOG_JOB)
+        .unwrap_or("The catalogue is unavailable").to_owned());
+}
+
+fission_component! {
+    pub StoreHomePage<StoreState> {}
+    view(_page, state, cx) {
+        let loaded = cx.bind(CatalogLoaded, reduce!(catalog_loaded));
+        let failed = cx.bind(CatalogFailed, reduce!(catalog_failed));
+        cx.with_resources(|resources| {
+            resources.job(JobResource::new(ResourceKey::new("store.catalog"), CATALOG_JOB, ())
+                .on_ok(loaded).on_err(failed));
+        });
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.l, children: [
+        Text(cx.tr("catalog.title"), font_size: tokens.typography.heading1_size),
+        if let Some(error) = &state.catalog_error { Alert(title: error.clone(), kind: AlertKind::Error) }
+        else if let Some(products) = &state.products {
+            if products.is_empty() { EmptyState(title: cx.tr("catalog.empty")) }
+            else { CardGrid(products.clone()) }
+        } else { Spinner(motion: SpinnerMotion::Default, label: cx.tr("catalog.loading")) },
+    ])
+}
+```
+`CardGrid` is the app's reusable product component accepting `Vec<CardProduct>`;
+its repeated product tiles use `key: product.id`. Keep it, the hero, and the
+shell in focused widget modules. Define `catalog.title` and `catalog.empty` in
+the shared translation bundles. This section is the catalogue-loading boundary,
+not a replacement for those app-owned product components or a full store.
+
+## 5. Add worker and island declarations
+
+```rust
+.worker(
+    "/",
+    ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+        .entry("pokemon_card_store::workers::catalog_filters_boot")
+        .root_node_id("catalog-grid"),
+)
+.island(
+    "/",
+    WasmIsland::new("cart-drawer", "/assets/islands/cart-drawer.wasm", "cart-drawer")
+        .entry("pokemon_card_store::islands::cart_drawer_boot"),
+)
+```
+
+The page remains server-rendered. These declarations identify artifacts, not
+their implementation: the repository's worker currently demonstrates bridge
+status messages, so do not assume it performs catalogue filtering. Implement
+and test the actual controls before describing them as a filtering feature.
+Likewise, an island's local cart view is not the order authority; submit changes
+to an authorised server flow and revalidate current stock and price there.
+
+## 6. Check, run, and package
+
+```sh
+fission server check --project-dir examples/pokemon-card-store
+fission server artifacts --project-dir examples/pokemon-card-store
+fission server serve --project-dir examples/pokemon-card-store --host 127.0.0.1 --port 8124
+```
+
+Package as a Docker image when you are ready to deploy the server process:
+
+```toml
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+```
+
+```sh
+fission package --project-dir examples/pokemon-card-store --target ssr --format docker-image --release
+fission publish --project-dir examples/pokemon-card-store --provider docker-registry --artifact target/fission/release/ssr/docker-image/artifact-manifest.json --site production
+```
+
+The resulting package manifest is the release record for the server image context and tags.

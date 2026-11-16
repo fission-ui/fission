@@ -13,6 +13,12 @@ pub enum SplitDirection {
     Vertical,
 }
 
+impl Default for SplitDirection {
+    fn default() -> Self {
+        Self::Horizontal
+    }
+}
+
 /// A resizable split pane that divides space between two children.
 ///
 /// The split ratio is controlled by `split_ratio` (0.0 to 1.0), which sets the
@@ -41,6 +47,22 @@ pub struct SplitView {
     pub split_ratio: f32,
     /// Action dispatched by drag interaction so the application can update the ratio.
     pub on_resize: Option<ActionEnvelope>,
+}
+
+impl Default for SplitView {
+    fn default() -> Self {
+        Self {
+            // Compose replaces this placeholder with the retained identity of
+            // the authored node. Callers constructing SplitView directly
+            // should continue to provide an application-specific identity.
+            id: WidgetId::from_u128(0),
+            direction: SplitDirection::default(),
+            first: fission_core::ui::widgets::Spacer::default().into(),
+            second: fission_core::ui::widgets::Spacer::default().into(),
+            split_ratio: 0.5,
+            on_resize: None,
+        }
+    }
 }
 
 impl From<SplitView> for Widget {

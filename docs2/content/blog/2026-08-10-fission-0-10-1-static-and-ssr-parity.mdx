@@ -1,0 +1,87 @@
+---
+title: Fission 0.10.1: Static site and SSR parity
+description: Shared document configuration and aligned APIs for Fission's build-time and request-time HTML shells.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - static-site
+  - ssr
+show_adjacent_posts: true
+---
+
+# Fission 0.10.1: Static site and SSR parity
+
+Static site and SSR pages now share one document configuration. Whether Fission
+renders a page during the build or in response to a request, you can use the
+same settings for themes, design systems, fonts, favicons, syntax highlighting,
+custom CSS, document elements, structured data, and a Fission footer.
+
+```rust
+let site = FissionSite::new()
+    .with_design_system::<ProductDesignSystem>(DesignMode::Light)
+    .favicon("/assets/icon.svg")
+    .head_html("<meta name=\"product\" content=\"catalog\">")
+    .footer_widget::<AppState, _>(ProductFooter);
+
+let server = FissionServerApp::new("Product")
+    .with_design_system::<ProductDesignSystem>(DesignMode::Light)
+    .favicon("/assets/icon.svg")
+    .head_html("<meta name=\"product\" content=\"catalog\">")
+    .footer_widget::<AppState, _>(ProductFooter);
+```
+
+Both APIs use `DocumentShellConfig` for these browser-document settings. That
+keeps the two HTML outputs from growing separate theme, asset, and integration
+behaviour.
+
+## Static site improvements
+
+Static site builds can now configure several things that were previously only
+available in SSR:
+
+- `i18n(...)`, `translation_bundle(...)`, `default_locale(...)`, and
+  `locale_resolver(...)`;
+- locale-aware `document_metadata(...)`;
+- `route_widget_with_state(...)` for build-time route data;
+- `with_route_structured_data(...)` for custom JSON-LD;
+- browser surface registrations and portals preserved in generated output.
+
+Set `locale` in Markdown or MDX front matter to choose translations and populate
+`lang` and `og:locale`. You no longer need a language-specific URL prefix; the
+old docs-only `/es` rule is gone.
+
+## SSR improvements
+
+SSR now gets the document features that were previously available only in a
+Static site build:
+
+- `with_design_system(...)` and `with_fonts(...)`, including generated
+  `@font-face` CSS;
+- `favicon(...)` and conditional `code_highlighting(...)`;
+- `footer_widget(...)` with the same retained widget semantics as Static site.
+
+The two targets still have different jobs. SSR handles request-specific work:
+sessions, signed actions, dynamic parameters, cache and revalidation policy,
+response status, workers, and islands. Static site handles build-time work such
+as content discovery, search files, redirects, sitemaps, robots files, and link
+checking.
+
+This post records the 0.10.1 API. Current HTML font delivery is explicit:
+`[web].font_delivery` defaults to `"none"`; choose `"external"` or `"inline"`
+when the document should publish packaged fonts. Sharing a document API does
+not make inline font bytes the default. See the [font reference](/reference/core/fonts/).
+
+## Compatibility
+
+This is a patch release. Existing `FissionSite` and `FissionServerApp` builders
+still work; the new APIs bring their document settings into line and use the
+shared configuration internally.
+
+If your app builds both outputs, enable both shell features:
+
+```toml
+fission = { version = "0.10.1", default-features = false, features = ["site", "server"] }
+```

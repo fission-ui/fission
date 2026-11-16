@@ -1,0 +1,1715 @@
+---
+layout: goal
+title: Build a product inventory dashboard in Rust
+description: Build a Rust inventory dashboard with catalogue import, searchable SKUs, reorder filters and validated stock receipts.
+goal: Find the right warehouse product and record received stock without changing another SKU
+path: /blog/build-a-product-inventory-website-in-rust/
+order: 9
+difficulty: Beginner
+duration: 60 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-product-inventory
+outcomes:
+  - Load an exported catalogue without replacing existing stock
+  - Find products by SKU, name, supplier or bin
+  - Compare stock with each product's reorder point
+  - Record a receipt or explain why it was rejected
+---
+
+A delivery arrives before the stockroom opens. The receiver needs to match each carton to a product, find its storage bin and record the number of units received. Searching by name alone is not sufficient: similar products can occupy different bins, and adding stock to the wrong record leaves the physical shelf and the inventory system disagreeing.
+
+We'll build that receiving screen. Product records belong in shared application state because the rows, stock total and reorder summary all describe the same catalogue. The search, stock filter and unsubmitted quantity belong to the dashboard; they describe what the receiver is doing, not what the warehouse owns.
+
+This example is an in-memory receiving workbench, not a warehouse service. The normal app accepts a catalogue export. The embedded preview loads five fictional products from a separate fixture file so you can try the receiving flow immediately. Neither path writes to a database, shares stock with another session or survives a reload. A successful receipt here means the local state changed; it does not mean a warehouse service accepted a transaction.
+
+## Create the app
+
+Use the generated project and add the Web target. The shared components also run through the native launcher.
+
+```sh
+cargo install cargo-fission
+fission init harbour-inventory
+cd harbour-inventory
+cargo add serde --features derive
+cargo add serde_json serde_yaml
+fission add-target web --project-dir .
+```
+
+Keep one responsibility per module:
+
+```text
+harbour-inventory/
+├── src/
+│   ├── main.rs             # generated native launcher
+│   ├── lib.rs              # native and Web startup
+│   ├── app.rs              # dashboard composition and local drafts
+│   ├── models.rs           # product fields and search predicates
+│   ├── state.rs            # catalogue import and stock transitions
+│   ├── translations.rs
+│   └── widgets/
+│       ├── mod.rs
+│       ├── catalogue_import.rs
+│       ├── product_row.rs
+│       ├── receipt_notice.rs
+│       └── metric.rs       # added in the final step
+├── i18n/
+└── preview/
+    ├── lib.rs              # documentation launcher, not the normal app
+    └── fixtures.rs         # fictional catalogue, preview only
+```
+
+<!-- fission:step id="catalogue" -->
+## Load a catalogue and make its stock readable
+
+A stock keeping unit, or SKU, identifies the product the receiver recognises on the carton. The numeric ID identifies its record and remains stable when the list is searched or reordered. Keep both: a visible SKU helps the person, while a stable record ID ties interactions to the right data.
+
+The product also has a supplier, storage bin, reorder point and unit cost. This catalogue uses USD throughout, with costs stored as integer cents. That avoids fractional-cent rounding in the model; it does not implement currency conversion or a general money type.
+
+The import accepts a JSON array of complete products. Its category values are `drinkware`, `stationery`, `cooking`, `water-treatment` and `shelter`. Numeric values are unsigned whole numbers. Copy the shape shown in `preview/fixtures.rs` when preparing an export, but supply your own records to the normal app. The preview serialisation and the production import use the same product type.
+
+Validate the whole catalogue before assigning it. Duplicate IDs or SKUs, incomplete records, malformed JSON and oversized input leave the existing state alone. Once a catalogue is loaded, the import cannot silently replace stock that someone has already adjusted. The test module checks those boundaries independently of the UI.
+
+<Tabs>
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
+```rust
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryProduct {
+    pub id: u32,
+    pub sku: String,
+    pub name: String,
+    pub category: ProductCategory,
+    pub supplier: String,
+    pub bin: String,
+    pub stock: u32,
+    pub reorder_point: u32,
+    pub unit_cost_cents: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProductCategory {
+    Drinkware,
+    Stationery,
+    Cooking,
+    WaterTreatment,
+    Shelter,
+}
+
+impl ProductCategory {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Drinkware => "inventory.category.drinkware",
+            Self::Stationery => "inventory.category.stationery",
+            Self::Cooking => "inventory.category.cooking",
+            Self::WaterTreatment => "inventory.category.water_treatment",
+            Self::Shelter => "inventory.category.shelter",
+        }
+    }
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::models::InventoryProduct;
+use fission::prelude::*;
+use std::collections::HashSet;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum InventoryFeedback {
+    Loaded(usize),
+    Received { sku: String, quantity: u32 },
+    Rejected(&'static str),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InventoryState {
+    pub products: Vec<InventoryProduct>,
+    pub feedback: Option<InventoryFeedback>,
+}
+
+impl GlobalState for InventoryState {}
+
+impl InventoryState {
+    pub fn import_catalogue(&mut self, source: &str) {
+        // Do not replace a catalogue after staff have started receiving stock.
+        if !self.products.is_empty() {
+            self.feedback = Some(InventoryFeedback::Rejected("inventory.import.already_loaded"));
+            return;
+        }
+        match parse_catalogue(source) {
+            Ok(products) => {
+                self.feedback = Some(InventoryFeedback::Loaded(products.len()));
+                self.products = products;
+            }
+            Err(key) => self.feedback = Some(InventoryFeedback::Rejected(key)),
+        }
+    }
+}
+
+fn parse_catalogue(source: &str) -> Result<Vec<InventoryProduct>, &'static str> {
+    if source.len() > 128 * 1024 {
+        return Err("inventory.import.invalid");
+    }
+    let mut products: Vec<InventoryProduct> =
+        serde_json::from_str(source).map_err(|_| "inventory.import.invalid")?;
+    if products.is_empty() || products.len() > 500 {
+        return Err("inventory.import.invalid");
+    }
+    let mut ids = HashSet::new();
+    let mut skus = HashSet::new();
+    for product in &mut products {
+        product.sku = product.sku.trim().to_owned();
+        product.name = product.name.trim().to_owned();
+        product.supplier = product.supplier.trim().to_owned();
+        product.bin = product.bin.trim().to_owned();
+        if product.id == 0
+            || [&product.sku, &product.name, &product.supplier, &product.bin]
+                .iter().any(|value| value.is_empty() || value.chars().count() > 160)
+            || !ids.insert(product.id)
+            || !skus.insert(product.sku.to_lowercase())
+        {
+            return Err("inventory.import.invalid");
+        }
+    }
+    Ok(products)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn product(id: u32, sku: &str, stock: u32) -> InventoryProduct {
+        InventoryProduct {
+            id, sku: sku.into(), name: "Steel mug".into(),
+            category: crate::models::ProductCategory::Drinkware,
+            supplier: "Supplier".into(), bin: "A-01".into(),
+            stock, reorder_point: 4, unit_cost_cents: 1800,
+        }
+    }
+    #[test]
+    fn duplicate_skus_and_ids_reject_the_whole_import() {
+        for invalid in [
+            vec![product(1, "MUG-A", 4), product(2, "mug-a", 6)],
+            vec![product(1, "MUG-A", 4), product(1, "MUG-B", 6)],
+        ] {
+            let mut state = InventoryState::default();
+            state.import_catalogue(&serde_json::to_string(&invalid).unwrap());
+            assert!(state.products.is_empty());
+            assert!(matches!(state.feedback, Some(InventoryFeedback::Rejected(_))));
+        }
+    }
+    #[test]
+    fn catalogue_is_loaded_once_and_keeps_source_ids() {
+        let products = vec![product(104, "MUG-104", 4)];
+        let mut state = InventoryState::default();
+        state.import_catalogue(&serde_json::to_string(&products).unwrap());
+        assert_eq!(state.products, products);
+        state.import_catalogue("[]");
+        assert_eq!(state.products, products);
+    }
+    #[test]
+    fn empty_malformed_and_oversized_imports_do_not_load_products() {
+        for source in ["[]", "not JSON", "{}"] {
+            assert!(parse_catalogue(source).is_err());
+        }
+        assert!(parse_catalogue(&" ".repeat(128 * 1024 + 1)).is_err());
+    }
+    #[test]
+    fn blank_fields_reject_the_whole_import() {
+        let mut invalid = product(2, "MUG-B", 0);
+        invalid.bin = " ".into();
+        let source = serde_json::to_string(&vec![product(1, "MUG-A", 4), invalid]).unwrap();
+        assert!(parse_catalogue(&source).is_err());
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::state::InventoryState;
+use crate::widgets::{catalogue_import::CatalogueImport, product_row::InventoryProductRow, receipt_notice::ReceiptNotice};
+use fission::prelude::*;
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {}
+    view(_dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let total_units: u64 = state.products.iter().map(|product| u64::from(product.stock)).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+    } =>
+    Scroll(
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some(cx.tr("inventory.semantics.dashboard")),
+        child: Container(
+            Column(gap: tokens.spacing.l, children: [
+                if state.products.is_empty() { CatalogueImport() },
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("inventory.header.location"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("inventory.title"))
+                        .size(tokens.typography.heading_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("inventory.intro.catalogue"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(140.0),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.products")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", state.products.len(), cx.tr("inventory.metric.active")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.units_on_hand")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", total_units, cx.tr("inventory.units")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.reorder_review")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", reorder_count, cx.tr("inventory.metric.products")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                    ],
+                ),
+                ReceiptNotice(),
+                Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("inventory.section.stock")).size(tokens.typography.heading2_size),
+                    if state.products.is_empty() {
+                        EmptyState(
+                            title: cx.tr("inventory.empty.unloaded.title"),
+                            description: Some(cx.tr("inventory.empty.unloaded.description")),
+                        )
+                    } else {
+                        for product in state.products.iter() {
+                            InventoryProductRow(product.clone(), key: product.id)
+                        }
+                    },
+                ]),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.background),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+pub mod catalogue_import;
+pub mod product_row;
+pub mod receipt_notice;
+```
+</TabItem>
+<TabItem label="src/widgets/product_row.rs">
+<!-- fission:file path="src/widgets/product_row.rs" -->
+```rust
+use crate::models::InventoryProduct;
+use crate::state::InventoryState;
+use fission::prelude::*;
+
+fission_component! {
+    pub InventoryProductRow<InventoryState> { props { product: InventoryProduct } }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let stock_status = if row.product.stock == 0 {
+            cx.tr("inventory.status.out")
+        } else if row.product.stock <= row.product.reorder_point {
+            cx.tr("inventory.status.reorder")
+        } else {
+            cx.tr("inventory.status.in_stock")
+        };
+        let status_color = if row.product.stock == 0 {
+            tokens.colors.error
+        } else if row.product.stock <= row.product.reorder_point {
+            tokens.colors.warning
+        } else {
+            tokens.colors.success
+        };
+    } =>
+    Container(
+        Grid(
+            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                GridTrack::Points(180.0),
+                GridTrack::Fr(1.0),
+            ))],
+            rows: vec![GridTrack::Auto],
+            column_gap: tokens.spacing.l,
+            row_gap: tokens.spacing.m,
+            children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(row.product.name)
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("{} · {}", row.product.sku, cx.tr(row.product.category.translation_key())))
+                        .color(tokens.colors.text_secondary),
+                    Text(format!("{}: {} · {}: {}", cx.tr("inventory.supplier"), row.product.supplier, cx.tr("inventory.bin"), row.product.bin))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                        Text(format!("{} {} · {}", row.product.stock, cx.tr("inventory.units"), stock_status))
+                        .color(status_color)
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("{} {} {}", cx.tr("inventory.reorder.at"), row.product.reorder_point, cx.tr("inventory.units")))
+                        .color(tokens.colors.text_secondary),
+                    Text(format!(
+                        "USD {}.{:02} · {}",
+                        row.product.unit_cost_cents / 100,
+                        row.product.unit_cost_cents % 100,
+                        cx.tr("inventory.cost.per_unit"),
+                    )),
+                ]),
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+<TabItem label="src/widgets/catalogue_import.rs">
+<!-- fission:file path="src/widgets/catalogue_import.rs" -->
+```rust
+use crate::state::InventoryState;
+use fission::prelude::*;
+
+fission_component! {
+    pub CatalogueImport<InventoryState> {
+        state { source: String = String::new() }
+    }
+    view(importer, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("inventory.import.title")).weight(tokens.typography.font_weight_semibold),
+        Text(cx.tr("inventory.import.detail")).color(tokens.colors.text_secondary),
+        TextInput(
+            label: Some(cx.tr("inventory.import.label").into()),
+            multiline: true,
+            min_lines: Some(4),
+            max_lines: Some(8),
+            max_length: Some(128 * 1024),
+            autocorrect: false,
+            spell_check: false,
+            bind: importer.source,
+            semantics_identifier: "inventory.catalogue-json".to_owned(),
+        ),
+        Button(
+            child: Text(cx.tr("inventory.import.action")),
+            key: "load-catalogue",
+            disabled: importer.source.trim().is_empty(),
+            on_press: reduce { state.import_catalogue(&importer.source); },
+        ).semantics_identifier("inventory.load-catalogue".to_owned()),
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/widgets/receipt_notice.rs">
+<!-- fission:file path="src/widgets/receipt_notice.rs" -->
+```rust
+use crate::state::{InventoryFeedback, InventoryState};
+use fission::prelude::*;
+
+fission_component! {
+    pub ReceiptNotice<InventoryState> {}
+    view(_notice, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let message = match &state.feedback {
+            None => cx.tr("inventory.receive.prompt"),
+            Some(InventoryFeedback::Loaded(count)) => cx.tr("inventory.import.success")
+                .replace("{count}", &count.to_string()),
+            Some(InventoryFeedback::Received { sku, quantity }) => cx.tr("inventory.receipt.success")
+                .replace("{sku}", sku).replace("{count}", &quantity.to_string()),
+            Some(InventoryFeedback::Rejected(key)) => cx.tr(key),
+        };
+        let is_error = matches!(state.feedback, Some(InventoryFeedback::Rejected(_)));
+    } =>
+    SemanticsRegion(
+        identifier: Some("inventory-stock-feedback".to_owned()),
+        label: Some(cx.tr("inventory.semantics.receipt")),
+        child: Text(message).color(if is_error { tokens.colors.error } else { tokens.colors.text_secondary }),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod models;
+mod state;
+mod translations;
+mod widgets;
+
+use fission::prelude::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_env(translations::create_env())
+        .with_title("Harbour Supply stockroom")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+use std::collections::HashMap;
+
+const SOURCES: [(&str, &str); 2] = [
+    ("en-US", include_str!("../i18n/en-US.yaml")),
+    ("es-ES", include_str!("../i18n/es-ES.yaml")),
+];
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in SOURCES {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid inventory translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+inventory.semantics.dashboard: "Harbour Supply product inventory"
+inventory.semantics.products: "Product stock and receiving"
+inventory.semantics.receipt: "Latest stock receipt"
+inventory.header.location: "Harbour Supply · Troutdale warehouse"
+inventory.header.brand: "Harbour Supply"
+inventory.header.warehouse: "Troutdale · Main warehouse"
+inventory.header.section: "STOCKROOM"
+inventory.title: "Inventory"
+inventory.intro.catalogue: "Check each product’s stock, supplier and storage bin before the next receipt."
+inventory.intro.receiving: "Find the right SKU, check its supplier and bin, then record each received delivery."
+inventory.metric.products: "Products"
+inventory.metric.active: "active"
+inventory.metric.units_on_hand: "Units on hand"
+inventory.metric.reorder_review: "Reorder review"
+inventory.metric.product_count_unit: "products"
+inventory.metric.product_one: "product"
+inventory.metric.active_records: "Active stock records"
+inventory.metric.across_warehouse: "Across the main warehouse"
+inventory.metric.at_threshold: "at or below threshold"
+inventory.metric.showing: "Showing"
+inventory.metric.of: "of"
+inventory.units: "units"
+inventory.status.out: "Out of stock"
+inventory.status.reorder: "Reorder soon"
+inventory.status.in_stock: "In stock"
+inventory.reorder.at: "Reorder at"
+inventory.cost.per_unit: "per unit"
+inventory.supplier: "Supplier"
+inventory.bin: "Bin"
+inventory.category.drinkware: "Drinkware"
+inventory.category.stationery: "Stationery"
+inventory.category.cooking: "Cooking"
+inventory.category.water_treatment: "Water treatment"
+inventory.category.shelter: "Shelter"
+inventory.section.stock: "Product stock"
+inventory.empty.unloaded.title: "No inventory records are loaded"
+inventory.empty.unloaded.description: "Load your catalogue above before recording receipts."
+inventory.search.label: "Find a product"
+inventory.search.placeholder: "Search name, SKU, supplier or bin"
+inventory.search.placeholder.short: "Name, SKU, supplier or bin"
+inventory.receive.quantity.label: "Units received"
+inventory.receive.quantity.placeholder: "Enter a positive whole number"
+inventory.receive.action: "Receive {count} units"
+inventory.receive.five: "Receive five units"
+inventory.receive.prompt: "Choose Receive on a product row to record a delivery."
+inventory.filter.all: "All stock"
+inventory.filter.all_products: "All products"
+inventory.filter.reorder: "Needs reorder"
+inventory.filter.out: "Out of stock"
+inventory.filter.show_all: "Show all products"
+inventory.empty.match.title: "No products match this view"
+inventory.empty.match.description: "Try a different product search or choose All stock."
+inventory.empty.search.title: "No products match this search and stock filter."
+inventory.empty.search.description: "Try a supplier, product name or storage bin, or return to the full stock list."
+inventory.notice.reorder: "products need a reorder review"
+inventory.notice.supplier_lead: "Check supplier lead times before preparing the next order."
+inventory.notice.review_low: "Review low stock"
+inventory.receive.invalid_quantity: "Enter a whole number greater than zero. Choose Receive on a product row to validate the receipt."
+inventory.receipt.invalid_quantity: "Enter a whole number greater than zero before receiving stock."
+inventory.receipt.success: "Received {count} units of {sku}. Stock and summaries are updated."
+inventory.receipt.overflow: "The receipt is too large. Stock was not changed."
+inventory.receipt.missing_product: "This product is no longer in the catalogue. Stock was not changed."
+inventory.receipt.latest: "Latest stock receipt"
+inventory.import.title: "Load a stock catalogue"
+inventory.import.detail: "Paste a JSON array exported from your inventory system: id, sku, name, category, supplier, bin, stock, reorder_point and unit_cost_cents. Costs are USD cents. Up to 500 products, loaded once for this session."
+inventory.import.label: "Catalogue JSON"
+inventory.import.action: "Load catalogue"
+inventory.import.invalid: "Use a JSON array of 1–500 complete products, at most 128 KiB. Each product needs a unique positive ID, a unique SKU and non-empty name, supplier and bin (up to 160 characters each). Category must be drinkware, stationery, cooking, water-treatment or shelter; quantities and USD cents must be unsigned whole numbers."
+inventory.import.already_loaded: "A catalogue is already loaded. It was not replaced."
+inventory.import.success: "Loaded {count} products. Check the SKU and bin before receiving stock."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+inventory.semantics.dashboard: "Inventario de productos de Harbour Supply"
+inventory.semantics.products: "Existencias y recepción de productos"
+inventory.semantics.receipt: "Última recepción de existencias"
+inventory.header.location: "Harbour Supply · Almacén de Troutdale"
+inventory.header.brand: "Harbour Supply"
+inventory.header.warehouse: "Troutdale · Almacén principal"
+inventory.header.section: "ALMACÉN"
+inventory.title: "Inventario"
+inventory.intro.catalogue: "Comprueba las existencias, el proveedor y la ubicación antes de registrar la próxima recepción."
+inventory.intro.receiving: "Busca el SKU correcto, comprueba el proveedor y la ubicación y registra cada entrega recibida."
+inventory.metric.products: "Productos"
+inventory.metric.active: "activos"
+inventory.metric.units_on_hand: "Unidades disponibles"
+inventory.metric.reorder_review: "Revisión de reposición"
+inventory.metric.product_count_unit: "productos"
+inventory.metric.product_one: "producto"
+inventory.metric.active_records: "Registros de existencias activos"
+inventory.metric.across_warehouse: "En el almacén principal"
+inventory.metric.at_threshold: "en el umbral o por debajo"
+inventory.metric.showing: "Se muestran"
+inventory.metric.of: "de"
+inventory.units: "unidades"
+inventory.status.out: "Agotado"
+inventory.status.reorder: "Reponer pronto"
+inventory.status.in_stock: "Disponible"
+inventory.reorder.at: "Reponer al llegar a"
+inventory.cost.per_unit: "por unidad"
+inventory.supplier: "Proveedor"
+inventory.bin: "Ubicación"
+inventory.category.drinkware: "Artículos para bebidas"
+inventory.category.stationery: "Papelería"
+inventory.category.cooking: "Cocina"
+inventory.category.water_treatment: "Tratamiento de agua"
+inventory.category.shelter: "Refugio"
+inventory.section.stock: "Existencias de productos"
+inventory.empty.unloaded.title: "No hay registros de inventario cargados"
+inventory.empty.unloaded.description: "Carga el catálogo antes de registrar recepciones."
+inventory.search.label: "Buscar un producto"
+inventory.search.placeholder: "Busca por nombre, SKU, proveedor o ubicación"
+inventory.search.placeholder.short: "Nombre, SKU, proveedor o ubicación"
+inventory.receive.quantity.label: "Unidades recibidas"
+inventory.receive.quantity.placeholder: "Introduce un número entero positivo"
+inventory.receive.action: "Recibir {count} unidades"
+inventory.receive.five: "Recibir cinco unidades"
+inventory.receive.prompt: "Elige Recibir en una fila de producto para registrar una entrega."
+inventory.filter.all: "Todas las existencias"
+inventory.filter.all_products: "Todos los productos"
+inventory.filter.reorder: "Necesitan reposición"
+inventory.filter.out: "Agotados"
+inventory.filter.show_all: "Mostrar todos los productos"
+inventory.empty.match.title: "No hay productos que coincidan con esta vista"
+inventory.empty.match.description: "Prueba otra búsqueda o elige Todas las existencias."
+inventory.empty.search.title: "Ningún producto coincide con la búsqueda y el filtro."
+inventory.empty.search.description: "Prueba con un proveedor, producto o ubicación, o vuelve a la lista completa."
+inventory.notice.reorder: "productos necesitan revisión de reposición"
+inventory.notice.supplier_lead: "Comprueba los plazos del proveedor antes de preparar el próximo pedido."
+inventory.notice.review_low: "Revisar existencias bajas"
+inventory.receive.invalid_quantity: "Introduce un número entero mayor que cero. Elige Recibir en una fila para validar la entrada."
+inventory.receipt.invalid_quantity: "Introduce un número entero mayor que cero antes de recibir existencias."
+inventory.receipt.success: "Se recibieron {count} unidades de {sku}. Las existencias y los resúmenes están actualizados."
+inventory.receipt.overflow: "La recepción supera el límite. No se modificaron las existencias."
+inventory.receipt.missing_product: "Este producto ya no está en el catálogo. No se modificaron las existencias."
+inventory.receipt.latest: "Última recepción de existencias"
+inventory.import.title: "Cargar un catálogo de existencias"
+inventory.import.detail: "Pega una matriz JSON exportada del inventario: id, sku, name, category, supplier, bin, stock, reorder_point y unit_cost_cents. Los costes son céntimos USD. Hasta 500 productos, cargados una vez por sesión."
+inventory.import.label: "Catálogo JSON"
+inventory.import.action: "Cargar catálogo"
+inventory.import.invalid: "Usa una matriz JSON de 1–500 productos completos y hasta 128 KiB. Cada producto necesita un ID positivo único, un SKU único, nombre, proveedor y ubicación no vacíos (hasta 160 caracteres). La categoría debe ser drinkware, stationery, cooking, water-treatment o shelter; las cantidades y los céntimos USD deben ser enteros sin signo."
+inventory.import.already_loaded: "Ya hay un catálogo cargado. No se ha sustituido."
+inventory.import.success: "Se cargaron {count} productos. Comprueba el SKU y la ubicación antes de recibir existencias."
+```
+</TabItem>
+<TabItem label="preview/fixtures.rs">
+<!-- fission:file path="preview/fixtures.rs" -->
+```rust
+use crate::models::{InventoryProduct, ProductCategory};
+
+pub fn sample_products() -> Vec<InventoryProduct> {
+    vec![
+        InventoryProduct {
+            id: 104,
+            sku: "MUG-104".into(),
+            name: "Trail mug, 350 ml".into(),
+            category: ProductCategory::Drinkware,
+            supplier: "Alpine Metalworks".into(),
+            bin: "A-12".into(),
+            stock: 4,
+            reorder_point: 6,
+            unit_cost_cents: 1800,
+        },
+        InventoryProduct {
+            id: 208,
+            sku: "NOTE-208".into(),
+            name: "Weatherproof field notebook".into(),
+            category: ProductCategory::Stationery,
+            supplier: "North Shore Paper".into(),
+            bin: "B-03".into(),
+            stock: 22,
+            reorder_point: 8,
+            unit_cost_cents: 1200,
+        },
+        InventoryProduct {
+            id: 31,
+            sku: "STOVE-031".into(),
+            name: "Compact camp stove".into(),
+            category: ProductCategory::Cooking,
+            supplier: "Summit Gear".into(),
+            bin: "C-07".into(),
+            stock: 0,
+            reorder_point: 3,
+            unit_cost_cents: 6400,
+        },
+        InventoryProduct {
+            id: 115,
+            sku: "FILTER-115".into(),
+            name: "Replacement water filter".into(),
+            category: ProductCategory::WaterTreatment,
+            supplier: "Clear Creek".into(),
+            bin: "A-09".into(),
+            stock: 7,
+            reorder_point: 5,
+            unit_cost_cents: 1600,
+        },
+        InventoryProduct {
+            id: 220,
+            sku: "TENT-220".into(),
+            name: "Two-person trekking tent".into(),
+            category: ProductCategory::Shelter,
+            supplier: "Alpine Metalworks".into(),
+            bin: "D-02".into(),
+            stock: 3,
+            reorder_point: 4,
+            unit_cost_cents: 18900,
+        },
+    ]
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+#[path = "../preview/fixtures.rs"]
+mod fixtures;
+mod models;
+mod state;
+mod translations;
+mod widgets;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+
+    WebApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_state_init(|state| {
+            state.products = fixtures::sample_products();
+        })
+        .with_env(translations::create_env())
+        .with_title("Harbour Supply")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Find the camp stove in the preview. Its zero count should say “Out of stock”, and its SKU, bin and reorder point should be visible without relying on colour. In the normal app, try invalid JSON first: the form should keep the input and explain the import format rather than loading a partial catalogue.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="search-and-adjust" -->
+## Find a product and change only its stock
+
+The receiver may have a supplier name or bin label rather than the product name. Search therefore checks those fields, the SKU and the translated category. The stock filter is applied as well: “Needs reorder” means the count is at or below that product's reorder point, not below an arbitrary global threshold.
+
+For this intermediate step, the receive button adds five units. It demonstrates the transition before we add the packing-slip quantity field. The handler reads its own row's product ID and calls an ordinary Rust state method through `reduce`. It does not capture a borrowed loop variable or need a separate action type for a one-line transition.
+
+The state method checks zero, a missing product and integer overflow before changing stock. Its typed result records the SKU and quantity, or a specific rejection. This keeps the message and its error styling consistent without storing a separate boolean that could contradict the message.
+
+<Tabs>
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
+```rust
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryProduct {
+    pub id: u32,
+    pub sku: String,
+    pub name: String,
+    pub category: ProductCategory,
+    pub supplier: String,
+    pub bin: String,
+    pub stock: u32,
+    pub reorder_point: u32,
+    pub unit_cost_cents: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProductCategory {
+    Drinkware,
+    Stationery,
+    Cooking,
+    WaterTreatment,
+    Shelter,
+}
+
+impl ProductCategory {
+    pub fn translation_key(self) -> &'static str {
+        match self {
+            Self::Drinkware => "inventory.category.drinkware",
+            Self::Stationery => "inventory.category.stationery",
+            Self::Cooking => "inventory.category.cooking",
+            Self::WaterTreatment => "inventory.category.water_treatment",
+            Self::Shelter => "inventory.category.shelter",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InventoryFilter {
+    All,
+    NeedsReorder,
+    OutOfStock,
+}
+
+pub fn matches_inventory_filter(
+    product: &InventoryProduct,
+    query: &str,
+    filter: InventoryFilter,
+    category_label: &str,
+) -> bool {
+    let query = query.trim().to_lowercase();
+    let matches_query = query.is_empty()
+        || product.name.to_lowercase().contains(&query)
+        || product.sku.to_lowercase().contains(&query)
+        || category_label.to_lowercase().contains(&query)
+        || product.supplier.to_lowercase().contains(&query)
+        || product.bin.to_lowercase().contains(&query);
+    let matches_stock = match filter {
+        InventoryFilter::NeedsReorder => product.stock <= product.reorder_point,
+        InventoryFilter::OutOfStock => product.stock == 0,
+        InventoryFilter::All => true,
+    };
+
+    matches_query && matches_stock
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::models::InventoryProduct;
+use fission::prelude::*;
+use std::collections::HashSet;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum InventoryFeedback {
+    Loaded(usize),
+    Received { sku: String, quantity: u32 },
+    Rejected(&'static str),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InventoryState {
+    pub products: Vec<InventoryProduct>,
+    pub feedback: Option<InventoryFeedback>,
+}
+
+impl GlobalState for InventoryState {}
+
+impl InventoryState {
+    pub fn import_catalogue(&mut self, source: &str) {
+        // Do not replace a catalogue after staff have started receiving stock.
+        if !self.products.is_empty() {
+            self.feedback = Some(InventoryFeedback::Rejected("inventory.import.already_loaded"));
+            return;
+        }
+        match parse_catalogue(source) {
+            Ok(products) => {
+                self.feedback = Some(InventoryFeedback::Loaded(products.len()));
+                self.products = products;
+            }
+            Err(key) => self.feedback = Some(InventoryFeedback::Rejected(key)),
+        }
+    }
+}
+
+fn parse_catalogue(source: &str) -> Result<Vec<InventoryProduct>, &'static str> {
+    if source.len() > 128 * 1024 {
+        return Err("inventory.import.invalid");
+    }
+    let mut products: Vec<InventoryProduct> =
+        serde_json::from_str(source).map_err(|_| "inventory.import.invalid")?;
+    if products.is_empty() || products.len() > 500 {
+        return Err("inventory.import.invalid");
+    }
+    let mut ids = HashSet::new();
+    let mut skus = HashSet::new();
+    for product in &mut products {
+        product.sku = product.sku.trim().to_owned();
+        product.name = product.name.trim().to_owned();
+        product.supplier = product.supplier.trim().to_owned();
+        product.bin = product.bin.trim().to_owned();
+        if product.id == 0
+            || [&product.sku, &product.name, &product.supplier, &product.bin]
+                .iter().any(|value| value.is_empty() || value.chars().count() > 160)
+            || !ids.insert(product.id)
+            || !skus.insert(product.sku.to_lowercase())
+        {
+            return Err("inventory.import.invalid");
+        }
+    }
+    Ok(products)
+}
+impl InventoryState {
+    pub fn receive_stock(&mut self, product_id: u32, quantity: u32) {
+        let result = if quantity == 0 {
+            Err("inventory.receipt.invalid_quantity")
+        } else if let Some(product) = self.products.iter_mut().find(|product| product.id == product_id) {
+            match product.stock.checked_add(quantity) {
+                Some(next_stock) => {
+                    product.stock = next_stock;
+                    Ok(InventoryFeedback::Received { sku: product.sku.clone(), quantity })
+                }
+                None => Err("inventory.receipt.overflow"),
+            }
+        } else {
+            Err("inventory.receipt.missing_product")
+        };
+        self.feedback = Some(result.unwrap_or_else(InventoryFeedback::Rejected));
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn product(id: u32, sku: &str, stock: u32) -> InventoryProduct {
+        InventoryProduct {
+            id, sku: sku.into(), name: "Steel mug".into(),
+            category: crate::models::ProductCategory::Drinkware,
+            supplier: "Supplier".into(), bin: "A-01".into(),
+            stock, reorder_point: 4, unit_cost_cents: 1800,
+        }
+    }
+    #[test]
+    fn duplicate_skus_and_ids_reject_the_whole_import() {
+        for invalid in [
+            vec![product(1, "MUG-A", 4), product(2, "mug-a", 6)],
+            vec![product(1, "MUG-A", 4), product(1, "MUG-B", 6)],
+        ] {
+            let mut state = InventoryState::default();
+            state.import_catalogue(&serde_json::to_string(&invalid).unwrap());
+            assert!(state.products.is_empty());
+            assert!(matches!(state.feedback, Some(InventoryFeedback::Rejected(_))));
+        }
+    }
+    #[test]
+    fn catalogue_is_loaded_once_and_keeps_source_ids() {
+        let products = vec![product(104, "MUG-104", 4)];
+        let mut state = InventoryState::default();
+        state.import_catalogue(&serde_json::to_string(&products).unwrap());
+        assert_eq!(state.products, products);
+        state.import_catalogue("[]");
+        assert_eq!(state.products, products);
+    }
+    #[test]
+    fn empty_malformed_and_oversized_imports_do_not_load_products() {
+        for source in ["[]", "not JSON", "{}"] {
+            assert!(parse_catalogue(source).is_err());
+        }
+        assert!(parse_catalogue(&" ".repeat(128 * 1024 + 1)).is_err());
+    }
+    #[test]
+    fn blank_fields_reject_the_whole_import() {
+        let mut invalid = product(2, "MUG-B", 0);
+        invalid.bin = " ".into();
+        let source = serde_json::to_string(&vec![product(1, "MUG-A", 4), invalid]).unwrap();
+        assert!(parse_catalogue(&source).is_err());
+    }
+    #[test]
+    fn a_valid_receipt_names_its_sku_and_changes_only_that_product() {
+        let mut state = InventoryState {
+            products: vec![product(104, "MUG-104", 4), product(208, "NOTE-208", 22)],
+            ..Default::default()
+        };
+        state.receive_stock(104, 3);
+        assert_eq!(state.products[0].stock, 7);
+        assert_eq!(state.products[1].stock, 22);
+        assert_eq!(state.feedback, Some(InventoryFeedback::Received { sku: "MUG-104".into(), quantity: 3 }));
+    }
+    #[test]
+    fn zero_missing_product_and_overflow_leave_every_count_unchanged() {
+        for (id, quantity) in [(1, 0), (99, 3), (1, 1)] {
+            let products = vec![product(1, "MUG-1", u32::MAX)];
+            let mut state = InventoryState { products: products.clone(), ..Default::default() };
+            state.receive_stock(id, quantity);
+            assert_eq!(state.products, products);
+            assert!(matches!(state.feedback, Some(InventoryFeedback::Rejected(_))));
+        }
+    }
+    #[test]
+    fn search_and_stock_filters_are_combined_without_changing_records() {
+        let mug = product(104, "MUG-104", 4);
+        use crate::models::{matches_inventory_filter, InventoryFilter};
+        assert!(matches_inventory_filter(&mug, "mug-104", InventoryFilter::NeedsReorder, "Drinkware"));
+        assert!(!matches_inventory_filter(&mug, "missing", InventoryFilter::NeedsReorder, "Drinkware"));
+        assert!(!matches_inventory_filter(&mug, "mug", InventoryFilter::OutOfStock, "Drinkware"));
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::models::{matches_inventory_filter, InventoryFilter};
+use crate::state::InventoryState;
+use crate::widgets::{catalogue_import::CatalogueImport, product_row::InventoryProductRow, receipt_notice::ReceiptNotice};
+use fission::prelude::*;
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {
+        state {
+            search: String = String::new(),
+            filter: InventoryFilter = InventoryFilter::All,
+        }
+    }
+    view(dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.to_lowercase();
+        let filter = dashboard.filter;
+        let total_units: u64 = state.products.iter().map(|product| u64::from(product.stock)).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+        let visible_count = state.products.iter()
+            .filter(|product| matches_inventory_filter(
+                product,
+                &query,
+                filter,
+                &cx.tr(product.category.translation_key()),
+            ))
+            .count();
+    } =>
+    Scroll(
+        flex_grow: 1.0,
+        height: cx.view.viewport_size().height,
+        semantic_label: Some(cx.tr("inventory.semantics.dashboard")),
+        child: Container(
+            Column(gap: tokens.spacing.l, children: [
+                if state.products.is_empty() { CatalogueImport() },
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("inventory.header.location"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("inventory.title"))
+                        .size(tokens.typography.heading_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("inventory.intro.receiving"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(140.0),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.products")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", state.products.len(), cx.tr("inventory.metric.active")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.units_on_hand")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", total_units, cx.tr("inventory.units")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.metric.reorder_review")).color(tokens.colors.text_secondary),
+                            Text(format!("{} {}", reorder_count, cx.tr("inventory.metric.product_count_unit")))
+                                .size(tokens.typography.heading2_size)
+                                .weight(tokens.typography.font_weight_bold),
+                        ]),
+                    ],
+                ),
+                TextInput(
+                    label: Some(cx.tr("inventory.search.label").into()),
+                    placeholder: Some(cx.tr("inventory.search.placeholder").into()),
+                    bind: dashboard.search,
+                    semantics_identifier: "inventory.search".to_string(),
+                ),
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(
+                        child: Text(cx.tr("inventory.filter.all")),
+                        key: "filter-all-stock",
+                        variant: if dashboard.filter == InventoryFilter::All {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = InventoryFilter::All; },
+                    )
+                    .semantics_identifier("inventory.filter-all-stock".to_string()),
+                    Button(
+                        child: Text(cx.tr("inventory.filter.reorder")),
+                        key: "filter-needs-reorder",
+                        variant: if dashboard.filter == InventoryFilter::NeedsReorder {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = InventoryFilter::NeedsReorder; },
+                    )
+                    .semantics_identifier("inventory.filter-needs-reorder".to_string()),
+                    Button(
+                        child: Text(cx.tr("inventory.filter.out")),
+                        key: "filter-out-of-stock",
+                        variant: if dashboard.filter == InventoryFilter::OutOfStock {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: reduce { dashboard.filter = InventoryFilter::OutOfStock; },
+                    )
+                    .semantics_identifier("inventory.filter-out-of-stock".to_string()),
+                ]),
+                Text(format!("{} {} {} {} {}", cx.tr("inventory.metric.showing"), visible_count, cx.tr("inventory.metric.of"), state.products.len(), cx.tr("inventory.metric.product_count_unit")))
+                    .color(tokens.colors.text_secondary),
+                Column(gap: tokens.spacing.s, children: [
+                    if state.products.is_empty() {
+                        EmptyState(
+                            title: cx.tr("inventory.empty.unloaded.title"),
+                            description: Some(cx.tr("inventory.empty.unloaded.description")),
+                        )
+                    } else if visible_count == 0 {
+                        EmptyState(
+                            title: cx.tr("inventory.empty.match.title"),
+                            description: Some(cx.tr("inventory.empty.match.description")),
+                        )
+                    } else {
+                        for product in state.products.iter()
+                            .filter(|product| matches_inventory_filter(
+                                product,
+                                &query,
+                                filter,
+                                &cx.tr(product.category.translation_key()),
+                            ))
+                        {
+                            InventoryProductRow(
+                                product.clone(),
+                                key: product.id,
+                            )
+                        }
+                    },
+                ]),
+                ReceiptNotice(),
+            ]),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.background),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/product_row.rs">
+<!-- fission:file path="src/widgets/product_row.rs" -->
+```rust
+use crate::models::InventoryProduct;
+use crate::state::InventoryState;
+use fission::prelude::*;
+
+fission_component! {
+    pub InventoryProductRow<InventoryState> { props { product: InventoryProduct } }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let stock_status = if row.product.stock == 0 {
+            cx.tr("inventory.status.out")
+        } else if row.product.stock <= row.product.reorder_point {
+            cx.tr("inventory.status.reorder")
+        } else {
+            cx.tr("inventory.status.in_stock")
+        };
+        let status_color = if row.product.stock == 0 {
+            tokens.colors.error
+        } else if row.product.stock <= row.product.reorder_point {
+            tokens.colors.warning
+        } else {
+            tokens.colors.success
+        };
+    } =>
+    Container(
+        Grid(
+            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                GridTrack::Points(180.0),
+                GridTrack::Fr(1.0),
+            ))],
+            rows: vec![GridTrack::Auto],
+            column_gap: tokens.spacing.l,
+            row_gap: tokens.spacing.m,
+            children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(row.product.name)
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("{} · {}", row.product.sku, cx.tr(row.product.category.translation_key())))
+                        .color(tokens.colors.text_secondary),
+                    Text(format!("{} · {} {}", row.product.supplier, cx.tr("inventory.bin"), row.product.bin))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("{} {}", row.product.stock, cx.tr("inventory.units")))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(stock_status).color(status_color),
+                    Text(format!("{} {} {}", cx.tr("inventory.reorder.at"), row.product.reorder_point, cx.tr("inventory.units")))
+                        .color(tokens.colors.text_secondary),
+                    Text(format!(
+                        "USD {}.{:02} · {}",
+                        row.product.unit_cost_cents / 100,
+                        row.product.unit_cost_cents % 100,
+                        cx.tr("inventory.cost.per_unit"),
+                    )),
+                ]),
+                Button(
+                    child: Text(cx.tr("inventory.receive.five")),
+                    key: "receive-stock",
+                    on_press: reduce { state.receive_stock(row.product.id, 5); },
+                )
+                .semantics_identifier(format!("receive-stock-{}", row.product.id)),
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Search for `MUG-104`, choose “Needs reorder”, then receive five units. The mug should leave that filtered list because its stock is now above its reorder point. Return to all stock: its count should be nine, and the receipt should name both the SKU and the five units.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="validate-and-recover" -->
+## Enter the receipt quantity and recover from mistakes
+
+A fixed five-unit receipt is not a receiving workflow. The final dashboard starts with an empty quantity field so staff must enter the amount on the packing slip. Parsing happens while building the view; the state method still validates the dispatched number, since disabling a control is not a substitute for protecting the transition.
+
+A reorder point is not a storage capacity. We show the count and threshold directly instead of drawing a progress bar against an invented maximum. The summary uses the entire catalogue, not just the visible search results, so filtering cannot appear to remove warehouse stock.
+
+There are also two different empty states. Before import, there are no catalogue records. After import, a search or filter may match none. Only the latter offers “Show all products”; clearing filters must not undo receipts. Metric identifiers use fixed meaning-based values rather than translated labels, so changing language does not change their identity.
+
+The import, feedback and row remain separate components. This step replaces the dashboard and row and adds the metric component; the startup, domain checks and tests from earlier steps are unchanged.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use crate::models::{matches_inventory_filter, InventoryFilter};
+use crate::state::InventoryState;
+use crate::widgets::{catalogue_import::CatalogueImport, product_row::InventoryProductRow, receipt_notice::ReceiptNotice};
+use crate::widgets::metric::InventoryMetric;
+use fission::prelude::*;
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {
+        state {
+            search: String = String::new(),
+            filter: InventoryFilter = InventoryFilter::All,
+            receive_quantity: String = String::new(),
+        }
+    }
+    view(dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.to_lowercase();
+        let filter = dashboard.filter;
+        let receive_quantity = dashboard.receive_quantity.trim().parse::<u32>()
+            .ok()
+            .filter(|quantity| *quantity > 0)
+            .unwrap_or(0);
+        let product_count = state.products.len();
+        let total_units: u64 = state.products.iter().map(|product| u64::from(product.stock)).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+        let visible_count = state.products.iter()
+            .filter(|product| matches_inventory_filter(
+                product,
+                &query,
+                filter,
+                &cx.tr(product.category.translation_key()),
+            ))
+            .count();
+        let product_label = cx.tr(if product_count == 1 {
+            "inventory.metric.product_one"
+        } else {
+            "inventory.metric.product_count_unit"
+        });
+    } =>
+    SemanticsRegion(
+        identifier: Some("inventory-dashboard".to_string()),
+        label: Some(cx.tr("inventory.semantics.dashboard")),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some(cx.tr("inventory.semantics.products")),
+            child: Container(
+                Column(gap: tokens.spacing.l, children: [
+                    if state.products.is_empty() { CatalogueImport() },
+                    Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                        Container(
+                            Icon::svg(material::content::inventory_2::regular())
+                                .size(tokens.spacing.xl)
+                                .color(tokens.colors.on_primary),
+                        )
+                        .size(tokens.spacing.xxxl, tokens.spacing.xxxl)
+                        .align_child(ir_op::BoxAlignment::Center)
+                        .bg(tokens.colors.primary)
+                        .border_radius(tokens.radii.medium),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Text(cx.tr("inventory.header.brand"))
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(cx.tr("inventory.header.warehouse"))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Spacer(flex_grow: 1.0),
+                        Text(cx.tr("inventory.header.section")).color(tokens.colors.text_secondary),
+                    ]),
+                    Divider(),
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("inventory.title"))
+                            .size(tokens.typography.heading_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(cx.tr("inventory.intro.receiving"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Grid(
+                        columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                            GridTrack::Points(140.0),
+                            GridTrack::Fr(1.0),
+                        ))],
+                        rows: vec![GridTrack::Auto],
+                        column_gap: tokens.spacing.m,
+                        row_gap: tokens.spacing.m,
+                        children: [
+                            InventoryMetric(
+                                "inventory-metric:products",
+                                cx.tr("inventory.metric.products"),
+                                product_count.to_string(),
+                                cx.tr("inventory.metric.active_records"),
+                                key: "inventory-products",
+                            ),
+                            InventoryMetric(
+                                "inventory-metric:units",
+                                cx.tr("inventory.metric.units_on_hand"),
+                                total_units.to_string(),
+                                cx.tr("inventory.metric.across_warehouse"),
+                                key: "inventory-units",
+                            ),
+                            InventoryMetric(
+                                "inventory-metric:reorder",
+                                cx.tr("inventory.metric.reorder_review"),
+                                reorder_count.to_string(),
+                                format!("{} {}", product_label, cx.tr("inventory.metric.at_threshold")),
+                                key: "inventory-reorder-count",
+                            ),
+                        ],
+                    ),
+                    if reorder_count > 0 {
+                        SemanticsRegion(
+                            identifier: Some("inventory-reorder-notice".to_string()),
+                            label: Some(format!("{} {}", reorder_count, cx.tr("inventory.notice.reorder"))),
+                            child: Container(
+                                Row(
+                                    gap: tokens.spacing.m,
+                                    wrap: ir_op::FlexWrap::Wrap,
+                                    align_items: ir_op::AlignItems::Center,
+                                    children: [
+                                        Icon::svg(material::alert::warning::regular())
+                                            .size(tokens.spacing.xl)
+                                            .color(tokens.colors.warning),
+                                        Column(gap: tokens.spacing.xs, children: [
+                                            Text(format!(
+                                                "{} {}",
+                                                reorder_count,
+                                                cx.tr("inventory.notice.reorder")
+                                            ))
+                                            .weight(tokens.typography.font_weight_semibold),
+                                            Text(cx.tr("inventory.notice.supplier_lead"))
+                                                .color(tokens.colors.text_secondary),
+                                        ]),
+                                        Spacer(flex_grow: 1.0),
+                                        Button(
+                                            child: Text(cx.tr("inventory.notice.review_low")),
+                                            key: "review-low-stock",
+                                            variant: ButtonVariant::Outline,
+                                            on_press: reduce {
+                                                dashboard.search.clear();
+                                                dashboard.filter = InventoryFilter::NeedsReorder;
+                                            },
+                                        )
+                                        .semantics_identifier("inventory.review-low-stock".to_string()),
+                                    ],
+                                ),
+                            )
+                            .padding_all(tokens.spacing.m)
+                            .bg(tokens.colors.surface)
+                            .border(tokens.colors.warning, 1.0)
+                            .border_radius(tokens.radii.medium),
+                        )
+                    },
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("inventory.section.stock"))
+                            .size(tokens.typography.heading2_size)
+                            .weight(tokens.typography.font_weight_semibold),
+                        Grid(
+                            columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                                GridTrack::Points(220.0),
+                                GridTrack::Fr(1.0),
+                            ))],
+                            rows: vec![GridTrack::Auto],
+                            column_gap: tokens.spacing.m,
+                            row_gap: tokens.spacing.s,
+                            children: [
+                                TextInput(
+                                    label: Some(cx.tr("inventory.search.label").into()),
+                                    placeholder: Some(cx.tr("inventory.search.placeholder.short").into()),
+                                    bind: dashboard.search,
+                                    semantics_identifier: "inventory.search".to_string(),
+                                ),
+                                TextInput(
+                                    label: Some(cx.tr("inventory.receive.quantity.label").into()),
+                                    placeholder: Some(cx.tr("inventory.receive.quantity.placeholder").into()),
+                                    required: true,
+                                    bind: dashboard.receive_quantity,
+                                    semantics_identifier: "inventory.receive-quantity".to_string(),
+                                ),
+                            ],
+                        ),
+                    ]),
+                    if !dashboard.receive_quantity.trim().is_empty() && receive_quantity == 0 {
+                        Text(cx.tr("inventory.receive.invalid_quantity"))
+                            .color(tokens.colors.error)
+                    },
+                    Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                        Button(
+                            child: Text(cx.tr("inventory.filter.all_products")),
+                            key: "filter-all-products",
+                            variant: if dashboard.filter == InventoryFilter::All {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Outline
+                            },
+                            on_press: reduce { dashboard.filter = InventoryFilter::All; },
+                        )
+                        .semantics_identifier("inventory.filter-all-products".to_string()),
+                        Button(
+                            child: Text(cx.tr("inventory.filter.reorder")),
+                            key: "filter-needs-reorder",
+                            variant: if dashboard.filter == InventoryFilter::NeedsReorder {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Outline
+                            },
+                            on_press: reduce { dashboard.filter = InventoryFilter::NeedsReorder; },
+                        )
+                        .semantics_identifier("inventory.filter-needs-reorder".to_string()),
+                        Button(
+                            child: Text(cx.tr("inventory.filter.out")),
+                            key: "filter-out-of-stock",
+                            variant: if dashboard.filter == InventoryFilter::OutOfStock {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Outline
+                            },
+                            on_press: reduce { dashboard.filter = InventoryFilter::OutOfStock; },
+                        )
+                        .semantics_identifier("inventory.filter-out-of-stock".to_string()),
+                        Spacer(flex_grow: 1.0),
+                        Text(format!("{} {} {} {} {}", cx.tr("inventory.metric.showing"), visible_count, cx.tr("inventory.metric.of"), product_count, product_label))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    if state.products.is_empty() {
+                        EmptyState(title: cx.tr("inventory.empty.unloaded.title"), description: Some(cx.tr("inventory.empty.unloaded.description")))
+                    } else if visible_count == 0 {
+                        SemanticsRegion(
+                            identifier: Some("inventory-empty-state".to_string()),
+                            label: Some(cx.tr("inventory.empty.search.title")),
+                            child: Container(
+                                Column(gap: tokens.spacing.s, children: [
+                                    Text(cx.tr("inventory.empty.search.title"))
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(cx.tr("inventory.empty.search.description"))
+                                        .color(tokens.colors.text_secondary),
+                                    Button(
+                                        child: Text(cx.tr("inventory.filter.show_all")),
+                                        key: "clear-inventory-view",
+                                        on_press: reduce {
+                                            dashboard.search.clear();
+                                            dashboard.filter = InventoryFilter::All;
+                                        },
+                                    )
+                                    .semantics_identifier("inventory.clear-filters".to_string()),
+                                ]),
+                            )
+                            .padding_all(tokens.spacing.l)
+                            .bg(tokens.colors.surface)
+                            .border(tokens.colors.border, 1.0)
+                            .border_radius(tokens.radii.medium),
+                        )
+                    } else {
+                        Column(gap: tokens.spacing.s, children: [
+                            for product in state.products.iter()
+                                .filter(|product| matches_inventory_filter(
+                                    product,
+                                    &query,
+                                    filter,
+                                    &cx.tr(product.category.translation_key()),
+                                ))
+                            {
+                                InventoryProductRow(
+                                    product.clone(),
+                                    receive_quantity,
+                                    key: product.id,
+                                )
+                            },
+                        ])
+                    },
+                    ReceiptNotice(),
+                ]),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/product_row.rs">
+<!-- fission:file path="src/widgets/product_row.rs" -->
+```rust
+use crate::models::InventoryProduct;
+use crate::state::InventoryState;
+use fission::prelude::*;
+
+fission_component! {
+    pub InventoryProductRow<InventoryState> {
+        props {
+            product: InventoryProduct,
+            receive_quantity: u32,
+        }
+    }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if row.product.stock == 0 {
+            cx.tr("inventory.status.out")
+        } else if row.product.stock <= row.product.reorder_point {
+            cx.tr("inventory.status.reorder")
+        } else {
+            cx.tr("inventory.status.in_stock")
+        };
+        let status_color = if row.product.stock == 0 {
+            tokens.colors.error
+        } else if row.product.stock <= row.product.reorder_point {
+            tokens.colors.warning
+        } else {
+            tokens.colors.success
+        };
+        let product_label = format!("{} · {}", row.product.name, row.product.sku);
+        let cost = format!(
+            "USD {}.{:02} · {}",
+            row.product.unit_cost_cents / 100,
+            row.product.unit_cost_cents % 100,
+            cx.tr("inventory.cost.per_unit"),
+        );
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("inventory-product-{}", row.product.id)),
+        label: Some(product_label),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Grid(
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(180.0),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: tokens.spacing.l,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, align_items: ir_op::AlignItems::Center, children: [
+                            Container(
+                                Text(row.product.name.chars().next().unwrap_or('P').to_string())
+                                    .weight(tokens.typography.font_weight_bold),
+                            )
+                            .size(tokens.spacing.xxl, tokens.spacing.xxl)
+                            .align_child(ir_op::BoxAlignment::Center)
+                            .bg(tokens.colors.primary_subtle)
+                            .border_radius(tokens.radii.medium),
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(row.product.name)
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(format!(
+                                    "{} · {}",
+                                    row.product.sku,
+                                    cx.tr(row.product.category.translation_key()),
+                                ))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                        ]),
+                        Column(gap: tokens.spacing.xs, children: [
+                            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                                Text(format!("{} {}", row.product.stock, cx.tr("inventory.units")))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(status).color(status_color),
+                            ]),
+                            Text(format!("{} {} {}", cx.tr("inventory.reorder.at"), row.product.reorder_point, cx.tr("inventory.units")))
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                        Column(gap: tokens.spacing.s, children: [
+                            Text(cost).weight(tokens.typography.font_weight_semibold),
+                            Button(
+                                child: Text(cx.tr("inventory.receive.action").replace("{count}", &row.receive_quantity.to_string())),
+                                key: "receive-stock",
+                                on_press: reduce { state.receive_stock(row.product.id, row.receive_quantity); },
+                            )
+                            .semantics_identifier(format!("receive-stock-{}", row.product.id)),
+                        ]),
+                    ],
+                ),
+                Text(format!("{}: {} · {} {}", cx.tr("inventory.supplier"), row.product.supplier, cx.tr("inventory.bin"), row.product.bin))
+                    .color(tokens.colors.text_secondary),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/metric.rs">
+<!-- fission:file path="src/widgets/metric.rs" -->
+```rust
+use crate::state::InventoryState;
+use fission::prelude::*;
+
+fission_component! {
+    pub InventoryMetric<InventoryState> {
+        props {
+            identifier: &'static str,
+            label: String,
+            value: String,
+            detail: String,
+        }
+    }
+    view(metric, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some(metric.identifier.to_owned()),
+        label: Some(format!("{}: {}", metric.label, metric.value)),
+        child: Container(
+            Column(gap: tokens.spacing.xs, children: [
+                Text(metric.label.clone()).color(tokens.colors.text_secondary),
+                Text(metric.value.clone())
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(metric.detail.clone()).color(tokens.colors.text_secondary),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+pub mod catalogue_import;
+pub mod metric;
+pub mod product_row;
+pub mod receipt_notice;
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Enter `0` and attempt to receive stock for the mug: its count must stay unchanged. Then receive three units and check the named receipt and warehouse total. Search for a product that does not exist, clear the view and confirm the receipt was retained. Repeat at a narrow viewport and with the Spanish bundle to check wrapping and labels.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run and test the workbench
+
+```sh
+cargo test --lib
+fission doctor --project-dir .
+fission run --target web --project-dir .
+```
+
+The tests exercise catalogue atomicity, duplicate identifiers, search and stock filters, valid receipts and rejected updates. They do not prove the layout or browser interactions. Check those in the running app, including a rejected import followed by a corrected one.
+
+To turn this workbench into a shared inventory service, persist receipts through an asynchronous repository operation. The server must authenticate the receiver, authorise the warehouse and validate each transaction against current stock. Keep the request pending until that service accepts or rejects it; do not present this local increment as durable success. An SSR shell alone does not supply that repository or its concurrency rules.
+
+## Where to go next
+
+- [State system](/reference/core/state-system/) explains shared state and reducer ownership.
+- [Commands, services and jobs](/reference/core/commands-services-jobs/) covers asynchronous service work.
+- [Platform targets](/reference/platform/targets/) describes the shells, including SSR.
+- [Text input and forms](/reference/widgets/text-input/) covers input behaviour and validation.

@@ -1,0 +1,77 @@
+---
+title: Budget stack
+sidebar_label: Budget stack
+description: Show how budget categories contribute to each department's total.
+---
+
+# Budget stack
+
+![Budget stack screenshot](/img/charts/bar-budget-stack.png)
+
+A departmental total answers how much is allocated. A stacked bar adds a second question: which parts contribute to that total? For example, placing staffing and service costs in the same stack lets the reader see both the overall allocation and its composition.
+
+The segments must be additive. Do not stack an annual budget with monthly spending, or a percentage with a currency amount; the resulting height would have no consistent unit.
+
+## Prepare display values, retain the financial model
+
+Keep authoritative money values in the application's financial model. Convert them into the same display unit before supplying chart rows, for example thousands of pounds for one accounting period. The `f32` values below are for visualisation, not for performing ledger calculations.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct DepartmentBudget {
+    pub department: String,
+    pub staffing: f32,
+    pub services: f32,
+}
+
+fission_component! {
+    pub DepartmentBudgetChart<()> {
+        props {
+            title: String,
+            staffing_label: String,
+            services_label: String,
+            unit_label: String,
+            rows: Vec<DepartmentBudget>,
+        }
+    }
+    view(budget, _state, _cx) {
+        let labels = budget.rows.iter().map(|row| row.department.as_str()).collect();
+        let staffing = budget.rows.iter().map(|row| row.staffing).collect();
+        let services = budget.rows.iter().map(|row| row.services).collect();
+    } => Chart(
+        title: Some(budget.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).name(budget.unit_label.clone())),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&budget.staffing_label)
+                .stack("department-budget")
+                .data(staffing)),
+            Series::Bar(BarSeries::new(&budget.services_label)
+                .stack("department-budget")
+                .data(services)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. Both series use the same `stack` string, which is the internal grouping key rather than a user-facing label. Their translated names remain separate props. Omitting the key would produce grouped bars instead.
+
+## Read the stack carefully
+
+The bottom segment has a shared baseline. Upper segments do not, which makes their sizes harder to compare across departments. If comparing service costs is the primary task, use grouped bars or a separate comparison rather than asking the reader to estimate each upper segment.
+
+The relevant values are `BarSeries::data(Vec<f32>)` and `BarSeries::stack(&str)`. `Chart.series` holds `Vec<Series>`; optional axes, title and legend are assigned through their normal fields in Compose.
+
+## Accessibility and checks
+
+Provide department names and the numeric breakdown outside the chart. The legend identifies segments, but a reader should not have to distinguish their colours to recover the allocation.
+
+Test that each displayed total equals the sum of its components, and that all rows use the same period and unit. Inspect long department labels and the largest expected number of segments in a rendered chart. The screenshot above comes from the gallery's sample data.
+
+Tags: `bar`, `budget`.
+
+[Bar family overview](./overview)

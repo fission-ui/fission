@@ -1,0 +1,109 @@
+---
+title: Energy sankey
+sidebar_label: Energy sankey
+description: Fission Charts reference for Energy sankey.
+---
+
+# Energy sankey
+
+![Energy sankey screenshot](/img/charts/sankey-energy.png)
+
+An energy-route diagram shows which sources supply which destinations. That topology is useful in its own right, but a quantitative energy balance also needs the amount carried by each route. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The current SankeySeries API does not have per-edge values, and the renderer uses equal-width bands. This example therefore shows connections only. Do not read the band widths as kilowatt-hours or use them to compare energy contributions.
+
+## Data model
+
+SankeySeries takes GraphNode and GraphEdge records. Give every node a stable ID and connect sources to destinations by ID. The example deliberately uses unit node values because the displayed routes are not a weighted energy balance.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `SankeySeries::nodes` | `Vec<GraphNode>` | Supplies identified and named nodes. |
+| `SankeySeries::edges` | `Vec<GraphEdge>` | Connects source IDs to target IDs. |
+| `Chart::series` | `Vec<Series>` | Adds the relationship series without Cartesian axes. |
+
+`GraphEdge` is imported from `fission::charts::series::graph`.
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+let relationships = SankeySeries::new("Energy routes")
+    .nodes(vec![
+        GraphNode {
+            id: "solar".into(),
+            name: "Solar".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "grid".into(),
+            name: "Grid".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "building".into(),
+            name: "Building".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "solar".into(),
+            target: "building".into(),
+        },
+        GraphEdge {
+            source: "grid".into(),
+            target: "building".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Energy supply routes")
+    .series(vec![relationships.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records outside the build, then pass them as props. The component does not discover services or run network requests while constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, SankeySeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub EnergySankeyChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![SankeySeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that every route resolves to a source and destination. Supply exact energy amounts in a separate table if users need them; setting node.value does not make the current band's width proportional to that amount.
+
+Give users a readable list of connections as well as the visual. If selecting a node opens details, dispatch that selection through a reducer and resolve it against the current records.
+
+Tags: `sankey`, `flow`.
+
+[Hierarchy and flow family overview](./overview)

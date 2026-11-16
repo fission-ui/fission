@@ -44,7 +44,7 @@ fission run --target android --project-dir examples/web-smoke
 ## What to look at
 
 - [`fission.toml`](fission.toml) lists the enabled targets and app id.
-- [`src/app.rs`](src/app.rs) contains the shared counter state, reducer, and widget tree.
+- [`src/app.rs`](src/app.rs) contains the shared state, reusable input reducers, and Compose widget tree.
 - [`src/lib.rs`](src/lib.rs) provides the desktop, mobile, Android, and web entrypoints.
 - [`src/main.rs`](src/main.rs) delegates to the correct entrypoint for each target.
 - [`platforms/web/`](platforms/web) contains the generated web host page and helper scripts.
@@ -60,4 +60,4 @@ fission run --target android --project-dir examples/web-smoke
 
 ## Learning path
 
-Start with [`src/app.rs`](src/app.rs); it is just a counter. Then compare [`src/lib.rs`](src/lib.rs) and [`src/main.rs`](src/main.rs) to see how that same app is mounted into each target shell.
+Start with [`src/app.rs`](src/app.rs). It deliberately goes beyond a counter to qualify text input, password and verification fields, scrolling, focus, browser defaults, and larger repeated content. Then compare [`src/lib.rs`](src/lib.rs) and [`src/main.rs`](src/main.rs) to see how that same Compose app is mounted into each target shell.

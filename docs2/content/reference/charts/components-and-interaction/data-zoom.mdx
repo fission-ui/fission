@@ -1,0 +1,49 @@
+---
+title: Data zoom
+sidebar_label: Data zoom
+description: Configure and test a retained category-window slider through the real DataZoom API.
+---
+
+# Data zoom
+
+![Data zoom screenshot](/img/charts/data-zoom.png)
+
+Data zoom changes the displayed window, not the stored history. That distinction matters when a user exports a report or follows a selected point back to its source record.
+
+`Chart.data_zoom` is `Option<DataZoom>`. Its initial `start_percent` and `end_percent` are positions in the ordered category sequence, and the chart retains later gesture changes under its identity.
+
+Use `ZoomableQueueHistory` from [data zoom long](./component-data-zoom-long), placed in `widgets/zoomable_queue_history.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::zoomable_queue_history::ZoomableQueueHistory;
+
+fission_component! {
+    pub QueueWindowReport<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            jobs_label: String,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<u32>,
+            initial_start: f32,
+            initial_end: f32,
+        }
+    }
+    view(report, _state, _cx) => ZoomableQueueHistory {
+        chart_id: report.chart_id,
+        title: report.title.clone(),
+        jobs_label: report.jobs_label.clone(),
+        intervals: report.intervals.clone(),
+        waiting_jobs: report.waiting_jobs.clone(),
+        initial_start: report.initial_start,
+        initial_end: report.initial_end,
+    }
+}
+```
+
+Validate `0 <= start < end <= 100` and aligned, complete equal-interval observations. The default presentation is `DataZoomType::Slider`; this example demonstrates that actual path rather than assuming every mode or series filters identically.
+
+Keep translated labels and exact observations outside the plot. Test continuous dragging, release, rebuild and a changed dataset. Item indices after windowing belong to the displayed projection; do not use them as durable source IDs without resolving the window offset and snapshot. The screenshot is a fixture rather than a gesture test.
+
+[Components and interaction family overview](./overview)

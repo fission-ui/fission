@@ -1,0 +1,111 @@
+---
+title: 3D and GL charts
+sidebar_label: 3D and GL
+sidebar_position: 4
+description: Use Fission's native 3D scene path for globe, surface, point cloud, terrain, and GPU-scale chart families.
+---
+
+# 3D and GL charts
+
+A surveyed surface or point cloud has real spatial coordinates. A bar chart
+does not acquire another meaningful dimension merely because its bars are
+drawn in perspective. Start with that distinction before choosing a 3D view.
+
+The historical gallery uses `fission::three_d::{Scene3D, Primitive3D, Point3D}`
+through the `three-d` feature. Its primitive API is separate from the newer
+`fission::scene3d` retained scene model. Do not mix constructors, camera fields,
+or interaction contracts from the two.
+
+## When 3D is the right choice
+
+| Use 3D when | Prefer 2D when |
+| --- | --- |
+| Position, height, or depth is measured data. | Depth is only decoration. |
+| Surface connectivity has a domain meaning. | Exact category comparison is the main task. |
+| A spatial view reveals a relationship otherwise obscured. | A map, table, or ordinary chart answers faster. |
+
+Perspective and occlusion can hide values. Keep coordinate units and scaling
+explicit, and provide a source-value table or useful accessible summary.
+
+## What the current catalog covers
+
+The [3D reference family](/reference/charts/3d-and-gl/overview/) covers mesh,
+surface, sphere, cube, point-field, route, and related geometry projections.
+Those examples construct actual primitive geometry; they are not additional
+`Series` variants with the ordinary chart's axes, tooltips, or animations.
+
+A gallery screenshot is fixture output. It does not prove that arbitrary
+volume data, millions of points, or a particular GPU workload will perform
+well on the device you plan to ship.
+
+## How the runtime treats these charts
+
+The legacy scene accepts optional width/height and a list of cube, sphere, or
+mesh primitives. It has no `Default` implementation and no chart-style
+`title`, `axes`, `camera`, or `ambient_light` fields.
+
+A Compose component can own the presentation boundary while ordinary Rust
+constructs its geometry:
+
+```rust
+use fission::prelude::*;
+use fission::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+fission_component! {
+    pub SurveyPatch<()> {
+        props {
+            title: String,
+            vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(patch, _state, cx) {
+        let scene = Scene3D::new().height(320.0)
+            .add_primitive(Primitive3D::Mesh {
+                vertices: patch.vertices.clone(),
+                indices: patch.triangles.clone(),
+                color: patch.surface_color,
+            });
+    } =>
+    Column(gap: cx.view.env().theme.tokens.spacing.m, children: [
+        Text(patch.title.clone()),
+        scene,
+    ])
+}
+```
+
+The parent supplies translated copy, design-system colour, and validated
+geometry. The viewport height is an example presentation constraint; promote
+it to the app's design language when shared. Validate finite positions,
+triangle triplets, index bounds, and winding before creating the component.
+The [surface example](/reference/charts/3d-and-gl/surface3d-basic/)
+shows a bounded mesh projection.
+
+## Interaction and animation guidance
+
+The primitive mesh does not automatically emit ordinary chart point-selection
+or brush events. A sphere is not an accessible product control merely because
+it is visible. Provide semantic controls for meaningful actions and verify
+the exact scene API used by an interactive viewport.
+
+For a new scene app requiring camera, picking, materials, or a simulation,
+read [2D and 3D scenes and games](/docs/guides/scenes-and-games/) and use the
+newer scene API deliberately. Its alpha boundaries are different from this
+legacy geometry path.
+
+## Testing strategy
+
+Test the data projection first: known coordinates, valid triangles, missing
+measurements, and intentional scaling. Then inspect real rendering for
+occlusion, winding, and readability. Measure memory and frame time on the
+actual host before making a large-data or GPU-performance claim.
+
+## Lifecycle fit and verification
+
+A useful qualification case keeps the source measurements fixed while varying
+the viewport and rendering target. The surface should still represent the
+same units and connectivity. If it becomes unreadable or hides important
+values, retain a simpler 2D or tabular view rather than calling rendered
+geometry sufficient evidence.

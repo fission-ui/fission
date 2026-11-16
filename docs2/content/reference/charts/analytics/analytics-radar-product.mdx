@@ -1,0 +1,63 @@
+---
+title: Product radar
+sidebar_label: Product radar
+description: Render a product-health profile with explicitly defined 0–100 radar dimensions.
+---
+
+# Product radar
+
+![Product radar screenshot](/img/charts/analytics-radar-product.png)
+
+A radar chart can summarise a small set of product-health measures, but the outline is not itself a health score. Changing the order of the dimensions changes the polygon even when every value remains the same.
+
+Use it for a stable profile with an explanation of each dimension, not as a competition to produce the largest coloured area.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, RadarSeries, Series};
+
+#[derive(Clone)]
+pub struct ProductHealth {
+    pub setup_percent: f32,
+    pub activation_percent: f32,
+    pub retention_percent: f32,
+    pub successful_tasks_percent: f32,
+}
+
+fission_component! {
+    pub ProductHealthProfile<()> {
+        props {
+            title: String,
+            profile_label: String,
+            dimension_key: TextContent,
+            health: ProductHealth,
+        }
+    }
+    view(profile, _state, _cx) => Column(children: [
+        Text(profile.dimension_key.clone()),
+        Chart(
+            title: Some(profile.title.clone()),
+            series: vec![Series::Radar(
+                RadarSeries::new(&profile.profile_label).data(vec![vec![
+                    profile.health.setup_percent,
+                    profile.health.activation_percent,
+                    profile.health.retention_percent,
+                    profile.health.successful_tasks_percent,
+                ]]),
+            )],
+        ),
+    ])
+}
+```
+
+The current renderer maps each dimension to 0–100. Calculate and validate the percentages before rendering; do not pass arbitrary raw units and rely on the renderer's geometric clamping.
+
+## Make the dimensions recoverable
+
+The series has no per-dimension label field. Supply an accompanying key and exact values in the same fixed order as the vector. Keep each measure's denominator and reporting window visible in the report.
+
+Test a single low dimension, all-zero data and an unavailable measure. Do not replace an unknown value with zero and call the resulting outline a complete profile. The gallery screenshot uses its own values.
+
+[Analytics family overview](./overview)

@@ -1,0 +1,385 @@
+---
+layout: goal
+title: Route iOS Universal Links and deep links
+description: Validate a document-link action and route it through the same Router as in-app navigation, while keeping unverified iOS activation delivery explicit.
+goal: Map an accepted document-link action to one route without claiming iOS has delivered the external activation
+path: /blog/route-ios-universal-links-and-deep-links/
+order: 87
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-route-ios-universal-links-and-deep-links
+outcomes:
+  - Use one route location for library links and accepted external-link actions
+  - Reject malformed identifiers without replacing the current destination
+  - Identify the native cold-start and active-app delivery checks still blocked
+---
+
+A link received from another app should open the same document screen as a link
+inside your app. Creating a second set of screen-selection booleans for external
+launches makes those paths diverge. Keep one current route, one validation
+boundary and one Router.
+
+There are two different parts to this task. Fission can route an accepted
+`DeepLinkReceived` action. iOS must first deliver the URL to the process.
+Associated Domains configuration is not proof that delivery works. The current
+shared shell provides explicit startup-link injection; this tutorial does not
+establish automatic iOS cold-start and active-app forwarding. That host
+integration remains a qualification blocker until verified on the packaged app.
+
+## Create the project and add the target
+
+Complete [iOS setup](/blog/set-up-rust-ios-development-with-fission/) on a Mac:
+
+```sh
+cargo install cargo-fission
+fission init northstar-reader
+cd northstar-reader
+cargo add serde_yaml
+fission add-target ios --project-dir .
+```
+
+There is no deep-link value to add with `fission add-capability`. URL schemes
+and Associated Domains belong to the native package and the domain you own.
+
+## Files created by Fission
+
+Use shared route and widget modules rather than putting URL parsing in a screen:
+
+```text
+src/
+├── main.rs
+├── lib.rs
+├── routes.rs
+├── app.rs
+└── translations.rs
+i18n/
+platforms/ios/
+```
+
+<!-- fission:step id="start-screen" -->
+## Navigate through a real route table
+
+The guide is public, checked-in content. Its identifier is not a database
+permission check. A private document app would put its access decision at a
+`ProtectedRoute` boundary and authorize every server read separately.
+
+The Router registration is an ordinary Rust expression because that API accepts
+lazy route components. The screens themselves use Compose. Route parameters
+are `RouteParams`, not a separate app-owned parameter parser.
+
+<Tabs>
+<TabItem label="src/routes.rs">
+<!-- fission:file path="src/routes.rs" -->
+```rust
+use fission::prelude::*;
+use fission::core::env::RouteLocation;
+use fission::core::action::ShellRouteChanged;
+
+#[derive(Debug, Default)]
+pub struct ReaderState {
+    pub location: RouteLocation,
+    pub invalid_link: bool,
+}
+impl GlobalState for ReaderState {}
+
+pub fn guide_path(url: &str) -> Option<String> {
+    // These two canonical forms are the complete accepted product contract.
+    let id = url.strip_prefix("https://northstar.example/guides/")
+        .or_else(|| url.strip_prefix("northstar:///guides/"))?;
+    if id.is_empty() || id.len() > 64
+        || !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+        return None;
+    }
+    Some(format!("/guides/{id}"))
+}
+
+pub fn on_link(state: &mut ReaderState, action: DeepLinkReceived, cx: &mut ReducerContext<ReaderState>) {
+    match guide_path(&action.link.url) {
+        Some(path) => {
+            state.invalid_link = false;
+            state.location = RouteLocation::new(path.clone());
+            cx.effects.navigate(path);
+        }
+        None => state.invalid_link = true,
+    }
+}
+
+pub fn on_route(state: &mut ReaderState, action: ShellRouteChanged, _cx: &mut ReducerContext<ReaderState>) {
+    state.location = action.location;
+}
+
+pub fn link_config() -> DeepLinkConfig {
+    DeepLinkConfig::new().scheme("northstar").domain("northstar.example").path_prefix("/guides")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn canonical_forms_share_one_route() {
+        assert_eq!(guide_path("northstar:///guides/offline-reading"), Some("/guides/offline-reading".into()));
+        assert_eq!(guide_path("https://northstar.example/guides/offline-reading"), Some("/guides/offline-reading".into()));
+    }
+    #[test]
+    fn external_input_cannot_add_a_path_or_query() {
+        for value in [
+            "https://northstar.example.evil/guides/offline-reading",
+            "https://northstar.example/guides/",
+            "northstar:///guides/../account",
+            "northstar:///guides/offline-reading?redirect=/account",
+            "northstar:///guides/a/b",
+        ] { assert!(guide_path(value).is_none(), "{value}"); }
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::routes::ReaderState;
+
+fission_component! {
+    pub ReaderApp<ReaderState> {}
+    view(_reader, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("reader.title")).size(tokens.typography.heading2_size),
+            if state.invalid_link { Alert(kind: AlertKind::Error, title: cx.tr("reader.invalid")) },
+            Router::<ReaderState>::new()
+                .with_path(state.location.pathname.clone())
+                .route_component("/", GuideLibrary)
+                .route_component("/guides", GuideLibrary)
+                .route_component("/guides/:guide_id", GuideRoute)
+                .not_found(|| MissingGuide),
+        ])
+    ).padding_all(tokens.spacing.l).max_width(760.0)))
+}
+
+fission_component! {
+    pub GuideLibrary<ReaderState> {}
+    view(_library, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        Text(cx.tr("reader.library")).weight(tokens.typography.font_weight_bold),
+        Link::to(cx.tr("reader.guide.title"), "/guides/offline-reading"),
+        Text(cx.tr("reader.guide.summary")),
+        Link::to(cx.tr("reader.try_missing"), "/guides/unknown-document"),
+    ])
+}
+
+fission_component! {
+    pub GuideRoute<ReaderState> {}
+    view(_route, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let params = fission::build::read::<RouteParams>();
+        let known = params.get("guide_id").is_some_and(|id| id == "offline-reading");
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        if known {
+            Column(gap: tokens.spacing.m, children: [
+                Text(cx.tr("reader.guide.title")).size(tokens.typography.heading2_size),
+                Text(cx.tr("reader.guide.body")),
+            ])
+        } else { MissingGuide() },
+        Link::to(cx.tr("reader.back"), "/guides"),
+    ])
+}
+
+fission_component! {
+    pub MissingGuide<ReaderState> {}
+    view(_missing, _state, cx) =>
+    EmptyState(title: cx.tr("reader.missing"), description: Some(cx.tr("reader.missing_detail")))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str(source).expect("checked-in translations"),
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod routes;
+mod app;
+mod translations;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<routes::ReaderState, _>::new(app::ReaderApp)
+        .with_env(translations::create_env())
+        .with_deep_link_config(routes::link_config())
+        .on_deep_link(reduce_with!(routes::on_link))
+        .with_route_handler(reduce_with!(routes::on_route)).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<routes::ReaderState, _>::new(app::ReaderApp)
+        .with_env(translations::create_env())
+        .with_deep_link_config(routes::link_config())
+        .on_deep_link(reduce_with!(routes::on_link))
+        .with_route_handler(reduce_with!(routes::on_route)).run()
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<routes::ReaderState, _>::new(app::ReaderApp)
+        .with_env(translations::create_env())
+        .with_navigation(WebNavigationConfig::new(WebRouteStrategy::Hash))
+        .with_route_handler(reduce_with!(routes::on_route)).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod routes;
+mod app;
+mod translations;
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<routes::ReaderState, _>::new(app::ReaderApp)
+        .with_env(translations::create_env())
+        .with_navigation(WebNavigationConfig::new(WebRouteStrategy::Hash))
+        .with_route_handler(reduce_with!(routes::on_route))
+        .mount("#fission-web-mount").run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+reader.title: "Northstar Reader"
+reader.library: "Your guides"
+reader.guide.title: "Reading when the connection drops"
+reader.guide.summary: "Keep a saved copy and make its availability visible before leaving the network."
+reader.guide.body: "Save the guide before travelling, then reopen it with the network disconnected. A visible page is not proof of a saved copy: check that the saved version can be read after the app restarts."
+reader.try_missing: "Try an unknown guide"
+reader.back: "Return to guides"
+reader.invalid: "That external guide link is not accepted. The previous destination was kept."
+reader.missing: "Guide not found"
+reader.missing_detail: "This identifier does not name a published guide. Return to the library and choose another."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+reader.title: "Lector Northstar"
+reader.library: "Tus guías"
+reader.guide.title: "Leer cuando se pierde la conexión"
+reader.guide.summary: "Guarda una copia y muestra su disponibilidad antes de salir de la red."
+reader.guide.body: "Guarda la guía antes de viajar y ábrela sin conexión. Ver una página no demuestra que se haya guardado: comprueba que la versión guardada se puede leer después de reiniciar la app."
+reader.try_missing: "Probar una guía desconocida"
+reader.back: "Volver a las guías"
+reader.invalid: "No se acepta ese enlace externo. Se conserva el destino anterior."
+reader.missing: "No se encuentra la guía"
+reader.missing_detail: "El identificador no corresponde a una guía publicada. Vuelve a la biblioteca y elige otra."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Open the guide, return to the library and follow the unknown-guide link.
+Back and Forward should select the same route table, not another set of booleans.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Accept only the external link shape the product owns
+
+The small parser deliberately accepts two complete canonical prefixes and a
+bounded ASCII identifier. It rejects query strings, fragments, escaping and
+extra path segments. It is not a general URL parser. Use a maintained URL
+library when the product must accept broader URL forms; do not extend this
+contract with a sequence of string replacements.
+
+The shell filter and the reducer serve different purposes. `DeepLinkConfig`
+rejects unrelated launches, while `guide_path` validates this product's
+identifier contract. Neither one authorizes access to private content.
+
+For a controlled startup test, add this to the native shell builder before
+`run()`:
+
+```rust
+.with_startup_deep_link(DeepLink::new("northstar:///guides/offline-reading").cold_start(true))
+```
+
+The three slashes are intentional: `northstar://guides/offline-reading` has a
+host and a different path. The accepted custom-scheme form has no host and a
+`/guides/…` path.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Run the two route-policy tests with `cargo test`. An accepted but unknown guide
+must reach Not found. Malformed external input must leave the previous route
+unchanged. Browser navigation proves neither native URL registration nor
+operating-system event delivery.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Configure and qualify the actual iOS handoff
+
+For a domain you control, add its `applinks:` Associated Domains entitlement
+and publish an Apple App Site Association file for the same team and bundle ID.
+A custom scheme instead needs a matching URL-type registration in Info.plist.
+These native settings are separate from Fission's runtime allowlist.
+
+Follow [Apple's associated-domain documentation](https://developer.apple.com/documentation/xcode/supporting-associated-domains).
+The example domain here is a placeholder, not a service you can use for device
+verification.
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+After native registration, a Simulator URL check can be issued from the Mac:
+
+```sh
+xcrun simctl openurl booted 'northstar:///guides/offline-reading'
+```
+
+Test with the process stopped and already running. A successful `simctl` exit
+only says iOS accepted the open request; inspect the app's route and semantic
+tree to establish delivery. Repeat a real HTTPS Universal Link on an iPhone
+using the [installation guide](/blog/install-a-fission-app-on-a-physical-iphone/).
+If the generated host does not forward the activation, stop at that boundary:
+manual startup injection and an in-app link are not substitutes for native
+Universal Link support.
+
+### Current references
+
+- [Deep links](/reference/capabilities/deep-links/)
+- [Router](/reference/widgets/router/)
+- [ProtectedRoute](/reference/widgets/protected-route/)
+<!-- /fission:step -->

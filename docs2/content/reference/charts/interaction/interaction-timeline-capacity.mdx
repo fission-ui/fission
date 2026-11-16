@@ -1,0 +1,96 @@
+---
+title: Capacity timeline
+sidebar_label: Capacity timeline
+description: Fission Charts reference for Capacity timeline.
+---
+
+# Capacity timeline
+
+![Capacity timeline screenshot](/img/charts/interaction-timeline-capacity.png)
+
+A capacity comparison is useful when the reader can switch between two explicit snapshots. That makes a change in available workers visible without mixing measurements from before and after an expansion. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+ChartTimeline renders period labels and the current index; it does not select a dataset or start playback on its own. The Compose button below changes retained local state, and that state selects both the values and the displayed timeline index.
+
+## Data model
+
+Pass one worker-count vector per snapshot, in the same pool order. The local latest flag selects which snapshot is presented. Neither pressing the button nor rebuilding the component should silently run a capacity-discovery request.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `ChartTimeline::new` | Labels | Defines the displayed periods. |
+| `ChartTimeline::current_index` | `usize` | Identifies the currently displayed period. |
+| `Chart::timeline` | `ChartTimeline` | Adds the visual period indicator. |
+
+`play_interval_ms` exists in the data type, but the current renderer does not run an automatic playback timer. Do not use it as a substitute for an application-controlled state transition.
+
+## Authoring from a Fission component
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, ChartTimeline};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CapacityTimelineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            period_labels: Vec<String>,
+            show_earlier_label: String,
+            show_later_label: String,
+            earlier: Vec<f32>,
+            later: Vec<f32>,
+        }
+        state { latest: bool = true }
+    }
+    view(period, _state, _cx) {
+        let index = if period.latest { 1 } else { 0 };
+        let values = if period.latest {
+            period.later.clone()
+        } else {
+            period.earlier.clone()
+        };
+    } =>
+        Column(
+            children: [
+                Button(
+                    key: "change-period",
+                    child: Text(if period.latest {
+                        period.show_earlier_label.clone()
+                    } else {
+                        period.show_later_label.clone()
+                    }),
+                    on_press: reduce { period.latest = !period.latest; },
+                ),
+                Chart(
+                    title: Some(period.chart_title.clone()),
+                    x_axis: Some(Axis::category(
+                        period.category_labels.iter().map(String::as_str).collect(),
+                    )),
+                    y_axis: Some(Axis::value()),
+                    timeline: Some(ChartTimeline::new(period.period_labels.iter().map(String::as_str).collect())
+                        .current_index(index)),
+                    series: vec![BarSeries::new(&period.series_label)
+                        .data(values)
+                        .into()],
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that the button changes both the period indicator and the bar values. Test mismatched pool sets in the aggregation layer and preserve the same units across snapshots.
+
+Use a normal semantic control for the period choice, as above, rather than treating painted timeline labels as buttons. Check the period names and values at both mobile and desktop widths.
+
+Tags: `timeline`, `capacity`.
+
+[Interaction family overview](./overview)

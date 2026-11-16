@@ -1,0 +1,51 @@
+---
+title: Dynamic brush scatter
+sidebar_label: Dynamic brush scatter
+description: Use the real brush completion reducer against an explicit observation snapshot.
+---
+
+# Dynamic brush scatter
+
+![Dynamic brush scatter screenshot](/img/charts/dynamic-brush-scatter.png)
+
+A dynamic scatter report may change while being inspected. Its selection therefore belongs to a particular displayed snapshot, not a durable set of records identified by array positions.
+
+The [brush selection example](../components-and-interaction/brush-select) defines `BrushInspector` and its actual completion reducer. Put it in `widgets/brush_inspector.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::ChartBrush;
+use crate::widgets::brush_inspector::BrushInspector;
+
+fission_component! {
+    pub OrderInvestigationBrush<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            orders_label: String,
+            value_axis_label: String,
+            item_axis_label: String,
+            summary_pattern: String,
+            samples: Vec<(f32, f32)>,
+        }
+    }
+    view(inspection, _state, _cx) => BrushInspector {
+        chart_id: inspection.chart_id,
+        title: inspection.title.clone(),
+        orders_label: inspection.orders_label.clone(),
+        value_axis_label: inspection.value_axis_label.clone(),
+        item_axis_label: inspection.item_axis_label.clone(),
+        summary_pattern: inspection.summary_pattern.clone(),
+        samples: inspection.samples.clone(),
+        brush: ChartBrush::rect(),
+    }
+}
+```
+
+The helper shows a retained count with a translated `{count}` pattern. This is an inspection summary, not a destructive bulk action.
+
+For domain actions, freeze or version the displayed snapshot and resolve hits to durable order IDs before acting. A preview region alone does not populate that selection, and incoming data can make an earlier count stale.
+
+Test dragging, clearing and source updates through LiveTest. Provide equivalent numeric filters or a list, and handle failed refreshes through effects rather than component conversion. The screenshot is not a dynamic interaction test.
+
+[Dataset and dynamic family overview](./overview)

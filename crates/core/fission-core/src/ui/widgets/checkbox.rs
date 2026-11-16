@@ -37,6 +37,13 @@ pub struct Checkbox {
     /// Logical form membership for server-rendered HTML submission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub form_id: Option<String>,
+    /// Explicit value submitted when this checkbox is checked.
+    ///
+    /// Leave this unset for a Boolean checkbox, which retains the HTML default
+    /// value of `on`. Set it when several checkboxes share one repeated field
+    /// name and each option needs its own machine value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
     /// Current checked state.
     pub checked: bool,
     /// Action dispatched when the checkbox is tapped.
@@ -65,6 +72,12 @@ impl Checkbox {
     /// Associates this checkbox with one logical form.
     pub fn form_id(mut self, form_id: impl Into<String>) -> Self {
         self.form_id = Some(form_id.into());
+        self
+    }
+
+    /// Sets the value submitted when this checkbox is checked.
+    pub fn form_value(mut self, value: impl Into<String>) -> Self {
+        self.form_value = Some(value.into());
         self
     }
 
@@ -301,6 +314,7 @@ impl Lower for Checkbox {
             disabled: self.disabled,
             text_field_name: self.name.clone(),
             text_form_id: self.form_id.clone(),
+            form_value: self.form_value.clone(),
             ..fission_ir::Semantics::default()
         };
         if !self.disabled {

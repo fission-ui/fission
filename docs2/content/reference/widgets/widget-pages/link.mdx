@@ -1,0 +1,62 @@
+---
+title: Link
+description: Render text that looks and behaves like a lightweight action link.
+slug: /widgets/link
+---
+# Link
+
+Navigation needs a destination, not only text that looks clickable. Use
+`Link::to` for a real destination so HTML targets can emit an `href` and
+native shells can dispatch the corresponding navigation command. A plain
+`on_click` action is a different case: it performs application behaviour using
+link styling without pretending to be a URL.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub BillingLink<()> {}
+    view(_link, _state, cx) =>
+    Link::to(cx.tr("billing.open_settings"), "/settings/billing")
+}
+```
+
+Register the destination in the app's router. `Link::to` is an ordinary Rust
+constructor inside Compose; it creates the typed navigation metadata as well
+as the action. You do not need a `rust {}` wrapper or a hand-serialised envelope.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `text` | `String` | Visible link label. | Required. |
+| `on_click` | `Option<ActionEnvelope>` | Action fired when the link is pressed. | Defaults to `None`. |
+
+## What kind of link this is
+
+`Link::to` and `Link::hyperlink` lower through a semantic pressable carrying
+genuine hyperlink metadata. Use `Link::hyperlink(label, Hyperlink::new(href)
+.target(LinkTarget::NewWindow))` when target/relationship/download policy is
+needed. Validate untrusted destinations according to your product's policy.
+
+For a non-navigation action, a Compose view can use
+`Link(text: cx.tr("filters.clear"), on_click: clear_filters)`, with
+`clear_filters` already bound to the application's reducer. That form renders
+through a ghost button, not a browser anchor. Choose it deliberately rather
+than losing link behaviour such as copying a destination or opening a new tab.
+
+## Specific advice
+
+Use link styling for low-emphasis actions. If the choice is primary, destructive, or touch-critical, a real button is usually clearer and more accessible.
+
+## Production checklist
+
+For navigation, inspect the generated HTML destination and test the native
+router path. For an action, test the state transition. Styling both as a link
+does not make those two contracts interchangeable.
+
+## Related
+
+[`Button`](/reference/widgets/button), [`Breadcrumb`](/reference/widgets/breadcrumb), [`Text`](/reference/widgets/text), and [`Resources and async`](/docs/guides/resources-and-async).

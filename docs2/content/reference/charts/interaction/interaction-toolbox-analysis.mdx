@@ -1,0 +1,94 @@
+---
+title: Analysis toolbox
+sidebar_label: Analysis toolbox
+description: Fission Charts reference for Analysis toolbox.
+---
+
+# Analysis toolbox
+
+![Analysis toolbox screenshot](/img/charts/interaction-toolbox-analysis.png)
+
+Analysis controls belong next to the chart, but proximity alone does not make them functional. A user needs a real action that changes the visible range or selection, and a way to return to the unfiltered view. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+ChartInteraction::toolbox_actions currently paints the named tools in the chart. Those painted labels are not wired semantic buttons. For a working analysis toolbar, compose normal Buttons and bind each to the application's reducer flow.
+
+## Current toolbox API
+
+```rust
+use fission::charts::{ChartInteraction, ChartToolAction};
+
+let visual_tools = ChartInteraction::new()
+    .toolbox_actions(vec![ChartToolAction::Restore, ChartToolAction::DataZoom, ChartToolAction::Brush]);
+```
+
+This configures the current visual toolbox only. It does not register an application handler or supply the behaviour of the named tools.
+
+## Authoring working controls from a Fission component
+
+The parent supplies bound actions, so existing reusable reducers and effect workflows remain usable. The chart receives prepared values; this component does not perform host operations while building.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub AnalysisToolboxChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            category_labels: Vec<String>,
+            dimension_description: String,
+            scale_description: String,
+            description_3: String,
+            values: Vec<f32>,
+            reset_view: ActionEnvelope,
+            choose_range: ActionEnvelope,
+            select_region: ActionEnvelope,
+        }
+    }
+    view(toolbar, _state, _cx) =>
+        Column(
+            children: [
+                Row(
+                    children: [
+                        Button(
+                            child: Text(toolbar.dimension_description.clone()),
+                            on_press: toolbar.reset_view.clone(),
+                        ),
+                        Button(
+                            child: Text(toolbar.scale_description.clone()),
+                            on_press: toolbar.choose_range.clone(),
+                        ),
+                        Button(
+                            child: Text(toolbar.description_3.clone()),
+                            on_press: toolbar.select_region.clone(),
+                        ),
+                    ],
+                ),
+                Chart(
+                    title: Some(toolbar.chart_title.clone()),
+                    x_axis: Some(Axis::category(
+                        toolbar.category_labels.iter().map(String::as_str).collect(),
+                    )),
+                    y_axis: Some(Axis::value()),
+                    series: vec![LineSeries::new(&toolbar.series_label)
+                        .data(toolbar.values.clone())
+                        .into()],
+                ),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Exercise each button through the normal action flow and verify its visible result. Range and brush actions must operate on the displayed dataset, not on stale indices from an earlier report.
+
+Use the buttons' keyboard and assistive-technology behaviour rather than adding pointer hit testing to decorative chart labels. Report loading or errors from asynchronous work in the parent workflow.
+
+Tags: `toolbox`, `analysis`.
+
+[Interaction family overview](./overview)

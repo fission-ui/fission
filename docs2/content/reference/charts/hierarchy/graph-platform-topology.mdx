@@ -1,0 +1,107 @@
+---
+title: Platform topology graph
+sidebar_label: Platform topology graph
+description: Fission Charts reference for Platform topology graph.
+---
+
+# Platform topology graph
+
+![Platform topology graph screenshot](/img/charts/graph-platform-topology.png)
+
+A topology graph explains which platform components connect. This is useful during an operational review because a component's position in the request path matters as much as its individual status. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, connections are declared relationships between ingress, the API and the database. A declared connection does not mean it is currently healthy. Show health with an explicit status model rather than assuming topology is a live availability check.
+
+## Data model
+
+Give each deployed component a stable ID and resolve every edge against that node set. Equal node values keep circle size from suggesting capacity or request volume without a defined measure.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `GraphSeries::nodes` | `Vec<GraphNode>` | Supplies stable IDs and readable labels. |
+| `GraphSeries::edges` | `Vec<GraphEdge>` | Connects source and target IDs. |
+| `Chart::series` | `Vec<Series>` | Presents the relationship series without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+let routes = GraphSeries::new("Connections")
+    .nodes(vec![
+        GraphNode {
+            id: "ingress".into(),
+            name: "Ingress".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "api".into(),
+            name: "API".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "database".into(),
+            name: "Database".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "ingress".into(),
+            target: "api".into(),
+        },
+        GraphEdge {
+            source: "api".into(),
+            target: "database".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Platform component topology")
+    .series(vec![routes.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records before building the chart, then pass them into a presentation component. Loading and failure states belong to the parent workflow rather than an implicit request made during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub PlatformTopologyGraphChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![GraphSeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test removed components and partially discovered topologies. Preserve the distinction between an empty system and a failed discovery operation before constructing the chart.
+
+Provide a readable connection list as an alternative to tracing lines. If a selection opens details, dispatch it through a reducer and identify the record by its current stable ID.
+
+Tags: `graph`, `platform`.
+
+[Hierarchy family overview](./overview)

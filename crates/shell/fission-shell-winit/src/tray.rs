@@ -488,14 +488,14 @@ pub(crate) fn install_event_forwarders(
     TrayIconEvent::set_event_handler(Some(move |event| {
         let _ = tray_tx.send(TrayRuntimeEvent::TrayIcon(event));
         if let Ok(proxy) = tray_proxy.lock() {
-            let _ = proxy.send_event(TestEvent::Wake);
+            crate::send_wake_event(&proxy);
         }
     }));
     let menu_tx = tx;
     tray_icon::menu::MenuEvent::set_event_handler(Some(move |event| {
         let _ = menu_tx.send(TrayRuntimeEvent::Menu(event));
         if let Ok(proxy) = proxy.lock() {
-            let _ = proxy.send_event(TestEvent::Wake);
+            crate::send_wake_event(&proxy);
         }
     }));
     rx

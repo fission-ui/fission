@@ -1,0 +1,49 @@
+---
+title: Live bar update
+sidebar_label: Live bar update
+description: Render refreshed queue totals from an application-owned snapshot.
+---
+
+# Live bar update
+
+![Live bar update screenshot](/img/charts/dynamic-live-bars.png)
+
+Live totals answer a current operational question, such as how many jobs are waiting in each queue. The chart should read the completed snapshot; it should not issue a request every time Fission builds the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct QueueTotal {
+    pub queue_label: String,
+    pub waiting: u32,
+}
+
+fission_component! {
+    pub CurrentQueueTotals<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            waiting_label: String,
+            queues: Vec<QueueTotal>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        id: Some(report.chart_id),
+        title: Some(report.title.clone()),
+        x_axis: Some(Axis::category(
+            report.queues.iter().map(|queue| queue.queue_label.as_str()).collect()
+        )),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(BarSeries::new(&report.waiting_label)
+            .data(report.queues.iter().map(|queue| queue.waiting as f32).collect()))],
+    )
+}
+```
+
+The parent supplies translated labels and queues from application state. Keep a stable chart ID across refreshes. The request reducer should mark loading and queue an effect; the completion reducer accepts only the current request generation and replaces the queue snapshot. None of that requires a special chart transport.
+
+Distinguish initial loading from a refresh over existing data. Use a real spinner for pending work and an explicit message when a refresh fails; do not silently replace an unavailable queue with zero. Test insertion and removal of queues, stale completions and empty results. If order changes, selections must be resolved against the displayed order. The gallery screenshot uses separate values.
+
+[Dataset family overview](./overview)

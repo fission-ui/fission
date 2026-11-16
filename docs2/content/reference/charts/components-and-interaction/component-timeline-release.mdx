@@ -1,0 +1,90 @@
+---
+title: Timeline releases
+sidebar_label: Timeline releases
+description: Select real report snapshots with Compose reducers while treating ChartTimeline as an indicator.
+---
+
+# Timeline releases
+
+![Timeline releases screenshot](/img/charts/component-timeline-release.png)
+
+A release comparison needs an actual selected dataset, not only a highlighted timeline label. Fission's current `ChartTimeline` paints that indicator; it does not switch series or implement automatic playback from `play_interval_ms`.
+
+Use normal controls and retained component state to choose a snapshot. The same selected index supplies both the data and the timeline marker.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, ChartTimeline, Series};
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReportSnapshot {
+    pub step_label: String,
+    pub title: String,
+    pub categories: Vec<String>,
+    pub counts: Vec<u32>,
+}
+
+fission_component! {
+    pub SnapshotBrowser<()> {
+        props {
+            heading: TextContent,
+            previous_label: TextContent,
+            next_label: TextContent,
+            empty_label: TextContent,
+            measure_label: String,
+            snapshots: Vec<ReportSnapshot>,
+        }
+        state { current: usize = 0 }
+    }
+    view(browser, _state, _cx) {
+        let last = browser.snapshots.len().saturating_sub(1);
+        let index = browser.current.min(last);
+        let frame = browser.snapshots.get(index);
+        let steps: Vec<String> = browser.snapshots.iter()
+            .map(|snapshot| snapshot.step_label.clone()).collect();
+    } => Column(children: [
+        Text(browser.heading.clone()),
+        Row(children: [
+            Button(
+                child: Text(browser.previous_label.clone()),
+                disabled: index == 0,
+                on_press: reduce {
+                    let last = browser.snapshots.len().saturating_sub(1);
+                    browser.current = browser.current.min(last).saturating_sub(1);
+                },
+            ),
+            Button(
+                child: Text(browser.next_label.clone()),
+                disabled: frame.is_none() || index == last,
+                on_press: reduce {
+                    let last = browser.snapshots.len().saturating_sub(1);
+                    browser.current = browser.current.saturating_add(1).min(last);
+                },
+            ),
+        ]),
+        if let Some(snapshot) = frame {
+            Chart(
+                key: "snapshot-report",
+                title: Some(snapshot.title.clone()),
+                x_axis: Some(Axis::category(
+                    snapshot.categories.iter().map(String::as_str).collect(),
+                )),
+                y_axis: Some(Axis::value().min(0.0)),
+                timeline: Some(ChartTimeline::new(steps).current_index(index)),
+                series: vec![Series::Bar(
+                    BarSeries::new(&browser.measure_label)
+                        .data(snapshot.counts.iter().map(|count| *count as f32).collect()),
+                )],
+            )
+        } else {
+            Text(browser.empty_label.clone())
+        },
+    ])
+}
+```
+
+Put both definitions in `widgets/snapshot_browser.rs`. For release analysis, each snapshot might contain queue counts from the same stage of an equivalent load test. Translate all display labels in the parent and validate category/count alignment.
+
+This local index is presentation memory, not the identity of a release. Use stable release IDs in the source model, and move selection to application state if other screens must share it. Test empty data, the first/last frame and a shrinking snapshot list. Use LiveTest to confirm the buttons change both values and indicator. The gallery screenshot does not demonstrate playback.
+
+[Components and interaction family overview](./overview)

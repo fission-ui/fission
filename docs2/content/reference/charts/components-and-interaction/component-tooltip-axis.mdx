@@ -1,0 +1,66 @@
+---
+title: Tooltip axis component
+sidebar_label: Tooltip axis component
+description: Show related per-period job counts with an actual shared-axis tooltip.
+---
+
+# Tooltip axis component
+
+![Tooltip axis component screenshot](/img/charts/component-tooltip-axis.png)
+
+An axis tooltip brings several measures for one category together. For a queue report, arrivals and completed jobs in the same interval can be inspected without estimating two separate marks.
+
+Both measures must use the same unit and reporting interval. Combining jobs and milliseconds on one numeric scale would make the comparison misleading.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, BarSeries, Chart, ChartInteraction, ChartTooltipTrigger,
+    Legend, LineSeries, Series, Tooltip as ChartTooltip,
+};
+
+#[derive(Clone)]
+pub struct JobInterval {
+    pub label: String,
+    pub arrived: u32,
+    pub completed: u32,
+}
+
+fission_component! {
+    pub QueueIntervalTooltip<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            arrived_label: String,
+            completed_label: String,
+            intervals: Vec<JobInterval>,
+        }
+    }
+    view(queue, _state, _cx) {
+        let labels = queue.intervals.iter().map(|row| row.label.as_str()).collect();
+        let arrived = queue.intervals.iter().map(|row| row.arrived as f32).collect();
+        let completed = queue.intervals.iter().map(|row| row.completed as f32).collect();
+    } => Chart(
+        id: Some(queue.chart_id),
+        title: Some(queue.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        tooltip: Some(ChartTooltip::axis_trigger()),
+        interaction: ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
+            .keyboard_focus(true),
+        series: vec![
+            Series::Bar(BarSeries::new(&queue.arrived_label).data(arrived)),
+            Series::Line(LineSeries::new(&queue.completed_label).data(completed)),
+        ],
+    )
+}
+```
+
+Qualify chart tooltip configuration rather than using the UI `Tooltip` widget. The chart manages hover state; no network request or application reducer is needed merely to reveal these already-available values.
+
+Supply translated period and measure labels. Completed jobs may exceed arrivals because work can come from an earlier interval; do not call the difference a backlog without accounting for the opening queue.
+
+Test pointer movement between categories, clearing hover and keyboard focus on the real target. Keep the same values available in a table because a transient tooltip is not an accessible report by itself. The gallery screenshot is a separate fixture.
+
+[Components and interaction family overview](./overview)

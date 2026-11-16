@@ -1,0 +1,52 @@
+---
+title: Biometrics
+description: Reference for the biometrics capability API, provider contract, operations, and platform configuration.
+---
+
+# Biometrics
+
+Biometrics are local device authentication. The host may use face recognition, fingerprint, iris, or the device credential fallback. The result says the current device user passed the local policy; it is not a server identity proof.
+
+Start with the [Biometrics guide](/docs/capabilities/biometrics/) to add the feature to your app. Return here for operation names, request and result types, provider contracts, and target configuration.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.biometrics()` |
+| Provider trait or host contract | `BiometricHost` |
+| Test provider or test entrypoint | `MemoryBiometricHost` |
+| Primary request types | `BiometricAuthenticateRequest` |
+| Primary success types | `BiometricAvailability / BiometricAuthenticateResult` |
+| Error type | `BiometricError` |
+| CLI value | `biometric` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Query support, enrollment, available modalities, and credential fallback. | `()` | `BiometricAvailability` |
+| `authenticate` | Show a local authentication prompt. | `BiometricAuthenticateRequest` | `BiometricAuthenticateResult` |
+| `cancel_authentication` | Cancel the active prompt where the host permits it. | `()` | `()` |
+
+## Provider contract
+
+Register a `BiometricHost` with `.with_biometric_host(...)`. Use `MemoryBiometricHost` for tests. A real host should distinguish unsupported hardware, no enrollment, cancellation, denied permission, and failed verification.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+The CLI adds Android biometric permissions and the iOS Face ID usage string. The current iOS shell does not register a native biometric host, so an iOS app must supply and register a `BiometricHost` backed by LocalAuthentication before Face ID or Touch ID requests can succeed. The generated usage string is required metadata; it does not provide the implementation. Android has a built-in host, while macOS and Windows support local authentication through host providers. Web fingerprint prompts are normally passkeys/WebAuthn rather than raw biometric access.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Biometrics guide](/docs/capabilities/biometrics/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

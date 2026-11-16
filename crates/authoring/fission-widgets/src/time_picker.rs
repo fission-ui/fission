@@ -10,6 +10,7 @@ use std::sync::Arc;
 ///
 /// The application owns the selected time. `on_change` receives the proposed
 /// hour and minute and should dispatch an action that updates application state.
+#[derive(Default)]
 pub struct TimePicker {
     /// Hour in the inclusive range `0..=23`.
     pub hour: u32,

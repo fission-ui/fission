@@ -1,0 +1,283 @@
+---
+title: Theming and internationalization
+description: Learn how theme, locale, and translation bundles flow through Env, and how to keep those app-wide inputs explicit.
+---
+
+# Theming and internationalization
+
+A language or theme change should update the whole interface, including
+accessible labels and layouts whose text now needs more space. That requires
+one current answer, not a theme flag and translation lookup in every widget.
+
+Fission keeps those presentation inputs in `Env`. Widgets read them through
+`cx.view`, while a user-controlled choice belongs in `GlobalState` and is
+mirrored into the environment by the shell. The same distinction applies to
+native apps, Web, Terminal, Static site, and SSR, although each shell resolves
+the environment at a different point in its lifecycle.
+
+## Start with theming from first principles
+
+A theme groups the values shared by the app's visual language: colour,
+spacing, typography, radius, elevation, motion, and component styles. The
+active theme is available as `cx.view.env().theme` or `cx.view.theme()`.
+
+Use its tokens in Compose rather than assigning a different arbitrary size or
+colour to each screen. Generate an app design system when those values need
+to differ from Fission's defaults; the [design-system guide](/docs/guides/design-system/)
+covers that setup.
+
+## When theme should live in app state
+
+A fixed theme can be installed once. A user-selected theme needs retained
+application state so rebuilding one screen does not reset the choice:
+
+```rust
+// MyState owns dark_mode; MyApp is the shared root component.
+DesktopApp::<MyState, _>::new(MyApp)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
+```
+
+`with_sync_env` is an ordinary Rust closure, unlike Compose's named `view`
+scope. It reads the current state and updates the environment before the
+widget tree builds. Keep the preference in state; do not store a second
+independently mutable preference inside the theme.
+
+## Internationalization means language is a real input
+
+Internationalization, or i18n, makes an app capable of supporting different
+languages and locale-sensitive behaviour. Localization provides the messages
+for a particular language and region.
+
+`Locale` identifies that choice. A `TranslationBundle` holds the messages for
+one locale, and `I18nRegistry` holds the loaded bundles in `Env`. Loading a
+bundle and choosing its locale are separate operations: an app can bundle
+both English and Spanish while displaying only one at a time.
+
+## The recommended translation workflow
+
+Keep translations in checked-in files, embed them with `include_str!`, parse
+them into message maps, and add the resulting bundles to `env.i18n`. Include
+English plus at least one other language from the beginning. When the user
+can change language, mirror the state-owned choice into `env.locale`.
+
+This avoids requiring a network request before the first screen can resolve
+its labels. It also gives tests the same translation inputs as the app.
+
+## The translation files themselves
+
+These files are flat YAML maps. Keys express meaning and remain the same
+across languages; values contain the translated copy.
+
+`i18n/en-US.yaml`:
+
+```yaml
+settings.title: "Settings"
+settings.theme.light: "Light"
+settings.theme.dark: "Dark"
+settings.language.english: "English"
+settings.language.spanish: "Spanish"
+```
+
+`i18n/es-ES.yaml`:
+
+```yaml
+settings.title: "Configuración"
+settings.theme.light: "Claro"
+settings.theme.dark: "Oscuro"
+settings.language.english: "Inglés"
+settings.language.spanish: "Español"
+```
+
+Avoid keys based on the current layout, such as `left_panel.second_button`.
+Moving a control should not invalidate its translations.
+
+## Add the YAML parser dependency
+
+`TranslationBundle` accepts a `HashMap<String, String>`, not a YAML file.
+This guide uses `serde_yaml` to construct that map:
+
+```toml
+[dependencies]
+serde_yaml = "0.9"
+```
+
+YAML is a choice for human-edited files, not a framework requirement. An app
+that already owns generated or JSON message maps can supply those instead.
+
+## Load translation files into `Env`
+
+Keep parsing in app setup, not in each component:
+
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+fn load_bundle(locale: &str, raw_yaml: &str) -> anyhow::Result<TranslationBundle> {
+    let messages: HashMap<String, String> = serde_yaml::from_str(raw_yaml)?;
+    Ok(TranslationBundle {
+        locale: Locale::from(locale),
+        messages,
+    })
+}
+
+fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n.add_bundle(load_bundle(
+        "en-US", include_str!("../i18n/en-US.yaml"),
+    )?);
+    env.i18n.add_bundle(load_bundle(
+        "es-ES", include_str!("../i18n/es-ES.yaml"),
+    )?);
+    Ok(env)
+}
+```
+
+### What `include_str!` is doing
+
+Rust reads the file at compile time and embeds its contents as a string.
+The path is relative to the source file containing the macro, so the paths
+above assume this helper lives directly under `src/`. Missing files fail the
+build rather than becoming missing runtime translations.
+
+### What `load_bundle(...)` is doing
+
+The helper associates one locale with its parsed messages. Its `Result`
+preserves parsing failures so startup can stop with the actual error rather
+than continuing with an empty bundle.
+
+### What the YAML parsing line means
+
+`serde_yaml::from_str(raw_yaml)?` parses into the declared
+`HashMap<String, String>`. The `?` returns a parsing error to the caller.
+Embedding a file does not prove its YAML is valid; parsing remains a distinct
+step.
+
+### What `TranslationBundle { ... }` means
+
+This is an ordinary Rust struct literal, not Compose syntax. It combines the
+locale identifier with that locale's message map. Both become explicit inputs
+to the translation registry.
+
+### What `create_env()` is doing
+
+`Env::default()` supplies Fission's standard environment and theme.
+`create_env` selects English and adds both bundles, returning the prepared
+environment to the shell. It does not change the machine's system locale.
+
+## Render translated text with keys
+
+A small Compose component can resolve a key without owning a second registry:
+
+```rust
+fission_component! {
+    pub SettingsHeading<()> {}
+    view(_heading, _state, cx) =>
+    Text(cx.tr("settings.title"))
+}
+```
+
+`Text(TextContent::Key("settings.title".into()))` is another valid form:
+the text widget resolves the key using the current environment during
+lowering. Use `cx.tr` when an API needs the resolved string, for example an
+accessible label. Keep user-entered names, paths, and messages literal; those
+are data, not translation keys.
+
+## Keep locale in app state when the user can change it
+
+Install the bundles once, then mirror the current choices before build.
+Here `MyState` owns `locale: Locale` and `dark_mode: bool`:
+
+```rust
+DesktopApp::<MyState, _>::new(MyApp)
+    .with_env(create_env()?)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.locale = state.locale.clone();
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
+```
+
+Changing the preference is a reducer transition. Persist it through a storage
+effect if it must survive a restart; copying it into `Env` does not make it
+persistent.
+
+SSR and Static site use the same bundles but resolve locale per request or
+at build time rather than per frame:
+
+```rust
+FissionServerApp::new("Docs")
+    .with_env(create_env()?)
+    .default_locale("en-US")
+    .locale_resolver(|ctx| {
+        Ok(if ctx.route_path.starts_with("/es/") {
+            "es-ES".into()
+        } else {
+            ctx.default_locale.into()
+        })
+    });
+```
+
+Import `FissionServerApp` from `fission::server` in the SSR app. The host must
+also register the Spanish routes; choosing a locale does not create a page or
+translate its Markdown automatically.
+
+Static site and SSR both expose `with_env`, `i18n`, `translation_bundle`,
+`default_locale`, and `locale_resolver`. Static site applies page `locale`
+front matter before its build-time resolver. SSR resolves request locale
+before `with_request_env`, where request-owned presentation values can be
+adjusted further.
+
+## When locale does not need to live in app state
+
+A locale fixed for the process or document can be set directly in `Env`.
+Only retain a choice in `GlobalState` when the app must change or remember it.
+In either case, widgets consume the supplied choice rather than guessing
+independently from platform APIs.
+
+## What belongs in `.with_sync_env(...)`
+
+Theme, locale, and similar app-wide presentation choices belong here.
+An inbox, cart, document buffer, or loading flag remains product state.
+Do not use the sync hook to start a network request, write a file, or load
+translations again on every frame.
+
+## Best practices that pay off early
+
+Keep message keys stable, use the active theme's tokens, and test longer
+translations at narrow widths. Include accessible names and error/status copy
+in that review: translating the visible heading while leaving controls in
+English does not complete localization.
+
+Fission's registry accepts whole messages; do not assume it rewrites the
+word order of strings assembled from fragments. Use an appropriate formatting
+layer when a sentence needs parameters, plurals, or locale-aware numbers.
+
+## A practical end-to-end picture
+
+The settings screen changes `GlobalState` through a reducer. The shell mirrors
+the locale and theme into `Env` before build, and Compose components resolve
+the current copy and tokens from that environment. Translation maps are
+loaded once, and persistence remains an explicit effect.
+
+This gives the interface one current presentation context without making
+every component responsible for loading, synchronising, or saving it.
+
+## Where to go next
+
+Use [Theme and locale toggle](/docs/cookbook/theme-and-locale-toggle/) for the
+interactive settings component. [Input, text, and environment](/docs/guides/input-events-text-and-env/)
+explains the host/context boundary, while [Design system](/docs/guides/design-system/)
+covers generating app-owned tokens.

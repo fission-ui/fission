@@ -1,0 +1,53 @@
+---
+title: Basic bar
+sidebar_label: Basic bar
+description: Project product stock counts into a basic Compose bar chart.
+---
+
+# Basic bar
+
+![Basic bar screenshot](/img/charts/bar-basic.png)
+
+Use bars when the question is how individual categories compare. A stock overview, for example, can show units available for each product without implying that there is a continuous path between the products.
+
+Keep each label with its value until the final projection. Sorting the values independently would create plausible bars attached to the wrong products.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct ProductStock {
+    pub label: String,
+    pub available_units: u32,
+}
+
+fission_component! {
+    pub ProductStockBars<()> {
+        props {
+            title: String,
+            units_label: String,
+            products: Vec<ProductStock>,
+        }
+    }
+    view(stock, _state, _cx) {
+        let labels = stock.products.iter().map(|product| product.label.as_str()).collect();
+        let values = stock.products.iter().map(|product| product.available_units as f32).collect();
+    } => Chart(
+        title: Some(stock.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        series: vec![Series::Bar(
+            BarSeries::new(&stock.units_label).data(values),
+        )],
+    )
+}
+```
+
+Enable Fission's `charts` feature. The parent supplies translated labels and a stock snapshot from application state; loading happens through effects and reducers rather than during the view.
+
+`Chart.series` is a `Vec<Series>`, not a single `BarSeries`; the explicit variant makes the conversion clear. Axes and title are optional chart fields, supplied here because the comparison needs them.
+
+Test stock-to-category alignment and an empty result. Distinguish unavailable stock from zero units, and provide exact counts alongside the chart. The gallery screenshot illustrates the geometry with different data.
+
+[Cartesian family overview](./overview)

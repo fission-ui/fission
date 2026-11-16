@@ -54,7 +54,9 @@ pub struct Container {
     pub min_width: Option<f32>,
     /// Maximum width constraint.
     pub max_width: Option<f32>,
-    /// Minimum height constraint.
+    /// Minimum height constraint. An explicit zero also opts this container
+    /// out of a column's automatic content-height floor, which is useful when
+    /// it decorates a scrollable child.
     pub min_height: Option<f32>,
     /// Maximum height constraint.
     pub max_height: Option<f32>,

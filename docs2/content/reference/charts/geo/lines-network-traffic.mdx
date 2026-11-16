@@ -1,0 +1,21 @@
+---
+title: Network traffic lines
+sidebar_label: Network traffic lines
+description: Keep data transport separate from the chart's emphasis marker.
+---
+
+# Network traffic lines
+
+![Network traffic lines screenshot](/img/charts/lines-network-traffic.png)
+
+A marker on a network link can make the connection easier to find, but it does not establish that traffic is currently flowing. The report's measured interval and freshness are what establish that.
+
+Use the [traffic-rate projection](../geo-and-route/lines-traffic) with `ServiceConnections` from [lines](../geographic-and-route/lines-basic). The former divides bytes by a non-zero interval; the latter draws the real `LinesSeries`. Set its `emphasize` presentation property only if the midpoint marker helps inspection.
+
+Load measurements through an effect, then replace the completed snapshot in a reducer. A missing response should leave an explicit unavailable/stale state rather than an empty link interpreted as zero traffic. Ignore late completions when they no longer match the selected interval or filter.
+
+Line intensity is relative to the largest displayed value and the endpoints are fitted to the plot. It is not a fixed utilisation scale or a geographically aligned physical route. Use [link utilisation](./geo-data-center-links) when capacity is the actual question.
+
+Translate the rate units, sampling interval and freshness explanation. Test zero bytes, missing samples and filter changes during refresh, and retain an exact link table. The gallery screenshot cannot qualify data freshness or live transport.
+
+[Geo family overview](./overview)

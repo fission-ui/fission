@@ -480,6 +480,7 @@
         "sm": {
           "height": "32px",
           "padding_x": "12px",
+          "padding_y": "0px",
           "gap": "4px",
           "font_size": "14px",
           "line_height": "20px"
@@ -487,6 +488,7 @@
         "md": {
           "height": "40px",
           "padding_x": "16px",
+          "padding_y": "0px",
           "gap": "4px",
           "font_size": "14px",
           "line_height": "20px"
@@ -494,6 +496,7 @@
         "lg": {
           "height": "44px",
           "padding_x": "20px",
+          "padding_y": "0px",
           "gap": "6px",
           "font_size": "16px",
           "line_height": "24px"
@@ -501,6 +504,7 @@
         "xl": {
           "height": "48px",
           "padding_x": "24px",
+          "padding_y": "0px",
           "gap": "6px",
           "font_size": "16px",
           "line_height": "24px"
@@ -677,11 +681,19 @@
       "line_height": "24px",
       "sizes": {
         "sm": {
-          "height": "36px",
+          "height": "32px",
           "padding_x": "12px"
         },
         "md": {
           "height": "40px",
+          "padding_x": "12px"
+        },
+        "lg": {
+          "height": "44px",
+          "padding_x": "12px"
+        },
+        "xl": {
+          "height": "48px",
           "padding_x": "12px"
         }
       },
@@ -730,8 +742,10 @@
       "$description": "Single-value selection trigger with a retained disclosure indicator.",
       "anatomy": ["value", "indicator"],
       "sizes": {
-        "sm": { "height": "36px", "radius": "10px", "padding": "6px 10px 6px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" },
-        "md": { "height": "40px", "radius": "10px", "padding": "8px 10px 8px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" }
+        "sm": { "height": "32px", "radius": "10px", "padding": "0px 10px 0px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" },
+        "md": { "height": "40px", "radius": "10px", "padding": "0px 10px 0px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" },
+        "lg": { "height": "44px", "radius": "10px", "padding": "0px 10px 0px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" },
+        "xl": { "height": "48px", "radius": "10px", "padding": "0px 10px 0px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" }
       },
       "trigger_states": {
         "default": { "background": "{color.light.surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}" },

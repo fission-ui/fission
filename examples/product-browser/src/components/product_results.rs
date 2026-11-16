@@ -6,141 +6,106 @@ use crate::components::product_card::{ProductCard, ProductCardDensity};
 use crate::model::ProductBrowserState;
 use fission::prelude::*;
 
-#[derive(Clone, Debug)]
-pub struct ProductResults {
-    pub snapshot: AsyncSnapshot<ProductPage, ApiError>,
-    pub instance: &'static str,
-}
-
-impl From<ProductResults> for Widget {
-    fn from(component: ProductResults) -> Self {
-        let (_ctx, view) = fission::build::current::<ProductBrowserState>();
-        let tokens = &view.env().theme.tokens;
-        let instance = component.instance;
+fission_component! {
+    pub ProductResults<ProductBrowserState> {
+        snapshot: AsyncSnapshot<ProductPage, ApiError>,
+        instance: &'static str,
+    } |component, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let page = component.snapshot.data();
+    } =>
         if component.snapshot.connection_state == AsyncConnectionState::Waiting {
-            return Center {
-                child: Column {
-                    gap: Some(tokens.spacing.s),
-                    children: vec![
-                        CircularProgress {
-                            id: WidgetId::explicit(&format!("product-browser.loading.{instance}")),
-                            label: None,
-                            ..Default::default()
-                        }
-                        .into(),
-                        Text::new(view.tr("product_browser.results.loading"))
-                            .color(tokens.colors.text_secondary)
-                            .into(),
+            Center(
+                Column(
+                    gap: tokens.spacing.s,
+                    children: [
+                        CircularProgress(
+                            id: WidgetId::explicit(&format!(
+                                "product-browser.loading.{}",
+                                component.instance,
+                            )),
+                        ),
+                        Text(cx.view.tr("product_browser.results.loading"))
+                            .color(tokens.colors.text_secondary),
                     ],
-                    ..Default::default()
-                }
-                .into(),
-            }
-            .into();
-        }
-
-        if let Some(error) = component.snapshot.error() {
-            return Center {
-                child: Column {
-                    gap: Some(tokens.spacing.m),
-                    children: vec![
-                        Text::new(view.tr("product_browser.results.failed"))
+                ),
+            )
+        } else if let Some(error) = component.snapshot.error() {
+            Center(
+                Column(
+                    gap: tokens.spacing.m,
+                    children: [
+                        Text(cx.view.tr("product_browser.results.failed"))
                             .size(tokens.typography.font_size_xl)
                             .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.text_primary)
-                            .into(),
-                        Text::new(error.message.clone())
+                            .color(tokens.colors.text_primary),
+                        Text(error.message.clone())
                             .color(tokens.colors.text_secondary)
-                            .size(tokens.typography.body_medium_size)
-                            .into(),
+                            .size(tokens.typography.body_medium_size),
                     ],
-                    ..Default::default()
-                }
-                .into(),
-            }
-            .into();
-        }
-
-        let Some(page) = component.snapshot.data() else {
-            return Spacer {
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into();
-        };
-
-        if page.products.is_empty() {
-            return Center {
-                child: Text::new(view.tr("product_browser.results.empty"))
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            }
-            .into();
-        }
-
-        let selected_product = view.state().selected_product_id;
-        if view.viewport_size().width >= GRID_BREAKPOINT {
-            Scroll {
-                id: Some(WidgetId::explicit(&format!(
-                    "product-browser.results.{instance}.grid"
-                ))),
-                child: Some(
-                    Grid {
+                ),
+            )
+        } else if let Some(page) = page {
+            if page.products.is_empty() {
+                Center(
+                    Text(cx.view.tr("product_browser.results.empty"))
+                        .color(tokens.colors.text_secondary),
+                )
+            } else if cx.view.viewport_size().width >= GRID_BREAKPOINT {
+                Scroll(
+                    id: WidgetId::explicit(&format!(
+                        "product-browser.results.{}.grid",
+                        component.instance,
+                    )),
+                    flex_grow: 1.0,
+                    child: Grid(
                         columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                             GridTrack::Points(PRODUCT_GRID_MIN_TRACK),
                             GridTrack::Fr(1.0),
                         ))],
                         rows: vec![GridTrack::Auto],
-                        column_gap: Some(tokens.spacing.m),
-                        row_gap: Some(tokens.spacing.m),
+                        column_gap: tokens.spacing.m,
+                        row_gap: tokens.spacing.m,
                         padding: [
                             tokens.spacing.s,
                             tokens.spacing.m,
                             tokens.spacing.s,
                             tokens.spacing.m,
                         ],
-                        children: page
-                            .products
-                            .iter()
-                            .map(|product| {
-                                ProductCard {
-                                    product: product.clone(),
-                                    selected: Some(product.id) == selected_product,
-                                    density: ProductCardDensity::Comfortable,
-                                    instance: format!("{instance}.grid"),
-                                }
-                                .into()
-                            })
-                            .collect(),
-                        ..Default::default()
-                    }
-                    .into(),
-                ),
-                flex_grow: 1.0,
-                ..Default::default()
+                        children: [
+                            for product in page.products.iter().cloned() {
+                                ProductCard(
+                                    product.clone(),
+                                    Some(product.id) == state.selected_product_id,
+                                    ProductCardDensity::Comfortable,
+                                    format!("{}.grid", component.instance),
+                                    key: product.id,
+                                )
+                            },
+                        ],
+                    ),
+                )
+            } else {
+                LazyColumn(
+                    id: WidgetId::explicit(&format!(
+                        "product-browser.results.{}.list",
+                        component.instance,
+                    )),
+                    item_height: PRODUCT_LIST_ITEM_HEIGHT,
+                    children: [
+                        for product in page.products.iter().cloned() {
+                            ProductCard(
+                                product.clone(),
+                                Some(product.id) == state.selected_product_id,
+                                ProductCardDensity::Compact,
+                                format!("{}.list", component.instance),
+                                key: product.id,
+                            )
+                        },
+                    ],
+                )
             }
-            .into()
         } else {
-            LazyColumn {
-                id: Some(WidgetId::explicit(&format!(
-                    "product-browser.results.{instance}.list"
-                ))),
-                item_height: PRODUCT_LIST_ITEM_HEIGHT,
-                children: page
-                    .products
-                    .iter()
-                    .map(|product| {
-                        ProductCard {
-                            product: product.clone(),
-                            selected: Some(product.id) == selected_product,
-                            density: ProductCardDensity::Compact,
-                            instance: format!("{instance}.list"),
-                        }
-                        .into()
-                    })
-                    .collect(),
-            }
-            .into()
+            Spacer(flex_grow: 1.0)
         }
-    }
 }

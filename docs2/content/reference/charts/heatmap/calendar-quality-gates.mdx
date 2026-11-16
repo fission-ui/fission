@@ -1,0 +1,89 @@
+---
+title: Quality gates calendar
+sidebar_label: Quality gates calendar
+description: Fission Charts reference for Quality gates calendar.
+---
+
+# Quality gates calendar
+
+![Quality gates calendar screenshot](/img/charts/calendar-quality-gates.png)
+
+A quality calendar shows whether a release pipeline is repeatedly passing its checks or failing on particular days. For this to be useful, each cell needs the same definition of quality; a percentage without its denominator is easy to misread. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example uses the percentage of completed pipeline runs that passed all required gates on a day. It does not use the number of individual tests passed, and it does not treat a day with no completed runs as a perfect score.
+
+## Data model
+
+Each pair contains an ISO date and a percentage between zero and 100. Compute the percentage from passed and completed run counts before building the chart. Keep the underlying counts available so a single passing run is not mistaken for the same evidence as a hundred.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `CalendarHeatmapSeries::data` | `Vec<(&str, f32)>` | Converts date/value pairs into the series' owned `Vec<(String, f32)>`. |
+| `CalendarHeatmapSeries::range` | `&str, &str` | Sets the displayed start and end dates. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric colour range. |
+| `Chart::series` | `Vec<Series>` | Adds the calendar series; Cartesian axes are not required. |
+
+## Example
+
+```rust
+use fission::charts::{CalendarHeatmapSeries, Chart, VisualMap};
+
+let chart = Chart::new()
+    .title("Daily quality gate pass rate (%)")
+    .visual_map(VisualMap::new().min(0.0).max(100.0))
+    .series(vec![CalendarHeatmapSeries::new("Pass rate (%)")
+        .range("2026-10-01", "2026-10-31")
+        .data(vec![
+            ("2026-10-01", 96.0),
+            ("2026-10-02", 100.0),
+            ("2026-10-03", 82.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the daily values. This component presents them; it does not start a request during the build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub QualityGatesCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            daily_values: Vec<(String, f32)>,
+        }
+    }
+    view(calendar, _state, _cx) =>
+        Chart(
+            title: Some(calendar.chart_title.clone()),
+            visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+            series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries {
+                name: calendar.series_label.clone(),
+                data: calendar.daily_values.clone(),
+                start: Some("2026-10-01".into()),
+                end: Some("2026-10-31".into()),
+            })],
+        )
+}
+```
+
+## Interaction and accessibility
+
+A selected day can show the runs that contributed to its percentage. Use a reducer to update that selection. Colour should direct attention, whilst nearby text gives the percentage and number of runs needed to interpret it.
+
+## Testing guidance
+
+Test all-pass, all-fail and mixed days, and handle a day with no completed runs before dividing. Use the same zero-to-100 scale across releases so a change of scale cannot hide a regression. Check the rendered chart at the size it will occupy in the dashboard; correct sample values alone do not establish that the dates and values are readable.
+
+Tags: `calendar`, `quality`.
+
+[Heatmap family overview](./overview)

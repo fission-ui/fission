@@ -1,0 +1,58 @@
+---
+title: API latency boxplot
+sidebar_label: API latency boxplot
+description: Fission Charts reference for API latency boxplot.
+---
+
+# API latency boxplot
+
+![API latency boxplot screenshot](/img/charts/boxplot-api-latency.png)
+
+API endpoints can share an average response time whilst having different spreads and slow tails. A boxplot keeps a compact distribution summary for each endpoint. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Compare equivalent requests over the same reporting window. Keep cache hits, failed requests and retries under an explicit inclusion policy rather than allowing changing mixtures to look like a service improvement.
+
+## Data model
+
+Prepare `[min, Q1, median, Q3, max]` per endpoint using one quantile convention. `BoxplotSeries` draws the supplied endpoints; it does not automatically apply an outlier-whisker rule. Its raw helper uses floor-index order statistics and omits empty groups.
+
+## Authoring from a Fission component
+
+The parent computes finite ordered summaries and aligned endpoint labels before rendering.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ApiEndpointLatencyBoxplots<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test an empty endpoint, a one-request group and a heavy slow tail. Keep sample counts and exact summaries outside the plot, with unavailable groups preserved explicitly so labels cannot shift.
+
+Tags: `boxplot`, `latency`.
+
+[Statistical family overview](./overview)

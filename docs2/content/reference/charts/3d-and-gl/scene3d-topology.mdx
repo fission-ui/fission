@@ -1,0 +1,55 @@
+---
+title: 3D topology scene
+sidebar_label: 3D topology scene
+description: Preserve durable graph relationships when rendering a spatial device layout.
+---
+
+# 3D topology scene
+
+![3D topology scene screenshot](/img/charts/scene3d-topology.png)
+
+A layout is one view of a topology. Rearranging devices to make the scene readable must not change which devices are connected. Keep relationships attached to durable device IDs, then resolve them into scene positions.
+
+This gallery entry uses the same spheres and prism meshes as [3D graph](./graph3d-basic). [3D network](./graph3d-network) shows endpoint resolution and error handling; [3D topology](./graph3d-topology) explains physical-coordinate choices.
+
+## Compose the resolved topology
+
+Place `NetworkScene` and `Link3D` in `widgets/spatial_graph.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::spatial_graph::{Link3D, NetworkScene};
+
+fission_component! {
+    pub PhysicalTopologyView<()> {
+        props {
+            title: TextContent,
+            positions: Vec<Point3D>,
+            connections: Vec<Link3D>,
+            node_color: Color,
+            link_color: Color,
+        }
+    }
+    view(topology, _state, _cx) => NetworkScene {
+        title: topology.title.clone(),
+        positions: topology.positions.clone(),
+        links: topology.connections.clone(),
+        node_color: topology.node_color,
+        link_color: topology.link_color,
+    }
+}
+```
+
+Enable Fission's `three-d` feature. The parent supplies translated text, colours and validated geometry whilst retaining named device and connection records for inspection.
+
+## Checks
+
+Test reordering and position changes without changing edge IDs or endpoints. Reject unresolved endpoints before displaying the scene rather than silently omitting connections.
+
+Inspect overlapping links and provide an accessible device/connection list. The legacy scene does not implement graph selection or layout automatically and does not emit per-device chart events. The screenshot is sample gallery output.
+
+Tags: `3d`, `topology`.
+
+[3D and GL family overview](./overview)

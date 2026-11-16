@@ -1,0 +1,47 @@
+---
+title: Data zoom short
+sidebar_label: Data zoom short
+description: Start an actual queue-history zoom near the latest observations without discarding its source history.
+---
+
+# Data zoom short
+
+![Data zoom short screenshot](/img/charts/component-data-zoom-short.png)
+
+A narrow initial window is useful when the most recent part of a history is the usual starting point. It should not silently delete earlier observations or imply that the selected portion represents the entire report.
+
+Reuse `ZoomableQueueHistory` from [data zoom long](./component-data-zoom-long), placed in `widgets/zoomable_queue_history.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::zoomable_queue_history::ZoomableQueueHistory;
+
+fission_component! {
+    pub RecentQueueZoom<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            jobs_label: String,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<u32>,
+        }
+    }
+    view(recent, _state, _cx) => ZoomableQueueHistory {
+        chart_id: recent.chart_id,
+        title: recent.title.clone(),
+        jobs_label: recent.jobs_label.clone(),
+        intervals: recent.intervals.clone(),
+        waiting_jobs: recent.waiting_jobs.clone(),
+        initial_start: 80.0,
+        initial_end: 100.0,
+    }
+}
+```
+
+The last fifth is a positional range of the supplied sequence. It means the last fifth of elapsed time only when the history uses complete equal sampling intervals.
+
+Keep chart identity stable across rebuilds so a user's drag is retained. If the source dataset changes, decide whether preserving the same percentage window still answers the question; it may no longer identify the same timestamps.
+
+Test a short history, a long history and updates arriving during inspection. Keep exact values and an accessible way to choose a reporting window. The gallery image is a separate fixture, not evidence that a narrow window remains meaningful for every dataset.
+
+[Components and interaction family overview](./overview)

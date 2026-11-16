@@ -1,0 +1,53 @@
+---
+title: 3D response surface
+sidebar_label: 3D response surface
+description: Present a response over two settings without implying measurements between unsupported samples.
+---
+
+# 3D response surface
+
+![3D response surface screenshot](/img/charts/scene3d-surface-response.png)
+
+A response surface maps two inputs to one outcome. For an equipment test, those inputs might be load and operating setting, with measured response represented by height. A continuous surface is useful only when the interpolation between samples is justified.
+
+Do not replace a missing experiment with a zero response. That can create a false valley and suggest that the setting was tested successfully.
+
+## Compose the validated surface
+
+The [Mesh surface](./mesh-surface) reference defines `SurveySurface`, a geometry component which also works for a response field. Put it in `widgets/survey_surface.rs`. The analytics model owns scaling, vertex generation and triangle connectivity.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub EquipmentResponseSurface<()> {
+        props {
+            title: TextContent,
+            response_vertices: Vec<Point3D>,
+            triangle_indices: Vec<u32>,
+            surface_color: Color,
+        }
+    }
+    view(response, _state, _cx) => SurveySurface {
+        title: response.title.clone(),
+        vertices: response.response_vertices.clone(),
+        indices: response.triangle_indices.clone(),
+        surface_color: response.surface_color,
+    }
+}
+```
+
+Enable the `three-d` feature. Keep both input settings and response measurements in their original units in the source model. Explain any display normalisation or vertical exaggeration in accessible text alongside a source-value table.
+
+## Checks
+
+Validate finite positions, valid triangle indices and the interpolation policy. Test a small known grid, missing experiments and changes to the coordinate scale. Then inspect a real rendering for holes and misleading slopes.
+
+This is a mesh in `fission::three_d::Scene3D`, not a dedicated response-series API with inferred axes, camera builders or per-sample chart events. The gallery screenshot uses sample geometry.
+
+Tags: `3d`, `surface`.
+
+[3D and GL family overview](./overview)

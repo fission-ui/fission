@@ -1,0 +1,93 @@
+---
+title: Rendering pipeline
+description: The staged path from Widget build output to layout, semantics, rendering commands, and platform presentation.
+---
+
+# Rendering pipeline
+
+Before a widget appears on screen, Fission composes it, lowers it, lays it out, derives semantics, compiles paint commands and presents the result through the shell. Use this page to see what each stage takes and returns, and to narrow down where a rendering bug starts.
+
+## Pipeline stages
+
+| Stage | Input | Output | Why it exists |
+| --- | --- | --- | --- |
+| component composition | `fission_component!`, `ViewCx`, app state | authored `Widget` tree | Gives the runtime a deterministic user interface description for the current inputs |
+| lowering | authored `Widget` tree | Core intermediate representation | Converts author-friendly structure into a smaller, stable internal contract |
+| layout | Core intermediate representation plus viewport constraints | `LayoutSnapshot` | Computes sizes, positions, and related geometry |
+| semantics derivation | runtime structure plus layout meaning | semantics tree | Exposes roles, labels, values, focus structure, and accessibility meaning |
+| paint compilation | visible structure plus layout | display list | Produces ordered drawing commands for the renderer |
+| shell presentation | render output plus host target | presented frame | Connects the shared runtime to a real target host |
+
+## Authored build output
+
+The pipeline begins when a `fission_component!` component composes its view into a `Widget` tree.
+
+This tree is the authoring-layer description of the user interface. It is where ordinary widget composition, branching, action binding, resource declaration, portal registration, and runtime wiring are expressed.
+
+The authored tree is not yet the runtime's final internal form. It is optimized for authoring clarity, not for downstream processing.
+
+## Lowering and the Core intermediate representation
+
+Lowering is the step that translates the authored `Widget` tree into the smaller internal contract used by later runtime stages.
+
+That contract is commonly described as the Core intermediate representation, or Core IR.
+
+Core IR gives the later stages a stable shape to work with. Layout, semantics, testing, and rendering do not need to understand every authoring convenience widget; they work with this smaller representation instead.
+
+Framework-owned specialized render paths fit into this stage when a built-in widget needs direct control over its internal representation. Application code authors reusable components with `fission_component!`, which composes the values and state for a view into `Widget`.
+
+## Layout and `LayoutSnapshot`
+
+The layout stage resolves constraints and computes geometry.
+
+The public geometry result is `LayoutSnapshot`, which records the computed rectangles and related layout data for the frame. `LayoutRect`, `LayoutSize`, and constraint-related helpers are part of this surface.
+
+This explicit geometry stage is why layout can be inspected directly in tests and diagnostics. It is also why widgets can read prior-frame geometry through `ViewHandle` when they need anchor information.
+
+## Semantics output
+
+Semantics describe what the interface means, not how its pixels look.
+
+They include roles, labels, values, focus structure, and other accessibility
+information from the shared runtime. Shells expose it where their bridge
+supports that contract. The shared representation does not imply complete
+platform coverage: for example, the Web canvas does not mirror its full tree
+to DOM accessibility. See the [support matrix](/reference/platform/accessibility/).
+
+The runtime produces semantics alongside the visual output, so accessibility is not an extra layer added after rendering.
+
+## Paint compilation and display list output
+
+Once structure and geometry are known, the runtime compiles visible content into a display list.
+
+A display list is the ordered sequence of drawing operations consumed by the renderer. Keeping it explicit makes paint order easier to inspect, compare, and validate. It also lets you debug those commands without reducing every rendering question to the final pixels.
+
+## Shell presentation
+
+The renderer and shell host consume the frame output and present it on a real surface.
+
+This is the last step in the pipeline. The shell is responsible for surface creation and presentation, but it should not redefine the meaning already established by earlier stages.
+
+## Public types worth knowing
+
+The most commonly referenced public types in this area are:
+
+- `Widget` for the authored widget tree,
+- `WidgetId` for stable widget identity,
+- `LayoutSnapshot`, `LayoutRect`, and `LayoutSize` for geometry.
+
+## Debugging guidance
+
+When something goes wrong, find the earliest stage whose input is already wrong.
+
+If the wrong branch or text is present, inspect state or the component view.
+
+If the structure is right but the geometry is wrong, inspect layout.
+
+If layout is right but the visual output is wrong, inspect paint, theme, or media behavior.
+
+If the shared runtime output looks correct but one host still behaves differently, inspect the shell boundary.
+
+## Related reference pages
+
+For the widget contract that starts this pipeline, see [Widget authoring boundary](/reference/core/widget-authoring-boundary). For the teaching version of the same staged model, see [Rendering pipeline](/docs/learn/rendering-pipeline). For stage-level investigation tools, continue to [Testing and diagnostics](/reference/core/testing-and-diagnostics).

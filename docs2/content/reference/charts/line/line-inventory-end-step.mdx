@@ -1,0 +1,62 @@
+---
+title: Inventory end-step
+sidebar_label: Inventory end-step
+description: Fission Charts reference for Inventory end-step.
+---
+
+# Inventory end-step
+
+![Inventory end-step screenshot](/img/charts/line-inventory-end-step.png)
+
+Stock changes in discrete transactions, not by smoothly interpolating between two counts. An end-step line keeps the previous reported stock level until the next reporting boundary. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use this when the sample records the value that becomes known at the boundary. A diagonal line would imply intermediate stock levels that were never recorded, which is particularly misleading around a delivery or dispatch.
+
+## Data model
+
+LineSeries::step("end") holds the preceding value across the interval and changes at its right edge. Supply ordered stock snapshots and matching labels, with a clear rule for whether a boundary includes transactions recorded exactly at that time.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub InventoryEndStepChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            stock_units: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.stock_units.clone())
+                    .step("end")
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check a receipt, a dispatch and two unchanged snapshots. Do not smooth or average away a short stockout. Preserve the exact stock figure in text when inventory decisions depend on it.
+
+Tags: `line`, `step`.
+
+[Line family overview](./overview)

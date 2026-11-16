@@ -10,6 +10,7 @@ use fission_ir::Role;
 use std::sync::Arc;
 
 /// Controlled month calendar with navigation and day-selection actions.
+#[derive(Default)]
 pub struct Calendar {
     /// Four-digit year currently displayed.
     pub year: i32,

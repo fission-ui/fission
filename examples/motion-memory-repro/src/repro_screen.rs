@@ -1,51 +1,40 @@
+use crate::layout::{REPRO_SCROLL_WIDTH, REPRO_SURFACE_HEIGHT};
 use crate::repro_row::ReproRow;
 use crate::scenario::ReproScenario;
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub(crate) struct ReproScreen {
-    pub(crate) scenario: ReproScenario,
-    pub(crate) rows: usize,
-    pub(crate) row_height: f32,
-    pub(crate) image_paths: Vec<String>,
-    pub(crate) cache_images: bool,
-}
-
-impl From<ReproScreen> for Widget {
-    fn from(screen: ReproScreen) -> Self {
-        let (_ctx, view) = fission::build::current::<()>();
-        let spacing = &view.env().theme.tokens.spacing;
-        Scroll {
-            id: Some(WidgetId::explicit("repro_scroll")),
-            child: Some(
-                Column {
-                    gap: Some(spacing.s),
-                    children: (0..screen.rows)
-                        .map(|index| {
-                            ReproRow {
-                                index,
-                                scenario: screen.scenario,
-                                height: screen.row_height,
-                                image_path: screen
-                                    .image_paths
-                                    .get(index % screen.image_paths.len().max(1))
-                                    .cloned(),
-                                cache_image: screen.cache_images,
-                            }
-                            .into()
-                        })
-                        .collect(),
-                    ..Default::default()
-                }
-                .into(),
-            ),
+fission_component! {
+    pub(crate) ReproScreen<()> {
+        scenario: ReproScenario,
+        rows: usize,
+        row_height: f32,
+        image_paths: Vec<String>,
+        cache_images: bool,
+    } |screen, _state, cx| {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Scroll(
+            id: WidgetId::explicit("repro_scroll"),
             direction: FlexDirection::Column,
-            width: Some(REPRO_SCROLL_WIDTH),
-            height: Some(REPRO_SURFACE_HEIGHT),
+            width: REPRO_SCROLL_WIDTH,
+            height: REPRO_SURFACE_HEIGHT,
             show_scrollbar: true,
-            ..Default::default()
-        }
-        .into()
-    }
+            child: Column(
+                gap: spacing.s,
+                children: [
+                    for index in 0..screen.rows {
+                        ReproRow(
+                            index,
+                            screen.scenario,
+                            screen.row_height,
+                            screen.image_paths
+                                .get(index % screen.image_paths.len().max(1))
+                                .cloned(),
+                            screen.cache_images,
+                            key: index,
+                        )
+                    },
+                ],
+            ),
+        )
 }
-use crate::layout::{REPRO_SCROLL_WIDTH, REPRO_SURFACE_HEIGHT};

@@ -1,0 +1,53 @@
+---
+title: Retail waterfall
+sidebar_label: Retail waterfall
+description: Explain gross sales, retail deductions and net sales with a cumulative Compose waterfall.
+---
+
+# Retail waterfall
+
+![Retail waterfall screenshot](/img/charts/bar-retail-waterfall.png)
+
+A retail sales bridge starts with gross sales and explains how refunds, discounts and other adjustments produce net sales. The intermediate bars are changes; the first and last are totals.
+
+Drawing every adjustment from zero would show their size, but would not show how the closing balance is reached. A waterfall needs the cumulative offsets.
+
+## Reuse the cumulative construction
+
+The [quarter waterfall](./bar-quarter-waterfall) defines `QuarterBridgeChart` and `QuarterAdjustment`. Put them in `widgets/quarter_bridge.rs`, then use that same geometry for the retail report. The quarter-specific name is not a different accounting mechanism.
+
+```rust
+use fission::prelude::*;
+use crate::widgets::quarter_bridge::{QuarterAdjustment, QuarterBridgeChart};
+
+fission_component! {
+    pub RetailSalesBridge<()> {
+        props {
+            title: String,
+            gross_sales_label: String,
+            net_sales_label: String,
+            adjustment_label: String,
+            gross_sales: f32,
+            deductions: Vec<QuarterAdjustment>,
+        }
+    }
+    view(retail, _state, _cx) => QuarterBridgeChart {
+        title: retail.title.clone(),
+        opening_label: retail.gross_sales_label.clone(),
+        closing_label: retail.net_sales_label.clone(),
+        change_label: retail.adjustment_label.clone(),
+        opening: retail.gross_sales,
+        adjustments: retail.deductions.clone(),
+    }
+}
+```
+
+For example, refunds and discounts are negative changes, while a correcting adjustment may be positive. Preserve their accounting order and use translated labels supplied by the parent.
+
+## Reconcile before rendering
+
+Calculate authoritative money values outside the chart using the application's money type. Project them into one declared display currency and unit only after reconciliation. Validate finite values and compare the closing display balance against gross sales plus adjustments.
+
+Do not mix costs of goods sold into a report labelled net sales unless that is the intended measure; doing so would start a margin bridge instead. Provide the reconciliation as a table and test a balance crossing zero. The gallery screenshot illustrates the family and is not proof of cumulative offsets for this component.
+
+[Bar family overview](./overview)

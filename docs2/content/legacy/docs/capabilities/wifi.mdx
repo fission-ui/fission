@@ -1,0 +1,160 @@
+---
+title: Wi-Fi
+description: Query, scan, connect, and disconnect Wi-Fi networks where the host platform permits it.
+---
+
+# Wi-Fi
+
+Wi-Fi APIs are more restricted than many developers expect. Scanning can reveal location, connecting can change global device state, and some platforms deliberately avoid app-level Wi-Fi management.
+
+This example discovers a device's setup network by its `Device-` SSID prefix. It does not connect to the network or change system settings. Keep a manual setup path because a host can reject scanning even when the device itself has Wi-Fi.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct WifiState {
+    networks: Vec<WifiNetwork>,
+    wifi_error: Option<String>,
+    scanning_wifi: bool,
+    scan_finished: bool,
+}
+
+impl GlobalState for WifiState {}
+```
+
+Store the scan results, loading state, and error in app state. Update them from the typed completion actions.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability wifi --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android Wi-Fi, network, nearby Wi-Fi, and older fine-location permissions where needed. Fission has no built-in iOS Wi-Fi provider: the built-in iOS host uses `UnsupportedWifiHost`. An app can register a custom `WifiHost`, but it remains subject to iOS policy; entitlements or usage text do not create general Wi-Fi scanning or connection access. Desktop providers must use the platform network APIs or return unsupported errors.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Wi-Fi request your reducer makes; the scan call is shown below.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The scan completes after its starting reducer returns. Handle results and errors in completion reducers.
+
+```rust
+#[fission_reducer(WifiNetworksFound)]
+fn on_wifi_networks_found(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
+    state.scanning_wifi = false;
+    state.scan_finished = true;
+    match ctx.input.capability_ok(SCAN_WIFI_NETWORKS) {
+        Some(result) => {
+            state.networks = result.networks;
+            state.wifi_error = None;
+        }
+        None => state.wifi_error = Some("The host returned no scan result".into()),
+    }
+}
+
+#[fission_reducer(WifiScanFailed)]
+fn on_wifi_scan_failed(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
+    state.scanning_wifi = false;
+    state.scan_finished = true;
+    state.wifi_error = Some(
+        ctx.input.capability_error(SCAN_WIFI_NETWORKS)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not scan Wi-Fi networks".into()),
+    );
+}
+```
+
+An empty successful scan means no matching networks were found. It is not the same as a denied request. Read the result from `ctx.input`, so the UI reports the host's actual outcome rather than the default value of a callback action.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(ScanWifiNetworks)]
+fn on_scan_wifi_networks(state: &mut WifiState, ctx: &mut ReducerContext<WifiState>) {
+    if state.scanning_wifi { return; }
+    state.scanning_wifi = true;
+    state.scan_finished = false;
+    state.networks.clear();
+    state.wifi_error = None;
+    let found = ctx.effects.bind(WifiNetworksFound, reduce_with!(on_wifi_networks_found));
+    let failed = ctx.effects.bind(WifiScanFailed, reduce_with!(on_wifi_scan_failed));
+    ctx.effects
+    .wifi()
+    .scan_networks(WifiScanRequest {
+        ssid_prefix: Some("Device-".into()),
+        include_hidden: false,
+        timeout_ms: Some(8_000),
+    })
+    .on_ok(found)
+    .on_err(failed);
+}
+```
+
+The call records a typed request; the host enforces platform and operating-system restrictions.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts the scan:
+
+```rust
+fission_component! {
+    pub ScanWifiNetworksButton<WifiState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(ScanWifiNetworks, reduce!(on_scan_wifi_networks));
+        let names = state.networks.iter().map(|network| network.ssid.as_str())
+            .collect::<Vec<_>>().join("\n");
+    }
+    => Column(children: [
+        Button(child: Text(cx.tr("wifi.find_setup_network")), disabled: state.scanning_wifi, on_press: run),
+        if state.scanning_wifi { Spinner(motion: SpinnerMotion::Default, label: cx.tr("wifi.scanning")) },
+        if !state.networks.is_empty() { Code(text: names) }
+        else if state.scan_finished && state.wifi_error.is_none() { Text(cx.tr("wifi.no_setup_network")) },
+        if let Some(error) = &state.wifi_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+        Text(cx.tr("wifi.manual_setup_instructions")),
+    ])
+}
+```
+Add the `wifi.*` messages to the app's translation bundles, including instructions for using system network settings. These results are informational, not connection buttons. Check `wifi().availability()` before advertising automatic provisioning in a larger setup flow, and preserve the manual instructions if scanning is denied or unsupported.
+
+## 6. Provide and test the host behavior
+
+Register a `WifiHost` with `.with_wifi_host(...)`. Use `MemoryWifiHost` in tests. Providers should report unavailable, permission-denied, and policy-restricted states instead of assuming failure means no networks exist.
+
+Test available and unavailable adapters, denied permission, empty and filtered scans, connection failure, unsupported disconnect, and scan failures on each target you support. The UI should not promise automatic setup when the host reports policy restrictions.
+
+## Platform expectations
+
+Android has the broadest app-level Wi-Fi path. Fission's built-in iOS host uses `UnsupportedWifiHost`; custom providers remain subject to iOS policy. Web has no general scan/connect API. Desktop support depends on OS network services and privileges.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Wi-Fi reference](/reference/capabilities/wifi/).
+
+## Finished capability flow
+
+A complete `Wi-Fi` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

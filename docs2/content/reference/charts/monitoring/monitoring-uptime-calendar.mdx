@@ -1,0 +1,61 @@
+---
+title: Uptime calendar
+sidebar_label: Uptime calendar
+description: Fission Charts reference for Uptime calendar.
+---
+
+# Uptime calendar
+
+![Uptime calendar screenshot](/img/charts/monitoring-uptime-calendar.png)
+
+A calendar makes daily reliability visible across a longer period. Its usefulness depends on what “uptime” means: probe availability, successful requests and time without a declared incident are different measures. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example uses available monitored seconds divided by eligible monitored seconds for each reporting day. Keep the same timezone and maintenance policy throughout the report. A day with no valid monitoring coverage cannot honestly be labelled 100% available.
+
+## Data model
+
+`CalendarHeatmapSeries` stores date/value pairs and accepts an explicit date range. Supply valid `YYYY-MM-DD` dates with one percentage per completed reporting day. Omit unavailable days and explain them separately rather than substituting zero or full availability.
+
+## Authoring from a Fission component
+
+The parent prepares the daily report and its inclusive date range. A fixed 0–100 scale keeps the visual meaning stable across months; a narrower scale needs an explicit explanation.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DailyAvailabilityCalendar<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            start_date: String,
+            end_date: String,
+            available_percent: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let days = report.available_percent.iter()
+            .map(|(date, value)| (date.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+        series: vec![CalendarHeatmapSeries::new(&report.series_label)
+            .range(&report.start_date, &report.end_date)
+            .data(days)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test missing coverage, a partial current day, leap days and an incident spanning the reporting-day boundary. Daily percentages must not be averaged blindly for an overall availability figure; combine eligible and available durations. Provide incident dates and exact availability in accessible text alongside the calendar.
+
+Tags: `monitoring`, `calendar`.
+
+[Monitoring family overview](./overview)

@@ -4,56 +4,48 @@ use crate::layout::PANEL_HEADER_HEIGHT;
 use crate::model::{EditorState, SidebarSection};
 use crate::palette::EditorPalette;
 use crate::search_panel::SearchPanel;
-use fission::core::ui::{Column, Container, Text, Widget};
+use fission::prelude::*;
 
-pub(crate) struct EditorSidebar {
-    pub width: Option<f32>,
-}
-
-impl From<EditorSidebar> for Widget {
-    fn from(sidebar: EditorSidebar) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-        let (title, content) = match view.state().sidebar_section {
-            SidebarSection::Explorer => ("EXPLORER", FileTree.into()),
-            SidebarSection::Search => ("SEARCH", SearchPanel.into()),
-            SidebarSection::Git => ("SOURCE CONTROL", GitPanel.into()),
-            SidebarSection::Extensions => (
-                "EXTENSIONS",
-                Container::new(
-                    Text::new("No extensions installed")
-                        .size(tokens.typography.font_size_xs)
-                        .color(palette.dim_text),
-                )
-                .padding_all(tokens.spacing.s)
-                .flex_grow(1.0)
-                .into(),
-            ),
+fission_component! {
+    pub(crate) EditorSidebar<EditorState> { width: Option<f32> } |sidebar, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+        let title = match state.sidebar_section {
+            SidebarSection::Explorer => "EXPLORER",
+            SidebarSection::Search => "SEARCH",
+            SidebarSection::Git => "SOURCE CONTROL",
+            SidebarSection::Extensions => "EXTENSIONS",
         };
-
-        let header = Container::new(
-            Text::new(title)
-                .size(tokens.typography.font_size_xs)
-                .color(palette.sidebar_heading),
+    } =>
+        Container(
+            Column(
+                flex_grow: 1.0,
+                children: [
+                    Container(
+                        Text(title)
+                            .size(tokens.typography.font_size_xs)
+                            .color(palette.sidebar_heading),
+                    )
+                    .bg(palette.surface_bg)
+                    .height(PANEL_HEADER_HEIGHT)
+                    .padding_all(tokens.spacing.s)
+                    .flex_shrink(0.0),
+                    match state.sidebar_section {
+                        SidebarSection::Explorer => FileTree(),
+                        SidebarSection::Search => SearchPanel(),
+                        SidebarSection::Git => GitPanel(),
+                        SidebarSection::Extensions => Container(
+                            Text("No extensions installed")
+                                .size(tokens.typography.font_size_xs)
+                                .color(palette.dim_text),
+                        ).padding_all(tokens.spacing.s).flex_grow(1.0),
+                    },
+                ],
+            ),
         )
         .bg(palette.surface_bg)
-        .height(PANEL_HEADER_HEIGHT)
-        .padding_all(tokens.spacing.s)
-        .flex_shrink(0.0);
-
-        let mut container = Container::new(Column {
-            children: vec![header.into(), content],
-            flex_grow: 1.0,
-            ..Default::default()
-        })
-        .bg(palette.surface_bg)
-        .min_width(0.0);
-        if let Some(width) = sidebar.width {
-            container = container.width(width).flex_shrink(0.0);
-        } else {
-            container = container.flex_grow(1.0);
-        }
-        container.into()
-    }
+        .min_width(0.0)
+        .width_length(sidebar.width.map_or(Length::Auto, Length::points))
+        .flex_grow(if sidebar.width.is_none() { 1.0 } else { 0.0 })
+        .flex_shrink(if sidebar.width.is_some() { 0.0 } else { 1.0 })
 }

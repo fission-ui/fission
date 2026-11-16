@@ -1,0 +1,48 @@
+---
+title: Calendar dataset activity
+sidebar_label: Calendar dataset activity
+description: Project typed daily activity records into the calendar's actual date/value series.
+---
+
+# Calendar dataset activity
+
+![Calendar dataset activity screenshot](/img/charts/dataset-calendar-activity.png)
+
+Dates are first-class observations here, not arbitrary category labels. Build a validated daily aggregation in one reporting timezone before placing its values on a calendar.
+
+The [engagement calendar](../analytics/analytics-calendar-engagement) defines `EngagementDay` and `EngagementCalendar`. Put them in `widgets/engagement_calendar.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::charts::VisualMap;
+use crate::widgets::engagement_calendar::{EngagementCalendar, EngagementDay};
+
+fission_component! {
+    pub DailyActivityProjection<()> {
+        props {
+            title: String,
+            accounts_label: String,
+            start_date: String,
+            end_date: String,
+            activity: Vec<EngagementDay>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(activity, _state, _cx) => EngagementCalendar {
+        title: activity.title.clone(),
+        metric_label: activity.accounts_label.clone(),
+        start_date: activity.start_date.clone(),
+        end_date: activity.end_date.clone(),
+        days: activity.activity.clone(),
+        colour_scale: activity.colour_scale.clone(),
+    }
+}
+```
+
+This projects Rust records directly into `CalendarHeatmapSeries`. Adding `Chart.dataset` alone would not bind its dates through the line/bar encoding path.
+
+Deduplicate days and validate ISO dates and completeness. The renderer fills absent dates as zero and ignores invalid date strings; those fallbacks must not conceal a failed report.
+
+Translate caller labels and explain the scale outside the plot. Internal weekday captions remain fixed English. Test timezone boundaries, leap days and missing reports, and expose exact daily values. The screenshot is a gallery fixture.
+
+[Dataset family overview](./overview)

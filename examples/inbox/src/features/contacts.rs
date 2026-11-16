@@ -1,18 +1,13 @@
 use crate::model::navigation::{set_contacts_open, toggle_contact_selection};
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
-use fission::core::ui::Widget;
-use fission::core::{reduce_with, WidgetId};
-use fission::widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
+use fission::prelude::*;
 use std::sync::Arc;
 
-pub struct ContactsModal;
-
-impl From<ContactsModal> for Widget {
-    fn from(_component: ContactsModal) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let viewport_width = view.viewport_size().width.max(0.0);
-        let close = ctx.bind(SetContactsOpen(false), reduce_with!(set_contacts_open));
-        let toggle = ctx.bind(
+fission_component! {
+    pub ContactsModal<InboxState> |_modal, state, cx| {
+        let viewport_width = cx.view.viewport_size().width.max(0.0);
+        let close = cx.bind(SetContactsOpen(false), reduce_with!(set_contacts_open));
+        let toggle = cx.bind(
             ToggleContactSelection(String::new()),
             reduce_with!(toggle_contact_selection),
         );
@@ -31,16 +26,17 @@ impl From<ContactsModal> for Widget {
             },
         ];
 
-        Modal {
+    } =>
+        Modal(
             id: WidgetId::explicit("contacts_modal"),
-            title: "Contacts".into(),
+            title: "Contacts",
             is_open: true,
-            on_dismiss: Some(close.clone()),
+            on_dismiss: close.clone(),
             backdrop_semantics_identifier: Some("inbox.contacts.backdrop".into()),
             close_semantics_identifier: Some("inbox.contacts.close".into()),
             surface_semantics_identifier: Some("inbox.contacts.surface".into()),
-            width: Some((viewport_width - 48.0).clamp(320.0, 560.0)),
-            content: DataTable {
+            width: (viewport_width - 48.0).clamp(320.0, 560.0),
+            content: DataTable(
                 id: WidgetId::explicit("contacts_table"),
                 columns: vec![
                     TableColumn {
@@ -59,22 +55,17 @@ impl From<ContactsModal> for Widget {
                     },
                 ],
                 rows: data,
-                selected_ids: view.state().contact_selected_ids.clone(),
-                on_selection_change: Some(Arc::new(move |row_id| {
+                selected_ids: state.contact_selected_ids.clone(),
+                on_selection_change: Arc::new(move |row_id| {
                     toggle.with_action(&ToggleContactSelection(row_id))
-                })),
+                }) as Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>,
                 label: Some("Contacts".into()),
-                ..Default::default()
-            }
-            .into(),
+            ),
             actions: vec![ModalAction {
                 label: "Done".into(),
                 is_primary: true,
-                on_press: Some(close),
+                on_press: Some(close.clone()),
                 semantics_identifier: Some("inbox.contacts.done".into()),
             }],
-            motion: None,
-        }
-        .into()
-    }
+        )
 }

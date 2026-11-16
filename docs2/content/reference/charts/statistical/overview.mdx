@@ -1,0 +1,79 @@
+---
+title: Statistical
+sidebar_label: Overview
+description: Fission Charts reference for the Statistical family.
+---
+
+# Statistical
+
+A statistical chart should preserve the evidence needed to understand variation or a relationship. Choose the observation population, units and calculation before choosing the shape; a credible-looking plot cannot supply those definitions afterwards.
+
+![Activation funnel screenshot](/img/charts/funnel-activation.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Activation funnel](./funnel-activation) | Ordered conversion stage values. | Use it when conversion loss matters more than a shared axis. |
+| [Alert hotspot scatter](./scatter-alert-hotspots) | Selected alert points over numeric axes. | Emphasise observations already flagged by the application policy. |
+| [API latency boxplot](./boxplot-api-latency) | Five-number summaries across service groups. | Use it to compare distributions instead of averages. |
+| [Crypto session candlestick](./candlestick-crypto-session) | Open, close, low, high values over intraday buckets. | Use it when price direction and range must be visible together. |
+| [Customer value bubbles](./bubble-customer-value) | X, y, and value triples for customers or segments. | Use it when business value should influence point size. |
+| [Device quality parallel](./parallel-device-quality) | Rows of comparable numeric dimensions. | Use it when each item has several independent measures. |
+| [Efficiency frontier](./scatter-efficiency-frontier) | Efficiency points over value axes. | Inspect measured tradeoffs; frontier classification is a separate calculation. |
+| [Equity session candlestick](./candlestick-equity-session) | Open, close, low, and high values by period. | Use it for financial price movement. |
+| [Job runtime strip](./single-axis-job-runtime) | Job positions with duration or intensity values. | Compare individual completed-job durations; lanes are not workers. |
+| [Lab sample scatter](./scatter-lab-samples) | Independent x/y samples. | Use it for correlation and clustering questions. |
+| [Plan comparison parallel](./parallel-plan-comparison) | Multi-dimensional rows on parallel axes. | Use it when tradeoffs across measures matter. |
+| [Portfolio risk return](./scatter-portfolio-return) | Risk, return, and exposure values. | Use it to compare assets or initiatives with three measures. |
+| [Quality outlier scatter](./scatter-quality-outliers) | Highlighted x/y points over value axes. | Use it when outliers should attract attention immediately. |
+| [Quality spread boxplot](./boxplot-quality-spread) | Five-number summaries for quality scores. | Use it when spread and outliers matter. |
+| [Region spread boxplot](./boxplot-region-spread) | Five-number summaries by region. | Use it for distribution comparison across regions. |
+| [Release event strip](./single-axis-release-events) | Position/value pairs on one axis. | Use it for compact event timelines. |
+| [Risk bubble matrix](./scatter-risk-bubbles) | X, y, and magnitude triples. | Use it when size carries a third measure. |
+| [Risk score parallel](./parallel-risk-score) | Rows of risk dimensions on parallel axes. | Use it for multidimensional risk assessment. |
+| [Support resolution funnel](./funnel-support-resolution) | Stage/value pairs through a process. | Use it for operational process attrition. |
+| [Volume shift candlestick](./candlestick-volume-shift) | Open, close, low, high price values; no volume field. | Use it when directional change and range both matter. |
+
+## Choosing within this family
+
+Use a boxplot for ordered five-number summaries, a scatter for numeric pairs and bubbles for an additional non-negative size. Candles preserve open/close/low/high per interval, not traded volume. Funnels require a coherent cohort, whilst parallel coordinates require dimensions prepared on the renderer's fixed 0–100 scale.
+
+Keep domain IDs and exact values separate from display indices. Outlier flags, risk scores and efficient-frontier labels must come from an explicit analysis or policy; the chart APIs do not calculate them automatically.
+
+## Authoring from a Fission component
+
+This API-latency component receives already-validated endpoint summaries and parent-localized display labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ApiLatencySummaryOverview<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Checks
+
+Test cohort boundaries, summary conventions, missing observations and unit conversion in the report-preparation layer. Preserve the observation window and sample counts so the reader can assess the report.
+
+Inspect rendered labels, overlap and scales on the real target. Keep exact values, important findings and working filters available outside the graphic; visual emphasis and successful compilation do not establish analytical correctness.

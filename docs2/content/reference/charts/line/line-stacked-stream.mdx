@@ -1,0 +1,72 @@
+---
+title: Stacked stream area
+sidebar_label: Stacked stream area
+description: Fission Charts reference for Stacked stream area.
+---
+
+# Stacked stream area
+
+![Stacked stream area screenshot](/img/charts/line-stacked-stream.png)
+
+A stacked area preserves the total workload whilst showing how its composition changes. In a support report, this can expose one queue growing even when the total backlog is relatively stable. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example assigns every open ticket to one primary queue. That makes the queue counts parts of a total. Overlapping tags would not be suitable stack categories because the same ticket could be counted more than once.
+
+## Data model
+
+Give the series the same stack key and supply counts for aligned reporting snapshots. area_style fills each contribution; a shared legend names the queues. This is an ordinary zero-baseline stack, not a centred ThemeRiverSeries.
+
+## Authoring from a Fission component
+
+Prepare the source aggregate before building the chart. The component receives labels and values as props, with no asynchronous work hidden in the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub StackedStreamAreaChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            billing: Vec<f32>,
+            technical: Vec<f32>,
+        }
+    }
+    view(report, _state, cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+        let colors = &cx.view.env().theme.tokens.colors;
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value().min(0.0)),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.billing.clone())
+                    .stack("open-tickets")
+                    .area_style(colors.primary.with_alpha(100))
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.technical.clone())
+                    .stack("open-tickets")
+                    .area_style(colors.text_secondary.with_alpha(80))
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Reconcile each snapshot with total open tickets and test queue transfers. Show exact values when a user needs to compare an upper band, since its line sits on the cumulative values below it.
+
+Tags: `line`, `stack`.
+
+[Line family overview](./overview)

@@ -1,0 +1,70 @@
+---
+title: 3D scatter
+sidebar_label: 3D scatter
+description: Display three meaningful coordinates and make any radius or colour encoding explicit.
+---
+
+# 3D scatter
+
+![3D scatter screenshot](/img/charts/scatter3d-basic.png)
+
+A three-dimensional scatter view gives each observation a position on three axes. That is useful when the coordinates describe real space or three measurements whose joint relationship matters. It is not useful to add depth merely to separate points which would otherwise overlap.
+
+The gallery represents observations with spheres in a native scene. Their positions, radii and colours are supplied explicitly; no statistical interpretation or axis labelling is inferred from those primitives.
+
+## Compose example
+
+Keep the original observations and identifiers in the application model. This small display projection contains only the geometry and colour needed by the scene.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+
+#[derive(Clone)]
+pub struct SpatialSample {
+    pub position: Point3D,
+    pub radius: f32,
+    pub color: Color,
+}
+
+fission_component! {
+    pub SpatialScatter<()> {
+        props {
+            title: TextContent,
+            samples: Vec<SpatialSample>,
+        }
+    }
+    view(scatter, _state, _cx) {
+        let mut scene = Scene3D::new().height(320.0);
+        for sample in &scatter.samples {
+            scene = scene.add_primitive(Primitive3D::Sphere {
+                center: sample.position.clone(),
+                radius: sample.radius,
+                color: sample.color,
+            });
+        }
+    } => Column(children: [
+        Text(scatter.title.clone()),
+        scene,
+    ])
+}
+```
+
+Place these types in `widgets/spatial_scatter.rs` and enable the `three-d` feature. Require finite coordinates and finite positive radii before building the component. The parent supplies translated text and colours from its design system.
+
+## Do not let appearance invent another measurement
+
+Use a constant radius if every sphere means one observation. If radius encodes uncertainty or size, state the rule. Doubling a sphere's radius increases its volume eightfold; radius is not a visually neutral way to encode an ordinary count.
+
+Likewise, preserve classifications outside the colour. Provide names, coordinate units and important measurements in a labelled list or table so the same question can be answered without seeing the scene.
+
+## API and checks
+
+`fission::three_d::Scene3D` contains `Vec<Primitive3D>` and optional viewport dimensions. It has no chart title or axis fields and does not emit per-observation `ChartInteractionEvent` values. Use an explicit picking-capable interface if selection inside the scene is required.
+
+Test coordinate transforms and encodings independently, then inspect overlap, large radii and points hidden by perspective. The screenshot uses gallery fixtures rather than this component's inputs.
+
+Tags: `3d`, `scatter`.
+
+[3D and GL family overview](./overview)

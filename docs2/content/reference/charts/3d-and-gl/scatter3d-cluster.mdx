@@ -1,0 +1,62 @@
+---
+title: 3D scatter cluster
+sidebar_label: 3D scatter cluster
+description: Display an existing cluster classification without implying that scene geometry performs the analysis.
+---
+
+# 3D scatter cluster
+
+![3D scatter cluster screenshot](/img/charts/scatter3d-cluster.png)
+
+Nearby points can suggest a group, but an apparent cluster in a picture is not a classification rule. A viewpoint can make unrelated observations overlap, and changing the coordinate scale can change how far apart they appear.
+
+Keep any cluster assignment in the data model. The scene should display that result rather than becoming the only place where group membership exists.
+
+## Build a deliberate display projection
+
+The [3D scatter](./scatter3d-basic) page defines `SpatialSample` and the `SpatialScatter` Compose component in `widgets/spatial_scatter.rs`. This helper highlights one existing cluster whilst retaining the other observations as context.
+
+```rust
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::spatial_scatter::SpatialSample;
+
+pub struct ClusterObservation {
+    pub position: Point3D,
+    pub cluster_id: u32,
+}
+
+pub fn cluster_samples(
+    observations: &[ClusterObservation],
+    selected_cluster: u32,
+    radius: f32,
+    normal_color: Color,
+    selected_color: Color,
+) -> Vec<SpatialSample> {
+    observations.iter().map(|observation| SpatialSample {
+        position: observation.position.clone(),
+        radius,
+        color: if observation.cluster_id == selected_cluster {
+            selected_color
+        } else {
+            normal_color
+        },
+    }).collect()
+}
+```
+
+Pass the result to `SpatialScatter` with a localised title. Enable the `three-d` feature, validate coordinates and radius, and supply both colours from the active design system. The helper does not compute clusters or reinterpret their identifiers.
+
+## Preserve meaning outside colour
+
+Provide the selected cluster's name, member count and observation details outside the scene. Colour can help someone scan the picture, but cannot be the only way to discover which group an observation belongs to.
+
+The legacy scene API does not offer individual sphere picking through `ChartInteractionEvent`. Use an accessible observation list for selection or a scene interface with an explicit picking contract.
+
+## Checks
+
+Test that changing the selected cluster changes styling without moving points or altering group assignments. Inspect overlapping clusters and distant points in a real rendering. The gallery screenshot is a sample spatial distribution, not evidence of a particular clustering algorithm.
+
+Tags: `3d`, `scatter`.
+
+[3D and GL family overview](./overview)

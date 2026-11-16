@@ -19,6 +19,9 @@ pub struct ProductBrowserState {
     pub category_generation: u64,
     pub refresh_status: RefreshIndicatorStatus,
     pub pulled_extent: f32,
+    /// Whether another app, such as the example showcase, mounts the browser. The
+    /// host already names the example, so the header drops the app title.
+    pub embedded: bool,
 }
 
 impl Default for ProductBrowserState {
@@ -34,6 +37,7 @@ impl Default for ProductBrowserState {
             category_generation: 0,
             refresh_status: RefreshIndicatorStatus::Inactive,
             pulled_extent: 0.0,
+            embedded: false,
         }
     }
 }

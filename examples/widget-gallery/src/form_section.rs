@@ -125,97 +125,91 @@ fn files_dropped(state: &mut GalleryState, ctx: &mut ReducerContext<GalleryState
         .collect();
 }
 
-fn caption(text: impl Into<String>) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    Text::new(text.into())
-        .color(view.env().theme.tokens.colors.text_secondary)
+fission_component! {
+    Caption<()> { text: String } |caption, _state, cx| {} =>
+    Text(caption.text.clone())
+        .color(cx.view.env().theme.tokens.colors.text_secondary)
         .wrap(true)
-        .into()
+}
+
+fission_component! {
+    FieldInput<GalleryState> |_input, state, cx| {} =>
+    TextInput(
+        id: Some(WidgetId::explicit("gallery.field.input")),
+        semantics_identifier: Some("gallery.field.input".into()),
+        value: state.field_email.clone(),
+        placeholder: Some("name@company.com".into()),
+        on_input: with_reducer!(cx.build, UpdateFieldEmail, update_field_email),
+    )
 }
 
 pub(crate) fn field() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let email = state.field_email.trim();
-    let invalid = !email.is_empty() && !email.contains('@');
-    let mut layout = FormControlLayout::new(
-        WidgetId::explicit("gallery.field.layout"),
-        TextInput {
-            id: Some(WidgetId::explicit("gallery.field.input")),
-            semantics_identifier: Some("gallery.field.input".into()),
-            value: state.field_email.clone(),
-            placeholder: Some("name@company.com".into()),
-            on_input: Some(with_reducer!(ctx, UpdateFieldEmail, update_field_email)),
-            ..Default::default()
-        },
-    )
-    .label(FormLabel::new("Billing email"))
-    .description(FormDescription::new("Receipts and invoices go here."))
-    .required(true);
-    if invalid {
-        layout = layout.error(FormError::new("Enter an email address with an @."));
-    }
-    widgets![Container::new(layout).width_length(Length::clamp(
+    widgets![FieldDemo::new()]
+}
+
+fission_component! {
+    FieldDemo<GalleryState> |_demo, state, cx| {
+        let email = state.field_email.trim();
+        let invalid = !email.is_empty() && !email.contains('@');
+        let mut layout = FormControlLayout::new(
+            WidgetId::explicit("gallery.field.layout"),
+            FieldInput::new(),
+        )
+        .label(FormLabel::new("Billing email"))
+        .description(FormDescription::new("Receipts and invoices go here."))
+        .required(true);
+        if invalid {
+            layout = layout.error(FormError::new("Enter an email address with an @."));
+        }
+    } => Container(layout).width_length(Length::clamp(
         Length::points(0.0),
         Length::percent(100.0),
         Length::points(FIELD_WIDTH),
-    ))]
+    ))
 }
 
 pub(crate) fn radio() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let options: Vec<Widget> = DELIVERY_OPTIONS
-        .iter()
-        .enumerate()
-        .map(|(index, (slug, label))| {
-            Radio {
-                checked: state.radio_selected == index,
-                on_select: Some(with_reducer!(ctx, SelectRadio(index), select_radio)),
-                label: Some((*label).into()),
-                ..Default::default()
+    widgets![RadioDemo::new()]
+}
+
+fission_component! {
+    RadioDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => HStack(spacing: None, children: [
+        VStack(spacing: tokens.spacing.s, children: [
+            for (index, (slug, label)) in DELIVERY_OPTIONS.iter().enumerate() {
+                Radio(
+                    checked: state.radio_selected == index,
+                    on_select: with_reducer!(cx.build, SelectRadio(index), select_radio),
+                    label: (*label).to_string(),
+                    key: *slug,
+                ).semantics_identifier(format!("gallery.radio.{slug}"))
             }
-            .semantics_identifier(format!("gallery.radio.{slug}"))
-            .into()
-        })
-        .chain(std::iter::once(
-            Radio {
-                label: Some("Drone delivery (coming soon)".into()),
-                ..Default::default()
-            }
-            .disabled(true)
-            .semantics_identifier("gallery.radio.drone")
-            .into(),
-        ))
-        .collect();
-    widgets![HStack {
-        spacing: None,
-        children: widgets![VStack {
-            spacing: Some(tokens.spacing.s),
-            children: options,
-        }],
-    }]
+            Radio(label: "Drone delivery (coming soon)".to_string())
+                .disabled(true)
+                .semantics_identifier("gallery.radio.drone"),
+        ]),
+    ])
 }
 
 pub(crate) fn range_slider() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let (start, end) = state.price_range;
-    widgets![HStack {
-        spacing: Some(tokens.spacing.m),
-        children: widgets![
-            Container::new(
-                RangeSlider {
+    widgets![RangeSliderDemo::new()]
+}
+
+fission_component! {
+    RangeSliderDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let (start, end) = state.price_range;
+    } => HStack(spacing: tokens.spacing.m, children: [
+            Container(
+                RangeSlider(
                     id: Some(WidgetId::explicit("gallery.range_slider")),
-                    start,
-                    end,
+                    start: start,
+                    end: end,
                     min: PRICE_MIN,
                     max: PRICE_MAX,
-                    on_change: Some(with_reducer!(ctx, SetPriceRange, set_price_range)),
-                    ..Default::default()
-                }
+                    on_change: with_reducer!(cx.build, SetPriceRange, set_price_range),
+                )
                 .step(PRICE_STEP)
                 .semantics_identifier("gallery.range_slider"),
             )
@@ -224,100 +218,84 @@ pub(crate) fn range_slider() -> Vec<Widget> {
                 Length::percent(100.0),
                 Length::points(RANGE_SLIDER_WIDTH),
             )),
-            Text::new(format!("${start:.0} to ${end:.0}")).color(tokens.colors.text_secondary),
-        ],
-    }]
+            Text(format!("${start:.0} to ${end:.0}")).color(tokens.colors.text_secondary),
+        ])
 }
 
 pub(crate) fn editable() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let save = with_reducer!(ctx, SaveEditable, save_editable);
-    let cancel = with_reducer!(ctx, CancelEditable, cancel_editable);
-    let value = if state.editable_editing {
-        state.editable_draft.clone()
-    } else {
-        state.editable_value.clone()
-    };
-    let mut children = vec![Container::new(Editable {
-        id: Some(WidgetId::explicit("gallery.editable")),
-        value,
-        placeholder: "document name".into(),
-        is_editing: state.editable_editing,
-        on_input: Some(with_reducer!(ctx, UpdateEditable, update_editable)),
-        on_submit: Some(save.clone()),
-        on_edit: Some(with_reducer!(ctx, StartEditing, start_editing)),
-        on_cancel: Some(cancel.clone()),
-    })
-    .width(FIELD_WIDTH)
-    .into()];
-    // The editor does not submit on Enter yet, so explicit buttons accept or discard the edit.
-    if state.editable_editing {
-        children.push(
-            Button {
+    widgets![EditableDemo::new()]
+}
+
+fission_component! {
+    EditableDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let save = with_reducer!(cx.build, SaveEditable, save_editable);
+        let cancel = with_reducer!(cx.build, CancelEditable, cancel_editable);
+        let value = if state.editable_editing { state.editable_draft.clone() } else { state.editable_value.clone() };
+    } => Column(children: [
+        HStack(spacing: tokens.spacing.s, children: [
+            Container(Editable(
+                id: Some(WidgetId::explicit("gallery.editable")),
+                value: value,
+                placeholder: "document name",
+                is_editing: state.editable_editing,
+                on_input: with_reducer!(cx.build, UpdateEditable, update_editable),
+                on_submit: save.clone(),
+                on_edit: with_reducer!(cx.build, StartEditing, start_editing),
+                on_cancel: cancel.clone(),
+            )).width(FIELD_WIDTH),
+            if state.editable_editing {
+                Button(
                 variant: ButtonVariant::Filled,
                 size: ComponentSize::Sm,
-                child: Some(Text::new("Save").into()),
-                on_press: Some(save),
-                ..Default::default()
+                child: Text("Save"),
+                on_press: save.clone(),
+                ).semantics_identifier("gallery.editable.save")
             }
-            .semantics_identifier("gallery.editable.save")
-            .into(),
-        );
-        children.push(
-            Button {
+            if state.editable_editing {
+                Button(
                 variant: ButtonVariant::Ghost,
                 size: ComponentSize::Sm,
-                child: Some(Text::new("Cancel").into()),
-                on_press: Some(cancel),
-                ..Default::default()
+                child: Text("Cancel"),
+                on_press: cancel.clone(),
+                ).semantics_identifier("gallery.editable.cancel")
             }
-            .semantics_identifier("gallery.editable.cancel")
-            .into(),
-        );
-    }
-    vec![
-        HStack {
-            spacing: Some(tokens.spacing.s),
-            children,
-        }
-        .into(),
-        caption("Press the name to rename it."),
-    ]
+        ]),
+        Caption("Press the name to rename it.".to_string()),
+    ])
 }
 
 pub(crate) fn file_upload() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let mut children = widgets![HStack {
-        spacing: None,
-        children: widgets![FileUpload {
-            label: "Choose file".into(),
-            selected_file: state.file_upload_name.clone(),
-            error_text: None,
-            on_browse: Some(with_reducer!(ctx, BrowseFiles, browse_files)),
-            browse_semantics_identifier: Some("gallery.file_upload.browse".into()),
-        }],
-    }];
-    if let Some(error) = &state.file_upload_error {
-        children.push(caption(error.clone()));
-    }
-    children
+    widgets![FileUploadDemo::new()]
 }
 
-fn drop_panel(message: &str, highlighted: bool) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    let (fill, border) = if highlighted {
-        (tokens.colors.primary_subtle, tokens.colors.primary)
-    } else {
-        (tokens.colors.surface, tokens.colors.border)
-    };
-    Container::new(
-        Text::new(message)
+fission_component! {
+    FileUploadDemo<GalleryState> |_demo, state, cx| {} => Column(children: [
+        HStack(spacing: None, children: [FileUpload(
+            label: "Choose file",
+            selected_file: state.file_upload_name.clone(),
+            error_text: None,
+            on_browse: with_reducer!(cx.build, BrowseFiles, browse_files),
+            browse_semantics_identifier: Some("gallery.file_upload.browse".into()),
+        )]),
+        if let Some(error) = &state.file_upload_error {
+            Caption(error.clone())
+        }
+    ])
+}
+
+fission_component! {
+    DropPanel<()> { message: String, highlighted: bool } |panel, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let (fill, border) = if panel.highlighted {
+            (tokens.colors.primary_subtle, tokens.colors.primary)
+        } else {
+            (tokens.colors.surface, tokens.colors.border)
+        };
+    } => Container(
+        Text(panel.message.clone())
             .color(tokens.colors.text_secondary)
-            .wrap(true),
+            .wrap(true)
     )
     .width_length(Length::percent(100.0))
     .height(DROPZONE_HEIGHT)
@@ -327,29 +305,28 @@ fn drop_panel(message: &str, highlighted: bool) -> Widget {
     .border(border, tokens.sizing.border_thick)
     .border_dash(vec![DROPZONE_DASH, DROPZONE_DASH])
     .border_radius(tokens.radii.large)
-    .into()
 }
 
 pub(crate) fn dropzone() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let dropped = if state.dropzone_files.is_empty() {
-        "Nothing dropped yet.".to_string()
-    } else {
-        format!("Dropped: {}", state.dropzone_files.join(", "))
-    };
-    vec![
-        Dropzone {
+    widgets![DropzoneDemo::new()]
+}
+
+fission_component! {
+    DropzoneDemo<GalleryState> |_demo, state, cx| {
+        let dropped = if state.dropzone_files.is_empty() {
+            "Nothing dropped yet.".to_string()
+        } else {
+            format!("Dropped: {}", state.dropzone_files.join(", "))
+        };
+    } => Column(children: [
+        Dropzone(
             id: Some(WidgetId::explicit("gallery.dropzone.target")),
             semantics_identifier: Some("gallery.dropzone.target".into()),
-            child: drop_panel("Drag files from your computer and drop them here.", false),
-            active_child: Some(drop_panel("Drop here to add the files.", false)),
-            hover_child: Some(drop_panel("Release to add the files.", true)),
-            on_drop: Some(with_reducer!(ctx, FilesDropped, files_dropped)),
-            on_drag_enter: None,
-            on_drag_leave: None,
-        }
-        .into(),
-        caption(dropped),
-    ]
+            child: DropPanel("Drag files from your computer and drop them here.".to_string(), false),
+            active_child: DropPanel("Drop here to add the files.".to_string(), false),
+            hover_child: DropPanel("Release to add the files.".to_string(), true),
+            on_drop: with_reducer!(cx.build, FilesDropped, files_dropped),
+        ),
+        Caption(dropped),
+    ])
 }

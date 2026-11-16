@@ -11,6 +11,15 @@ pub struct Center {
     pub child: Widget,
 }
 
+impl Center {
+    /// Creates a centring layout around `child`.
+    pub fn new(child: impl Into<Widget>) -> Self {
+        Self {
+            child: child.into(),
+        }
+    }
+}
+
 impl From<Center> for Widget {
     fn from(component: Center) -> Self {
         let this = &component;

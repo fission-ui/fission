@@ -2,22 +2,10 @@ use fission::prelude::*;
 
 const DOT_SIZE: f32 = 12.0;
 
-pub struct WindowDot {
-    pub color: Color,
-}
-
-impl From<WindowDot> for Widget {
-    fn from(dot: WindowDot) -> Self {
-        let (_, view) = fission::build::current::<()>();
-
-        Container::new(Spacer {
-            width: Some(DOT_SIZE),
-            height: Some(DOT_SIZE),
-            ..Default::default()
-        })
+fission_component! {
+    pub WindowDot<()> { color: Color } |dot, _state, cx| {} =>
+        Container(Spacer(width: DOT_SIZE, height: DOT_SIZE))
         .size(DOT_SIZE, DOT_SIZE)
         .bg(dot.color)
-        .border_radius(view.env().theme.tokens.radii.full)
-        .into()
-    }
+        .border_radius(cx.view.env().theme.tokens.radii.full)
 }

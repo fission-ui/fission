@@ -1,0 +1,4 @@
+/dist/
+/generated-assets/
+/target/
+/data/*.sqlite3*

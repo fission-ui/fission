@@ -1,0 +1,56 @@
+---
+title: Clipboard
+description: Reference for the clipboard capability API, provider contract, operations, and platform configuration.
+---
+
+# Clipboard
+
+Clipboard access is for explicit user transfer: Copy, Paste, Copy link, Clear copied value, or writing typed content the user intentionally asked to share with other apps.
+
+Start with the [Clipboard guide](/docs/capabilities/clipboard/) to add the feature to your app. Return here for operation names, request and result types, provider contracts, and target configuration.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.clipboard()` |
+| Provider trait or host contract | `ClipboardHost` |
+| Test provider or test entrypoint | `MemoryClipboardHost` |
+| Primary request types | `ClipboardWriteTextRequest / ClipboardContent` |
+| Primary success types | `ClipboardText / ClipboardContent / ()` |
+| Error type | `ClipboardError` |
+| CLI value | `none required` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `read_text` | Read plain text from the clipboard. | `()` | `ClipboardText` |
+| `write_text` | Write plain text to the clipboard. | `ClipboardWriteTextRequest` | `()` |
+| `read_content` | Read typed clipboard items with content types and stream handles. | `()` | `ClipboardContent` |
+| `write_content` | Write typed clipboard items. | `ClipboardContent` | `()` |
+| `clear` | Clear app-visible clipboard content where allowed. | `()` | `()` |
+
+## Provider contract
+
+Register a `ClipboardHost` with `.with_clipboard_host(...)` when the default shell is not enough. Use `MemoryClipboardHost` in tests. The provider should return typed errors for denied gestures, missing focus, unsupported rich content, or unavailable host clipboard.
+
+Rich clipboard content uses `ClipboardItem::stream`. Reading content registers one stream per item; writing content lets the provider open each stream with `CapabilityCtx::open_data_stream(...)`. Plain text remains separate as `ClipboardText` and `ClipboardWriteTextRequest`.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+Clipboard does not need generated Android or iOS permission entries in the built-in declaration. The default shell can provide a clipboard host on common desktop paths, but custom shells and web targets still need an implementation that respects focus, gesture, and security rules.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Clipboard guide](/docs/capabilities/clipboard/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

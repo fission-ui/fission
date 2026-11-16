@@ -1,0 +1,43 @@
+---
+title: Stacked bar
+sidebar_label: Stacked bar
+description: Use a shared stack key only for exclusive contributions to one order total.
+---
+
+# Stacked bar
+
+![Stacked bar screenshot](/img/charts/bar-stacked.png)
+
+A stack shows both a total and its composition. It differs from grouping because the second contribution starts where the first ends, rather than at zero.
+
+That addition is only meaningful when the components are exclusive parts of the same measure. An order attributed to two channels must not appear twice in the total.
+
+The [channel stack example](../bar/bar-channel-stack) defines `ChannelPeriod` and `OrderChannelsChart`. Put them in `widgets/order_channels.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::order_channels::{ChannelPeriod, OrderChannelsChart};
+
+fission_component! {
+    pub OrderSourceReport<()> {
+        props {
+            title: String,
+            direct_label: String,
+            partner_label: String,
+            periods: Vec<ChannelPeriod>,
+        }
+    }
+    view(report, _state, _cx) => OrderChannelsChart {
+        title: report.title.clone(),
+        direct_label: report.direct_label.clone(),
+        partner_label: report.partner_label.clone(),
+        rows: report.periods.clone(),
+    }
+}
+```
+
+The underlying component creates two `BarSeries` values sharing the `"order-channels"` stack key. That key is an internal grouping identifier; translated series names remain separate.
+
+Reconcile each stack with the independently calculated period total. Test empty periods, one absent channel and incorrect attribution. Show values and channel names outside the coloured segments, and use grouped bars when precise comparisons of the upper segment are the main task. The image above is a separate gallery fixture.
+
+[Cartesian family overview](./overview)

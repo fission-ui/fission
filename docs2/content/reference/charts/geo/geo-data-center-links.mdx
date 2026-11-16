@@ -1,0 +1,43 @@
+---
+title: Data center links
+sidebar_label: Data center links
+description: Compare measured inter-site link utilisation with a schematic connection view.
+---
+
+# Data center links
+
+![Data center links screenshot](/img/charts/geo-data-center-links.png)
+
+A data-centre connection can carry much more traffic than another and still have more spare capacity. To compare pressure on the links, divide the measured rate by its provisioned capacity rather than treating raw bytes as utilisation.
+
+Use the model from [lines](../geographic-and-route/lines-basic), placed in `widgets/service_connections.rs`:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub fn link_utilisation(
+    id: String,
+    from: (f32, f32),
+    to: (f32, f32),
+    bits_per_second: f32,
+    capacity_bits_per_second: f32,
+) -> Option<ServiceConnection> {
+    if !bits_per_second.is_finite() || bits_per_second < 0.0
+        || !capacity_bits_per_second.is_finite() || capacity_bits_per_second <= 0.0
+    {
+        return None;
+    }
+    Some(ServiceConnection {
+        id,
+        from,
+        to,
+        traffic: 100.0 * bits_per_second / capacity_bits_per_second,
+    })
+}
+```
+
+Pass the valid projections into `ServiceConnections`, alongside translated captions and a summary of the sampling interval. Values above 100% remain visible in the source; do not silently clamp them into apparent compliance.
+
+The relative line encoding does not supply a fixed percentage legend. Keep exact utilisation and capacity values in a list, and explain that this drawing is schematic. It is not a measured fibre route or a geographic overlay. Test invalid capacities, overload and missing links. The gallery screenshot is a separate report.
+
+[Geo family overview](./overview)

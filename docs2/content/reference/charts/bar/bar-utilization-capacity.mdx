@@ -1,0 +1,57 @@
+---
+title: Utilization capacity
+sidebar_label: Utilization capacity
+description: Compare usage and capacity honestly when resources have different limits or exceed them.
+---
+
+# Utilization capacity
+
+![Utilization capacity screenshot](/img/charts/bar-utilization-capacity.png)
+
+Identical background tracks imply identical endpoints. That is misleading when resources have different quotas, or when usage can exceed a nominal allocation.
+
+Grouped usage and capacity bars keep both amounts visible without silently clipping over-allocation. This example uses storage in one shared display unit.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct ResourceStorage {
+    pub label: String,
+    pub used_gib: f32,
+    pub capacity_gib: f32,
+}
+
+fission_component! {
+    pub StorageAllocationComparison<()> {
+        props {
+            title: String,
+            used_label: String,
+            capacity_label: String,
+            unit_label: String,
+            resources: Vec<ResourceStorage>,
+        }
+    }
+    view(storage, _state, _cx) {
+        let labels = storage.resources.iter().map(|row| row.label.as_str()).collect();
+        let used = storage.resources.iter().map(|row| row.used_gib).collect();
+        let capacity = storage.resources.iter().map(|row| row.capacity_gib).collect();
+    } => Chart(
+        title: Some(storage.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0).name(storage.unit_label.clone())),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&storage.used_label).data(used)),
+            Series::Bar(BarSeries::new(&storage.capacity_label).data(capacity)),
+        ],
+    )
+}
+```
+
+Validate finite non-negative readings and define whether capacity means physical capacity, assigned quota or a billing allowance. Keep original byte counts authoritative and convert to GiB only for display.
+
+For equal, bounded limits, [capacity tracks](./bar-capacity) provide a more compact alternative. Here an above-capacity reading remains visible and should have an explicit status explanation. Test differing limits, no allocation and unavailable readings, and expose exact amounts outside the chart. The screenshot illustrates the gallery's track variant, not this grouped construction.
+
+[Bar family overview](./overview)

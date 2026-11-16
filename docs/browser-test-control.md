@@ -1,0 +1,148 @@
+# Web test control and browser viewport tests
+
+Compile the Web app with `FISSION_WEB_TEST_CONTROL=1` on the compiling command.
+For a generated project, use:
+
+```sh
+FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
+fission serve-web --project-dir . --host 127.0.0.1 --port 8123
+```
+
+The existing `fission test --target web` path also enables test control when it
+builds its Web fixture. A custom test host can serve the generated Web bundle.
+There is no additional preview or review command requirement.
+
+Use the existing Rust browser session authority, and retain the client while
+changing viewport sizes:
+
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient};
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/").fission_canvas(),
+)?;
+client.simulate_resize(390, 900)?;
+let png = client.capture_screenshot_png()?;
+```
+
+The owned Chromium transport changes the host viewport in CSS pixels without
+reloading the page, so runtime state, route and page identity survive. Device
+scale and mobile mode retain their configured values (scale 1 and desktop mode
+by default). Each CSS dimension must be 1–8192, with at most 16,777,216 CSS pixels
+total. PNG dimensions include the configured scale. Invalid dimensions fail
+before dispatch. Static DOM sessions use
+`BrowserTestOptions::new(url)` and need no test bridge; their semantic/input
+commands remain unsupported. Native `simulate_resize` retains its logical
+viewport behaviour. Raw Web `SimulateResize` returns an `Error` containing
+`unsupported_host` and the supported Rust driver call, without mutating runtime
+dimensions: page JavaScript has no authority over Chromium's host viewport.
+
+## Generic frame acknowledgement
+
+An opt-in Web build exposes a read-only snapshot getter alongside the `submit`
+and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns the JSON
+string `null` before successful renderer submission, then JSON text shaped as:
+
+```json
+{"width":390.0,"height":900.0,"frame":42,"phase":"submitted"}
+```
+
+The shared Rust protocol is `WebTestFrame` / `WebTestFramePhase`. Width and
+height are the submitted frame's layout viewport in CSS pixels. The sequence
+advances after successful submission within this page. `submitted` identifies
+the shell's acknowledgement; it does not assert GPU readback or compositor
+presentation. Parse the returned JSON string to get a snapshot; mutating that
+value does not modify the shell's state.
+Production builds expose neither the bridge nor this getter. No review-specific
+global is involved.
+
+The Chromium driver tracks full main-frame navigations. After a reload it waits
+for the new Fission Web document to render a frame and expose its test bridge
+before sending the next semantic command. If a navigation removes the bridge
+during a read-only selector, text, or tree query, the driver waits for the new
+document and repeats that query. It does not automatically repeat input or
+other state-changing commands, so a reload cannot duplicate a user action.
+
+LiveTest drivers use `submit(json)` and `poll(id)`. The bridge copies command
+JSON into a fixed 4 MiB scratch area in the module's linear memory, then calls a
+scalar Wasm export to parse and dispatch it. Larger commands receive a normal
+`Error` response stating the size limit. `poll` calls scalar exports to
+serialize a response into linear memory and returns that JSON as a string; it
+returns the JSON text `null` while the response is pending. The diagnostics and
+read-only frame getter also use JavaScript adapters over scalar exports (or the
+diagnostics memory slot). This keeps the test bridge itself out of
+wasm-bindgen's callback trampoline and string allocator. Completed response
+entries are removed when collected, and at most 1,024 requests may be pending
+or uncollected at once.
+
+For a trapped poll in an opt-in test build, `pollDiagnostics()` returns a number
+whose high bits are the last request ID and whose low two bits identify the last
+completed poll stage: `1` entered response lookup, `2` received a response, and
+`3` serialized its JSON string. A value stuck at stage `1` points to response
+lookup; stage `2` points to serialization; stage `3` means the response JSON
+bytes are ready in linear memory. The same value is stored at the byte offset
+`pollDiagnosticsAddress` in the exposed `memory.buffer`, so a browser harness
+can inspect it directly even if another Wasm callback traps. These memory
+diagnostics are available only when the test bridge is enabled.
+
+Web renderer diagnostics also publish the most recent stage timings as
+`window.__FISSION_LAST_FRAME_STAGE_PERF`. On the Canvas2D software path,
+`softwareRenderMs` measures the whole CPU render, including scene recording,
+rasterization, and RGBA output copying. The new `softwareSceneRecordingMs`,
+`softwareRasterizationMs`, and `softwareOutputCopyMs` fields split those costs.
+`canvasUploadMs` measures canvas resizing, `ImageData` creation, and
+`putImageData`. These fields distinguish scene work, pixel rasterization, and
+transfer to the browser canvas; `renderPresentMs` remains the total for both
+software rendering and canvas upload.
+
+The driver verifies actual browser metrics, canvas CSS/backing dimensions and
+the matching submitted-frame acknowledgement, crosses two browser animation
+frames for paint, and checks again before capture. A changed viewport requires
+a frame newer than the previous acknowledgement; a same-size request can verify
+the existing matching frame. After a timeout, a same-size retry or screenshot
+must still satisfy the outstanding newer-frame requirement. Capture validates
+PNG dimensions, but content still needs visual review.
+
+Operations use the browser options timeout capped at 60 seconds. Failure reports
+last observed state; Chromium may already have changed size. Repair the cause
+and retry through the same client. Drop and relaunch for a closed page or lost
+host. Dropping a client releases only its owned Chromium process and CDP port.
+
+## Focused regression fixtures
+
+`crates/tools/fission-test-driver/tests/fixtures/resize_app.rs` and
+`resize_web.rs` provide a Rust/Fission counter, route and responsive layout.
+Use them in a generated Web project with the existing build script; compile
+`RESIZE_BASE_PATH=/repository-name/` for a mounted fixture and serve the bundle
+at that path. No application UI is injected by the tests. Build a static DOM
+site with the existing `fission site build` path and serve its output normally.
+
+Run the ignored real-browser tests with `FISSION_RESIZE_WEB_URL` and
+`FISSION_RESIZE_DOM_URL` set to those running fixtures:
+
+```sh
+cargo test -p fission-test-driver --test browser_resize -- --ignored --nocapture
+```
+
+They preserve counter/route/page identity across desktop → narrow → tablet →
+desktop sizes, verify semantic bounds and captures, reject stale acknowledgements
+and raw bridge resize, recover in the same session, and check owned resource
+cleanup. Set `FISSION_RESIZE_OUTPUT` to retain PNG evidence. Run the internal
+`production_canvas_has_no_test_control` test against a separately compiled
+non-opt-in fixture using `FISSION_RESIZE_PRODUCTION_URL`.
+
+The WebGPU resize regression uses the same opt-in fixture, served with
+`?fission_renderer=webgpu-vello`, and requires a browser with a working WebGPU
+adapter. It grows and shrinks the renderer in one Chromium session, exercising
+the intermediate-texture config upload that previously recreated a mapped
+buffer on every size change. Its screenshots use Fission's retained scene and
+software rasterizer, then assert that the captured pixels contain the rendered
+frame. This avoids relying on Chromium's headless WebGPU swapchain capture,
+which can be black. If `FISSION_RESIZE_OUTPUT` is set, each capture is retained
+for visual inspection:
+
+```sh
+FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
+  cargo test -p fission-test-driver --test browser_resize \
+  webgpu_renderer_resizes_without_recreating_mapped_config_buffer \
+  -- --ignored --nocapture
+```

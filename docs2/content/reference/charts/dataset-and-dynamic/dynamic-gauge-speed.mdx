@@ -1,0 +1,52 @@
+---
+title: Dynamic speed gauge
+sidebar_label: Dynamic speed gauge
+description: Represent speed relative to a declared limit without claiming an arbitrary-range speedometer.
+---
+
+# Dynamic speed gauge
+
+![Dynamic speed gauge screenshot](/img/charts/dynamic-gauge-speed.png)
+
+The current gauge has a fixed 0–100 dial, so it is not a configurable physical speedometer. Passing kilometres per hour directly would silently give one hundred a special meaning regardless of the real limit.
+
+One truthful alternative is a limit-utilisation gauge, accompanied by the actual speed and an explicit over-limit state.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries, Series};
+
+fission_component! {
+    pub SpeedLimitUtilisation<()> {
+        props {
+            title: String,
+            percent_label: String,
+            reading_summary: TextContent,
+            over_limit_label: TextContent,
+            speed: f32,
+            limit: f32,
+        }
+    }
+    view(reading, _state, _cx) {
+        let percent = reading.speed / reading.limit * 100.0;
+    } => Column(children: [
+        Text(reading.reading_summary.clone()),
+        if percent > 100.0 {
+            Text(reading.over_limit_label.clone())
+        },
+        Chart(
+            title: Some(reading.title.clone()),
+            series: vec![Series::Gauge(
+                GaugeSeries::new(&reading.percent_label)
+                    .data(vec![(reading.percent_label.as_str(), percent.min(100.0))]),
+            )],
+        ),
+    ])
+}
+```
+
+Validate finite non-negative speed, a finite positive limit and a finite calculated percentage before constructing the component. Use one speed unit for both inputs. The translated summary must include the actual uncapped speed and limit; the gauge deliberately caps only its completion presentation.
+
+Do not present a full dial as proof that the speed equals the limit: an over-limit reading also fills it and must retain its warning. Test below, at and above the limit, missing readings and changes of unit. The screenshot uses a separate gallery fixture.
+
+[Dataset and dynamic family overview](./overview)

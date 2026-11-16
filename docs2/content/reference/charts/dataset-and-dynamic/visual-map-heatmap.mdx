@@ -1,0 +1,50 @@
+---
+title: Visual map heatmap
+sidebar_label: Visual map heatmap
+description: Keep missing team/hour measurements distinct while applying an explained colour scale.
+---
+
+# Visual map heatmap
+
+![Visual map heatmap screenshot](/img/charts/visual-map-heatmap.png)
+
+A heatmap uses colour to compress a two-dimensional table. That makes the scale and the missing-value policy essential: an absent observation must not quietly become a low-intensity success.
+
+Reuse `TeamHourWorkload` from the [visual map component](../components-and-interaction/component-visual-map), placed in `widgets/team_hour_workload.rs`:
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use crate::widgets::team_hour_workload::TeamHourWorkload;
+
+fission_component! {
+    pub TeamWorkloadIntensity<()> {
+        props {
+            title: String,
+            tickets_label: String,
+            hours: Vec<String>,
+            teams: Vec<String>,
+            counts: Vec<Vec<Option<u32>>>,
+            scale_max: f32,
+            scale_colours: Vec<Color>,
+        }
+    }
+    view(intensity, _state, _cx) => TeamHourWorkload {
+        title: intensity.title.clone(),
+        tickets_label: intensity.tickets_label.clone(),
+        hours: intensity.hours.clone(),
+        teams: intensity.teams.clone(),
+        counts: intensity.counts.clone(),
+        scale_max: intensity.scale_max,
+        scale_colours: intensity.scale_colours.clone(),
+    }
+}
+```
+
+The base component maps only observed cells to `HeatmapSeries` and supplies an actual `VisualMap`. Validate row/column dimensions, scale bounds and the range policy before building it.
+
+Supply translated labels and a design-system palette; avoid requiring red/green perception to distinguish workloads. Keep the same scale across compared views and show exact counts in a companion table.
+
+Test missing, zero and maximum cells, long team names and small layouts. A colour change after refresh may reflect a changed scale rather than changed workload if endpoints are allowed to drift. The image is a gallery fixture.
+
+[Dataset and dynamic family overview](./overview)

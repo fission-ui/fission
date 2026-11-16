@@ -1,0 +1,116 @@
+---
+title: Compose component authoring
+description: Use Fission's fission_component! macro to define reusable Rust UI, separate props from retained state, and connect typed actions and effects.
+---
+
+# Compose component authoring
+
+Fission's recommended app-authoring API is Compose. Define screens and reusable UI with `fission_component!`, then describe their view with ordinary Fission widgets. The macro generates the component type and connects it to the existing widget runtime; application code focuses on props, retained state, and the visible result.
+
+Use this page to choose the right boundary for a new component. Keep product facts in `GlobalState`, keep short-lived interface memory in the component's `state` block, and request network, storage, or host work through an effect, job, service, capability, or resource.
+
+## Define props and a state-aware view
+
+Props are values supplied by a parent. The names in `view(component, state, cx)` identify the current component values, the app's scoped state and the context available at that point. They are not closure parameters. Use the concrete app state type in the component declaration when the view reads it or binds an app action.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, Default)]
+pub struct ComposerState {
+    pub title: String,
+    pub body: String,
+}
+
+impl GlobalState for ComposerState {}
+
+fission_component! {
+    pub ReviewDraftButton<ComposerState> {
+        props {
+            label: String,
+        }
+    }
+
+    view(button, state, cx) =>
+        Button(
+            child: Text(button.label.clone()),
+            key: "review-draft",
+            disabled: state.title.trim().is_empty() || state.body.trim().is_empty(),
+            on_press: reduce {
+                if !state.title.trim().is_empty() && !state.body.trim().is_empty() {
+                    cx.effects.navigate("/draft/review");
+                }
+            },
+        )
+        .semantics_identifier("composer.review-draft")
+}
+```
+
+The component has one job: let the user review a non-empty draft. The disabled
+state explains when that action is available, while the reducer checks the same
+condition when the event actually runs. The draft belongs to the application
+because the review screen needs the same data; pressing this button does not
+pretend to save it.
+
+The parent supplies a translated label with `ReviewDraftButton(label: cx.tr("draft.review"))`. A prop is read again whenever the component is rebuilt, so the label follows the parent's locale or product state.
+
+## Keep retained UI memory beside its owner
+
+Use a component `state` block for interface memory that belongs to one stable component identity. It is appropriate for disclosure state, a local tab, a focused multi-step draft, or a small counter. Use app `GlobalState` when the value is durable product truth or needs to be observed by distant components.
+
+```rust
+fission_component! {
+    pub HelpDisclosure<()> {
+        props {
+            title: String,
+            explanation: String,
+        }
+        state {
+            open: bool = false,
+        }
+    }
+
+    view(disclosure, _state, _cx) =>
+        Column(children: [
+            Button(
+                child: Text(disclosure.title.clone()),
+                key: "toggle-help",
+                on_press: reduce {
+                    disclosure.open = !disclosure.open;
+                },
+            ),
+            if disclosure.open {
+                Text(disclosure.explanation.clone())
+            },
+        ])
+}
+```
+
+The generated component retains `open` for this widget identity. The inline reducer changes only that local field. It does not mutate `GlobalState`, start a job, write a file, or issue a network request.
+
+For local state components rendered in lists, assign an explicit stable widget identity based on the record id. A list position can change after a filter or insert and must not become the identity for retained state.
+
+## Request outside work through effects
+
+Component conversion must stay deterministic. Do not start a network request, storage operation, file access, or host call while describing the view. Use a component-owned effect for a one-shot async operation or a job, service, capability, or resource when that boundary fits the lifetime of the work.
+
+An effect receives owned input values, runs asynchronously, and returns a typed success or failure. Its `on_start` block can show progress, and both `on_ok` and `on_err` blocks must explain how the interface responds. Keep loading and error state explicit so a slow request never blocks the UI thread.
+
+## Compose ordinary widgets and existing components
+
+`fission_component!` does not introduce a second widget catalogue. Use normal Rust imports for built-in, application and third-party widgets. Compose them inside the view expression, and extract a named component when the fragment is meaningful or reused.
+
+Prefer specific components such as `ProductRow`, `ReviewDraftButton`, or `HelpDisclosure` over screen helper functions that hide a large widget tree. Small helpers for formatting, parsing, or leaf conversion are fine when they do not conceal a reusable UI boundary.
+
+## Accessibility and identity
+
+Give every interactive control an accessible name and add semantic identifiers to controls used by tests or assistive navigation. Keep those identifiers stable across responsive branches when both branches represent the same action.
+
+For repeated child components, derive identity from a durable data id. Never use an array index for a component that owns retained state when the list can be reordered, filtered, or edited.
+
+## Related reference
+
+- [State system](/reference/core/state-system/) describes `GlobalState`, local component state, actions, reducers and scoped state access.
+- [Commands, services and jobs](/reference/core/commands-services-jobs/) explains asynchronous work and its lifecycle.
+- [Resources and capabilities](/reference/core/resources-and-capabilities/) covers host integration, timers, and long-lived work.
+- [Router widget](/reference/widgets/router/) documents Fission's native route and parameter handling.

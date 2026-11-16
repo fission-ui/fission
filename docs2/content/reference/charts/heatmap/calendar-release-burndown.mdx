@@ -1,0 +1,89 @@
+---
+title: Release burndown calendar
+sidebar_label: Release burndown calendar
+description: Fission Charts reference for Release burndown calendar.
+---
+
+# Release burndown calendar
+
+![Release burndown calendar screenshot](/img/charts/calendar-release-burndown.png)
+
+A release calendar can show how many blockers remained at the end of each day. Placing the snapshots on dates helps a team relate a stalled release to weekends, cut-off dates and changes in scope. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here, a value is the number of open release blockers, not the number closed that day. Those answer different questions. Use a line chart instead when the shape of the decline is more important than the calendar dates.
+
+## Data model
+
+Supply one ISO date/value pair per end-of-day snapshot. Count against a defined release scope, and explain additions to that scope: an increase in remaining blockers can be valid even when the team has resolved work.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `CalendarHeatmapSeries::data` | `Vec<(&str, f32)>` | Converts date/value pairs into the series' owned `Vec<(String, f32)>`. |
+| `CalendarHeatmapSeries::range` | `&str, &str` | Sets the displayed start and end dates. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric colour range. |
+| `Chart::series` | `Vec<Series>` | Adds the calendar series; Cartesian axes are not required. |
+
+## Example
+
+```rust
+use fission::charts::{CalendarHeatmapSeries, Chart, VisualMap};
+
+let chart = Chart::new()
+    .title("Open release blockers at end of day")
+    .visual_map(VisualMap::new().min(0.0).max(15.0))
+    .series(vec![CalendarHeatmapSeries::new("Open blockers")
+        .range("2026-10-01", "2026-10-31")
+        .data(vec![
+            ("2026-10-01", 12.0),
+            ("2026-10-02", 9.0),
+            ("2026-10-03", 7.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the daily values. This component presents them; it does not start a request during the build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ReleaseBurndownCalendarChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            daily_values: Vec<(String, f32)>,
+        }
+    }
+    view(calendar, _state, _cx) =>
+        Chart(
+            title: Some(calendar.chart_title.clone()),
+            visual_map: Some(VisualMap::new().min(0.0).max(15.0)),
+            series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries {
+                name: calendar.series_label.clone(),
+                data: calendar.daily_values.clone(),
+                start: Some("2026-10-01".into()),
+                end: Some("2026-10-31".into()),
+            })],
+        )
+}
+```
+
+## Interaction and accessibility
+
+A selected date can display the blocker snapshot through a reducer. The chart shows progress already recorded, not a forecast. Avoid animation or labels that imply the remaining count must fall on the next day.
+
+## Testing guidance
+
+Check that completed snapshots remain unchanged when today's blocker list changes. Test scope additions and a zero-blocker day; recomputing every historical cell from today's state would erase the release history. Check the rendered chart at the size it will occupy in the dashboard; correct sample values alone do not establish that the dates and values are readable.
+
+Tags: `calendar`, `release`.
+
+[Heatmap family overview](./overview)

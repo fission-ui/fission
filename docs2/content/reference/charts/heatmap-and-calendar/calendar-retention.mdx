@@ -1,0 +1,64 @@
+---
+title: Retention calendar
+sidebar_label: Retention calendar
+description: Define a fixed cohort before plotting daily retained activity.
+---
+
+# Retention calendar
+
+![Retention calendar screenshot](/img/charts/calendar-retention.png)
+
+Daily activity and retention answer different questions. Retention asks whether members of a defined cohort returned; a count of everyone active today cannot establish that.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{CalendarHeatmapSeries, Chart, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct CohortReturnDay {
+    pub date: String,
+    pub returned_accounts: u32,
+}
+
+fission_component! {
+    pub CohortReturnCalendar<()> {
+        props {
+            title: String,
+            retention_label: String,
+            cohort_summary: TextContent,
+            first_date: String,
+            last_date: String,
+            eligible_accounts: u32,
+            days: Vec<CohortReturnDay>,
+            colour_scale: VisualMap,
+        }
+    }
+    view(report, _state, _cx) {
+        let values: Vec<(&str, f32)> = if report.eligible_accounts == 0 {
+            Vec::new()
+        } else {
+            report.days.iter().map(|day| (
+                day.date.as_str(),
+                100.0 * day.returned_accounts as f32 / report.eligible_accounts as f32,
+            )).collect()
+        };
+    } => Column(children: [
+        Text(report.cohort_summary.clone()),
+        if report.eligible_accounts > 0 {
+            Chart(
+                title: Some(report.title.clone()),
+                visual_map: Some(report.colour_scale.clone()),
+                series: vec![Series::CalendarHeatmap(CalendarHeatmapSeries::new(&report.retention_label)
+                    .range(&report.first_date, &report.last_date)
+                    .data(values))],
+            )
+        },
+    ])
+}
+```
+
+Validate the cohort and counts before rendering: each returning account must belong to that cohort, be counted once per day and satisfy `returned_accounts <= eligible_accounts`. Supply a fixed 0–100 colour scale and translated text identifying cohort, return event and reporting window. For an empty cohort, the summary explains why there is no rate.
+
+Dates must be complete and validated because absent cells render as zero; a missing observation is not confirmed churn. Weekday captions currently remain fixed English. Test the denominator, duplicate events and reporting cutoff, and provide exact cohort counts. The gallery has independent data.
+
+[Heatmap and calendar family overview](./overview)

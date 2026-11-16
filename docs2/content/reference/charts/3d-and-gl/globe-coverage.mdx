@@ -1,0 +1,72 @@
+---
+title: Globe coverage
+sidebar_label: Globe coverage
+description: Show active service locations without confusing a point marker with an area of coverage.
+---
+
+# Globe coverage
+
+![Globe coverage screenshot](/img/charts/globe-coverage.png)
+
+A marker can show where a service operates. It does not, on its own, show how far that service reaches. This distinction is particularly important for a coverage screen: a point identifying a regional office is not evidence that the surrounding country is served.
+
+Use a globe when the reader needs global orientation. If they need to determine whether a particular address is covered, provide an address lookup backed by the actual coverage data instead.
+
+## Model what the marker means
+
+Keep operational state separate from geographic position. A planned location and an active location may share the same coordinates, but they must not become indistinguishable simply because both have a marker.
+
+The following component shows active locations. It reuses `ServiceLocationsGlobe` from [Globe](./globe-basic), placed in `widgets/service_globe.rs`. Positions should already have been validated and converted using that page's coordinate convention.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::service_globe::ServiceLocationsGlobe;
+
+#[derive(Clone)]
+pub struct CoverageSite {
+    pub position: Point3D,
+    pub active: bool,
+}
+
+fission_component! {
+    pub ActiveCoverage<()> {
+        props {
+            title: TextContent,
+            sites: Vec<CoverageSite>,
+            globe_color: Color,
+            marker_color: Color,
+        }
+    }
+    view(coverage, _state, _cx) {
+        let locations = coverage.sites.iter()
+            .filter(|site| site.active)
+            .map(|site| site.position.clone())
+            .collect();
+    } => ServiceLocationsGlobe {
+        title: coverage.title.clone(),
+        locations: locations,
+        globe_color: coverage.globe_color,
+        marker_color: coverage.marker_color,
+    }
+}
+```
+
+The parent owns location names, operational status and any coordinate-validation failures. Keep that information available in a labelled list next to the globe; filtering the geometry must not discard the underlying records or their status.
+
+## Rendering and interaction
+
+This gallery uses `fission::three_d::Scene3D` with sphere primitives. Enable the `three-d` feature. Its optional `width` and `height` fields size the viewport; it has no `camera`, `ambient_light` or geographic coverage fields.
+
+There is no per-location `ChartInteractionEvent` in this scene API. Selecting a location in the accompanying list can use ordinary Compose reducers. If clicking the point itself is a requirement, use a scene interface with an explicit picking contract rather than assuming that chart interaction settings apply.
+
+## Check the result
+
+Test that inactive sites are excluded and active sites retain their positions. Also check the hidden hemisphere: a correct point can be behind the globe and therefore absent from the current view. The accessible location list must still contain it.
+
+The screenshot is a gallery fixture. It demonstrates the spherical presentation, not a claim about the extent or availability of a real service.
+
+Tags: `3d`, `globe`.
+
+[3D and GL family overview](./overview)

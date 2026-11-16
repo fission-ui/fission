@@ -185,6 +185,34 @@ fn a_binding_on_an_ancestor_covers_its_whole_subtree() {
 }
 
 #[test]
+fn a_declared_shortcut_preempts_a_focused_text_input() {
+    let (mut runtime, ir) = tree(
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            ..Default::default()
+        },
+        Some(Semantics {
+            role: Role::Group,
+            key_actions: vec![KeyAction::with_modifiers(
+                KeyCode::Char('f'),
+                MOD_CTRL,
+                palette_id().as_u128(),
+            )],
+            ..Default::default()
+        }),
+    );
+
+    press(&mut runtime, &ir, KeyCode::Char('f'), MOD_CTRL);
+
+    assert_eq!(
+        log(&runtime).palette,
+        1,
+        "an unhandled primary shortcut should reach the focused input's semantic ancestors"
+    );
+}
+
+#[test]
 fn the_innermost_binding_wins() {
     let (mut runtime, ir) = tree(
         Semantics {

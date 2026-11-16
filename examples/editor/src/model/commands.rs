@@ -5,16 +5,12 @@
 //! whichever surface offered it, so every surface behaves the same way.
 
 use super::{BottomPanelTab, EditorState, FileEntry, FsOp, SidebarSection};
-use fission::core::{ActionInput, ReducerContext};
+use fission::core::ReducerContext;
 use fission::prelude::fission_action;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 type Cx<'a, 'b, 'c> = ReducerContext<'a, 'b, 'c, EditorState>;
-
-/// Where a context menu opens when the event that asked for it had no pointer
-/// position, such as a keyboard shortcut.
-const CONTEXT_MENU_FALLBACK_POSITION: f32 = 100.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EditorCommand {
@@ -246,119 +242,10 @@ fn find_entry<'a>(entries: &'a [FileEntry], path: &str) -> Option<&'a FileEntry>
 #[fission_action]
 pub struct RunCommand(pub EditorCommand);
 
-#[fission_action]
-pub struct DismissCommandPalette;
-
 pub fn on_run_command(state: &mut EditorState, action: RunCommand, _: &mut Cx<'_, '_, '_>) {
     state.run_command(action.0);
 }
 
-/// Opens the named menu, or closes it when it is already open.
-pub fn on_toggle_menu(
-    state: &mut EditorState,
-    action: super::SetActiveMenu,
-    _: &mut Cx<'_, '_, '_>,
-) {
-    state.active_menu = if state.active_menu == action.0 {
-        None
-    } else {
-        action.0
-    };
-}
-
-pub fn on_dismiss_menu(state: &mut EditorState, _: super::DismissMenu, _: &mut Cx<'_, '_, '_>) {
-    state.active_menu = None;
-}
-
-pub fn on_dismiss_context_menu(
-    state: &mut EditorState,
-    _: super::DismissContextMenu,
-    _: &mut Cx<'_, '_, '_>,
-) {
-    state.context_menu_visible = false;
-    state.context_menu_target = None;
-}
-
-pub fn on_dismiss_command_palette(
-    state: &mut EditorState,
-    _: DismissCommandPalette,
-    _: &mut Cx<'_, '_, '_>,
-) {
-    state.show_command_palette = false;
-    state.command_query.clear();
-}
-
-pub fn on_update_command_query(
-    state: &mut EditorState,
-    _: super::UpdateCommandQuery,
-    cx: &mut Cx<'_, '_, '_>,
-) {
-    if let Some(change) = cx.input.text_change() {
-        state.command_query = change.new_text.clone();
-    }
-}
-
-/// Opens the context menu at the pointer, for the tree entry in `target` or
-/// for the editor when there is none.
-pub fn on_show_context_menu(
-    state: &mut EditorState,
-    action: super::ShowContextMenu,
-    cx: &mut Cx<'_, '_, '_>,
-) {
-    let (x, y) = match cx.input {
-        ActionInput::Pointer { x, y, .. } => (*x, *y),
-        _ => (action.x, action.y),
-    };
-    let or_fallback = |value: f32| {
-        if value < 10.0 {
-            CONTEXT_MENU_FALLBACK_POSITION
-        } else {
-            value
-        }
-    };
-    state.context_menu_visible = true;
-    state.context_menu_position = (or_fallback(x), or_fallback(y));
-    state.context_menu_target = action.target;
-}
-
-pub fn on_toggle_tree_node(
-    state: &mut EditorState,
-    action: super::ToggleTreeNode,
-    _: &mut Cx<'_, '_, '_>,
-) {
-    if !state.tree_expanded.remove(&action.0) {
-        state.tree_expanded.insert(action.0);
-    }
-}
-
 pub fn on_open_file(state: &mut EditorState, action: super::OpenFile, _: &mut Cx<'_, '_, '_>) {
     state.open_file(action.0);
-}
-
-pub fn on_create_file(state: &mut EditorState, action: super::CreateFile, _: &mut Cx<'_, '_, '_>) {
-    state.create_file(action.0);
-}
-
-pub fn on_create_folder(
-    state: &mut EditorState,
-    action: super::CreateFolder,
-    _: &mut Cx<'_, '_, '_>,
-) {
-    state.create_folder(action.0);
-}
-
-/// Collapses the tree and rescans it from disk.
-pub fn on_refresh_tree(state: &mut EditorState, _: super::RefreshTree, _: &mut Cx<'_, '_, '_>) {
-    state.tree_expanded.clear();
-    state.request_tree_refresh();
-}
-
-pub fn on_update_rename_input(
-    state: &mut EditorState,
-    _: super::UpdateRenameInput,
-    cx: &mut Cx<'_, '_, '_>,
-) {
-    if let Some(change) = cx.input.text_change() {
-        state.rename_input = change.new_text.clone();
-    }
 }

@@ -2,8 +2,7 @@ use super::common::*;
 use super::drawer_preview::DrawerPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/drawer";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Primary,
 };
 
-pub struct DrawerPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<DrawerPage<'_>> for Widget {
-    fn from(page: DrawerPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: DrawerPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub DrawerPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), DrawerPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -53,9 +33,8 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Drawer {
+const SOURCE: &str = r#"Drawer(
     id: WidgetId::explicit("settings_drawer"),
     side: DrawerSide::Right,
-    motion: Some(DrawerMotion::FromSide + DrawerMotion::Fade),
-    ..drawer
-}.into()"#;
+    motion: DrawerMotion::FromSide + DrawerMotion::Fade,
+)"#;

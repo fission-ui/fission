@@ -6,49 +6,23 @@ use fission::prelude::*;
 
 const SUMMARY_MIN_WIDTH: f32 = 168.0;
 
-pub(super) struct CompositionSummaryGrid<'a> {
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<CompositionSummaryGrid<'_>> for Widget {
-    fn from(summary: CompositionSummaryGrid<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let gap = view.env().theme.tokens.spacing.s;
-        let sequence = atom_sequence(summary.state);
-        let tracks = lowered_tracks(summary.state);
-
-        Grid {
+fission_component! {
+    pub(super) CompositionSummaryGrid<AnimationGalleryState> |_summary, state, cx| {
+        let gap = cx.view.env().theme.tokens.spacing.s;
+    } =>
+        Grid(
             columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                 GridTrack::Points(SUMMARY_MIN_WIDTH),
                 GridTrack::Fr(1.0),
             ))],
             rows: vec![GridTrack::Auto],
-            column_gap: Some(gap),
-            row_gap: Some(gap),
-            children: widgets![
-                AtomCard {
-                    title: "Ordered Atoms",
-                    body: &sequence,
-                    tint: style::primary(),
-                },
-                AtomCard {
-                    title: "Lowered Tracks",
-                    body: &tracks,
-                    tint: style::secondary(),
-                },
-                AtomCard {
-                    title: "Policy",
-                    body: policy_summary(summary.state.policy),
-                    tint: style::success(),
-                },
-                AtomCard {
-                    title: "Conflict Rule",
-                    body: "same slot/property/phase: later wins",
-                    tint: style::info(),
-                },
+            column_gap: gap,
+            row_gap: gap,
+            children: [
+                AtomCard("Ordered Atoms".to_string(), atom_sequence(state), style::primary()),
+                AtomCard("Lowered Tracks".to_string(), lowered_tracks(state), style::secondary()),
+                AtomCard("Policy".to_string(), policy_summary(state.policy).to_string(), style::success()),
+                AtomCard("Conflict Rule".to_string(), "same slot/property/phase: later wins".to_string(), style::info()),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

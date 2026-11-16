@@ -1,0 +1,152 @@
+---
+title: Notifications
+description: Show local notifications, schedule reminders, update badges, and register for push through the active host.
+---
+
+# Notifications
+
+Notifications are for information that should reach the user outside the currently visible Fission view. A completed export, a missed message, or a scheduled reminder belongs here. A validation message inside the current screen usually does not; use `Toast`, `Modal`, or another Fission overlay for in-app feedback.
+
+This example provides a test-notification control in app settings. It exercises the host's delivery path without pretending that a sync or export has happened. In a real sync flow, request the notification from the successful sync completion reducer, not when the user starts the sync.
+
+Do not use the notification capability as a replacement for normal UI. If the user is already looking at the relevant screen, show a Fission widget. Use a notification when the host owns delivery through the operating system, browser, launcher, notification center, or push service.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct NotificationState {
+    last_notification: Option<NotificationReceipt>,
+    notification_error: Option<String>,
+    sending_notification: bool,
+}
+
+impl GlobalState for NotificationState {}
+```
+
+Keep the complete receipt, not just its id. A provider can accept or schedule a request without reporting that it was delivered. The screen needs that distinction if it is going to tell the user what actually happened.
+
+## 2. Configure the target and host
+
+There is no single safe `add-capability` value for this feature because the product owns the route/provider details, or because the default host can expose the feature without generated permission files. You still configure the shell explicitly and review target packaging before release.
+
+Notifications are declared through shell setup because the product owns notification categories, push identifiers, service-worker files, action ids, and deep-link routes. Fission cannot invent those values safely. Mobile targets need permission prompts. Web push usually needs a service worker and secure origin. Desktop targets need the host provider and, for packaged apps, platform-specific notification metadata where the operating system or store requires it.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed request your reducer makes; here it is `notifications().show(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+The host handles a notification request after the starting reducer returns. Handle both the receipt and the error in completion reducers.
+
+```rust
+#[fission_reducer(NotificationShown)]
+fn on_notification_shown(state: &mut NotificationState, ctx: &mut ReducerContext<NotificationState>) {
+    state.sending_notification = false;
+    match ctx.input.capability_ok(SHOW_NOTIFICATION) {
+        Some(receipt) => {
+            state.last_notification = Some(receipt);
+            state.notification_error = None;
+        }
+        None => state.notification_error = Some("The host returned no notification receipt".into()),
+    }
+}
+
+#[fission_reducer(NotificationFailed)]
+fn on_notification_failed(state: &mut NotificationState, ctx: &mut ReducerContext<NotificationState>) {
+    state.sending_notification = false;
+    state.notification_error = Some(
+        ctx.input.capability_error(SHOW_NOTIFICATION)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not show the notification".into()),
+    );
+}
+```
+
+Read the actual receipt from `ctx.input`. The registered action is a unit action, not an empty `NotificationReceipt` for the host to fill. Permission denial and unsupported providers follow the failure path; an accepted request follows the success path, which still needs to inspect `delivered`.
+
+## 4. Request the capability from a reducer
+
+Request the notification from the reducer handling the user's action. Fission queues the host request and later dispatches a completion action.
+
+```rust
+#[fission_reducer(ShowTestNotification)]
+fn on_show_test_notification(
+    state: &mut NotificationState,
+    request: NotificationRequest,
+    ctx: &mut ReducerContext<NotificationState>,
+) {
+    if state.sending_notification { return; }
+    state.sending_notification = true;
+    state.last_notification = None;
+    state.notification_error = None;
+    let shown = ctx.effects.bind(NotificationShown, reduce_with!(on_notification_shown));
+    let failed = ctx.effects.bind(NotificationFailed, reduce_with!(on_notification_failed));
+    ctx.effects.notifications().show(request).on_ok(shown).on_err(failed);
+}
+```
+
+The reducer queues delivery and returns. Binding the callbacks first avoids borrowing `ctx.effects` again while its notification builder is active. Choose a stable notification id when a later request should replace the same logical notification, rather than accumulating duplicates.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that sends the notification:
+
+```rust
+fission_component! {
+    pub TestNotificationButton<NotificationState> {}
+    view(_button, state, cx) {
+        let request = NotificationRequest {
+            id: NotificationId::new("notification-settings-test"),
+            title: cx.tr("notifications.test_title"),
+            body: cx.tr("notifications.test_body"),
+            ..Default::default()
+        };
+        let run = cx.bind(ShowTestNotification(request), reduce!(on_show_test_notification));
+    }
+    => Column(children: [
+        Button(child: Text(cx.tr("notifications.test")), disabled: state.sending_notification, on_press: run),
+        if state.sending_notification { Spinner(motion: SpinnerMotion::Default, label: cx.tr("notifications.sending")) },
+        if let Some(receipt) = &state.last_notification {
+            Text(cx.tr(if receipt.delivered { "notifications.delivered" } else { "notifications.accepted" }))
+        },
+        if let Some(error) = &state.notification_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Define the `notifications.*` text in the app's translation bundles. This request deliberately has no deep link. Add one only after registering and validating the destination; a notification tap should not select an arbitrary route or bypass its access checks.
+
+## 6. Provide and test the host behavior
+
+Register a `NotificationHost` with `.with_notification_host(...)` in shells that provide real notifications, or use `MemoryNotificationHost` in tests. If the host cannot show, schedule, badge, or register push, it must return `NotificationError` instead of pretending delivery happened.
+
+Test the reducer with `MemoryNotificationHost` for a successful receipt and denied or unsupported results. If a notification opens a route or exposes action buttons, add an integration test for those responses.
+
+## Platform expectations
+
+Android and iOS have direct notification systems but require permission prompts and, for push, provider registration. Windows and macOS have native notification systems. Linux depends on the desktop notification service. Web notifications require browser permission; push generally requires a service worker and provider setup.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Notifications reference](/reference/capabilities/notifications/).
+
+## Finished capability flow
+
+A complete `Notifications` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

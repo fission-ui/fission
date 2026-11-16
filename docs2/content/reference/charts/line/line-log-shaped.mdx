@@ -1,0 +1,61 @@
+---
+title: Log-shaped line
+sidebar_label: Log-shaped line
+description: Fission Charts reference for Log-shaped line.
+---
+
+# Log-shaped line
+
+![Log-shaped line screenshot](/img/charts/line-log-shaped.png)
+
+A cumulative adoption curve may grow quickly at first and then flatten. That shape comes from the observed values; a chart setting does not make a product's adoption follow a logarithmic model. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This page uses a normal linear value axis. Log-shaped describes the data's shape, not a logarithmic axis or fitted forecast. Keep that distinction clear so the reader does not mistake a visual resemblance for an analysis of growth.
+
+## Data model
+
+Pass cumulative activated-account counts in reporting order. Define activation once and keep the same account population across the series. A falling cumulative count can indicate a changed definition or corrections and needs an explanation rather than automatic smoothing.
+
+## Authoring from a Fission component
+
+Prepare the reporting values before building the view, then pass them with their labels as props.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub LogShapedLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            activated_accounts: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.activated_accounts.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check account deduplication and reporting-definition changes in the aggregate. Compare the actual values, not just the curve, before describing adoption as saturation. Expose the latest total beside the line.
+
+Tags: `line`, `growth`.
+
+[Line family overview](./overview)

@@ -4,13 +4,13 @@ use fission_core::{Runtime, WidgetId};
 use fission_ir::op::Op;
 use fission_ir::{CoreIR, Role, Semantics};
 
-fn ir_with(ids: &[WidgetId]) -> CoreIR {
+fn ir_with_roles(ids: &[(WidgetId, Role)]) -> CoreIR {
     let mut ir = CoreIR::default();
-    for id in ids {
+    for (id, role) in ids {
         ir.add_node(
             *id,
             Op::Semantics(Semantics {
-                role: Role::TextInput,
+                role: *role,
                 ..Semantics::default()
             }),
             Vec::new(),
@@ -20,9 +20,10 @@ fn ir_with(ids: &[WidgetId]) -> CoreIR {
 }
 
 #[test]
-fn a_removed_text_field_drops_its_session_and_a_present_one_keeps_it() {
+fn text_sessions_survive_only_while_the_id_is_a_text_editable_semantic_node() {
     let mut runtime = Runtime::default();
     let kept = WidgetId::explicit("session.kept");
+    let replaced = WidgetId::explicit("session.replaced");
     let removed = WidgetId::explicit("session.removed");
     runtime
         .runtime_state
@@ -34,8 +35,16 @@ fn a_removed_text_field_drops_its_session_and_a_present_one_keeps_it() {
         .text_edit
         .get_mut_or_default(removed)
         .caret = 3;
+    runtime
+        .runtime_state
+        .text_edit
+        .get_mut_or_default(replaced)
+        .caret = 4;
 
-    runtime.reconcile_ir(&ir_with(&[kept]));
+    runtime.reconcile_ir(&ir_with_roles(&[
+        (kept, Role::TextInput),
+        (replaced, Role::Button),
+    ]));
 
     assert_eq!(
         runtime
@@ -44,10 +53,14 @@ fn a_removed_text_field_drops_its_session_and_a_present_one_keeps_it() {
             .get(kept)
             .map(|state| state.caret),
         Some(2),
-        "a field still in the tree keeps its session"
+        "an editable field keeps its session"
     );
     assert!(
         runtime.runtime_state.text_edit.get(removed).is_none(),
         "a field that left the tree starts fresh when it returns"
+    );
+    assert!(
+        runtime.runtime_state.text_edit.get(replaced).is_none(),
+        "a button that reuses an input ID must not keep its old text session"
     );
 }

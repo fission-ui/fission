@@ -1,0 +1,98 @@
+---
+title: Feature usage heatmap
+sidebar_label: Feature usage heatmap
+description: Fission Charts reference for Feature usage heatmap.
+---
+
+# Feature usage heatmap
+
+![Feature usage heatmap screenshot](/img/charts/heatmap-feature-usage.png)
+
+A feature-usage matrix shows which parts of an app different customer groups use. Looking at features and plans together can expose a pattern that an overall usage total would hide. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use percentages when the question is adoption within each plan, and counts when it is the number of people affected. Changing that measure changes the meaning of every cell, so name it in the chart rather than relying on a vague usage label.
+
+## Data model
+
+Each cell contains a feature index, plan index and distinct-user count for the same period. The sample shows counts, not percentages: a plan with more users can naturally have larger values.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Users of each feature by plan")
+    .x_axis(Axis::category(vec!["Search", "Export", "Sharing"]))
+    .y_axis(Axis::category(vec!["Starter", "Team"]))
+    .visual_map(VisualMap::new().min(0.0).max(100.0))
+    .series(vec![HeatmapSeries::new("Distinct users")
+        .data(vec![
+            (0, 0, 73.0),
+            (1, 0, 12.0),
+            (2, 0, 27.0),
+            (0, 1, 84.0),
+            (1, 1, 61.0),
+            (2, 1, 79.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FeatureUsageHeatmapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check that repeated use by one person does not inflate a distinct-user count. Define how plan changes during the reporting period are attributed and test that rule independently of chart rendering.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `usage`.
+
+[Heatmap family overview](./overview)

@@ -1,0 +1,57 @@
+---
+title: Scatter
+sidebar_label: Scatter
+description: Fission Charts reference for Scatter.
+---
+
+# Scatter
+
+![Scatter screenshot](/img/charts/scatter-basic.png)
+
+A scatter plot preserves two measurements for each observation. For customer support, ticket age and the time spent actively handling it can reveal patterns which a single average cannot show. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Both values describe the same completed ticket. Age and handling time are not interchangeable: waiting can increase age without increasing active work. An apparent relationship does not establish a cause.
+
+## Data model
+
+`ScatterSeries::data` accepts finite numeric `(x, y)` pairs. Define start/end timestamps and units before conversion. Keep ticket identity and sensitive details outside the display projection.
+
+## Authoring from a Fission component
+
+The parent supplies validated ticket observations and localized labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CompletedTicketTimeScatter<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![ScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test overlapping tickets, incomplete timestamps and extreme waiting periods. Provide a privacy-appropriate named or grouped table and explain the reporting window. The chart does not automatically classify ticket types or calculate correlation.
+
+Tags: `scatter`, `correlation`.
+
+[Statistical and finance family overview](./overview)

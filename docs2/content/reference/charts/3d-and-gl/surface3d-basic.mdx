@@ -1,0 +1,77 @@
+---
+title: 3D surface
+sidebar_label: 3D surface
+description: Convert a validated regular measurement grid into explicit mesh triangles.
+---
+
+# 3D surface
+
+![3D surface screenshot](/img/charts/surface3d-basic.png)
+
+A surface gives measurements a connected shape. For an elevation grid, each cell supplies a height and neighbouring cells supply the triangles between them. This assumes that the grid represents a continuous field; independent or missing observations need a different connectivity policy.
+
+Keep the measurements separate from the mesh. That makes it possible to test the projection without rendering and avoids treating a convenient triangle layout as the authority for the source data.
+
+## Generate a regular grid
+
+This helper accepts a bounded rectangular grid of finite heights and positive spacing in scene units. It rejects unsupported shapes rather than quietly inserting zero heights.
+
+```rust
+use fission::three_d::Point3D;
+
+pub fn regular_surface(
+    heights: &[Vec<f32>],
+    spacing: f32,
+) -> Result<(Vec<Point3D>, Vec<u32>), &'static str> {
+    let rows = heights.len();
+    let columns = heights.first().map_or(0, Vec::len);
+    if !(2..=256).contains(&rows) || !(2..=256).contains(&columns)
+        || !spacing.is_finite() || spacing <= 0.0
+        || !(spacing * (rows - 1) as f32).is_finite()
+        || !(spacing * (columns - 1) as f32).is_finite()
+    {
+        return Err("invalid surface dimensions or spacing");
+    }
+    if heights.iter().any(|row| {
+        row.len() != columns || row.iter().any(|height| !height.is_finite())
+    }) {
+        return Err("surface must be rectangular with finite heights");
+    }
+
+    let mut vertices = Vec::with_capacity(rows * columns);
+    for (z, row) in heights.iter().enumerate() {
+        for (x, &height) in row.iter().enumerate() {
+            vertices.push(Point3D::new(x as f32 * spacing, height, z as f32 * spacing));
+        }
+    }
+    let mut indices = Vec::with_capacity((rows - 1) * (columns - 1) * 6);
+    for z in 0..rows - 1 {
+        for x in 0..columns - 1 {
+            let a = (z * columns + x) as u32;
+            let b = a + 1;
+            let c = a + columns as u32;
+            let d = c + 1;
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+    Ok((vertices, indices))
+}
+```
+
+Place the helper with the measurement projection, for example `models/surface.rs`. Pass the successful vertices and indices to `SurveySurface`, the Compose component defined in [Mesh surface](./mesh-surface), placed in `widgets/survey_surface.rs`. Handle a rejected grid before constructing its view.
+
+Enable the `three-d` feature. The component creates `Primitive3D::Mesh` inside `Scene3D`; no two-dimensional line series or invented camera methods are involved.
+
+## State what continuity means
+
+The helper is deliberately for complete regular grids. If a survey has missing measurements, preserve them and use a mesh generator which leaves appropriate holes or an explicitly justified interpolation. Replacing them with zero invents a surface the survey did not measure.
+
+Explain coordinate units and vertical scaling outside the scene. The legacy primitive API does not generate axes, measurement labels or per-triangle chart events.
+
+## Checks
+
+Test a two-by-two grid with known vertices and triangles, rectangular grids, invalid spacing and rejected missing or non-finite values. Inspect a real rendering for winding and scale mistakes. Provide source values or a useful accessible summary alongside the surface. The screenshot is gallery fixture geometry.
+
+Tags: `3d`, `surface`.
+
+[3D and GL family overview](./overview)

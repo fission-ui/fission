@@ -1,0 +1,57 @@
+---
+title: Risk return scatter
+sidebar_label: Risk return scatter
+description: Fission Charts reference for Risk return scatter.
+---
+
+# Risk return scatter
+
+![Risk return scatter screenshot](/img/charts/scatter-risk-return.png)
+
+A portfolio comparison needs a common observation period and risk definition. Historical volatility and realised return are measurements of that period, not predictions of future outcomes. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use x for annualised historical volatility, y for total return over the stated period and bubble size for position exposure in one currency. Keep the exact definitions and dates visible.
+
+## Data model
+
+`BubbleSeries` accepts `(risk, return, exposure)` triples. Exposure must be non-negative; a short position needs an explicit magnitude/sign policy rather than a negative radius. Radius has a minimum and relative square-root scaling, so area is not exactly proportional to exposure.
+
+## Authoring from a Fission component
+
+The parent prepares validated report observations and preserves position IDs and exact financial values.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, BubbleSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub HistoricalPortfolioBubblePlot<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![BubbleSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test negative returns, zero exposure and overlapping positions. Provide exact values and sign outside the plot; display indices are not position identities. The chart does not calculate an efficient frontier or recommend a portfolio.
+
+Tags: `scatter`, `risk`.
+
+[Scatter and statistical family overview](./overview)

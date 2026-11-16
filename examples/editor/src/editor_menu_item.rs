@@ -3,47 +3,29 @@ use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
-pub struct EditorMenuItem {
-    pub label: String,
-    pub action: ActionEnvelope,
-}
-
-impl EditorMenuItem {
-    pub fn new(label: impl Into<String>, action: ActionEnvelope) -> Self {
-        Self {
-            label: label.into(),
-            action,
-        }
-    }
-}
-
-impl From<EditorMenuItem> for Widget {
-    fn from(item: EditorMenuItem) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub EditorMenuItem<EditorState> {
+        label: String,
+        action: ActionEnvelope,
+    } |item, _state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
         let identifier = item.label.to_lowercase().replace([' ', '/'], "-");
-
-        Button {
+    } =>
+        Button(
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
-            child: Some(
-                Text::new(item.label)
+            child: Text(item.label.clone())
                     .size(tokens.typography.font_size_xs)
-                    .color(palette.bright_text)
-                    .into(),
-            ),
-            on_press: Some(item.action),
-            height: Some(MENU_ITEM_HEIGHT),
-            padding: Some([
+                    .color(palette.bright_text),
+            on_press: item.action.clone(),
+            height: MENU_ITEM_HEIGHT,
+            padding: [
                 tokens.spacing.xs,
                 tokens.spacing.m,
                 tokens.spacing.xs,
                 tokens.spacing.m,
-            ]),
-            ..Default::default()
-        }
+            ],
+        )
         .semantics_identifier(format!("editor.menu-item.{identifier}"))
-        .into()
-    }
 }

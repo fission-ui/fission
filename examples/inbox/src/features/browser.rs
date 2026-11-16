@@ -1,105 +1,79 @@
 use crate::model::navigation::set_browser_demo_open;
 use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, ToggleBrowserDemo};
-use fission::core::ui::{Container, Text, Widget};
-use fission::core::{reduce_with, WidgetId};
-use fission::widgets::{HStack, Modal, ModalAction, VStack, WebView};
+use fission::prelude::*;
 
-pub struct BrowserModal;
-
-impl From<BrowserModal> for Widget {
-    fn from(_component: BrowserModal) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let tokens = &view.env().theme.tokens;
-        let viewport_width = view.viewport_size().width.max(0.0);
+fission_component! {
+    pub BrowserModal<InboxState> |_modal, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport_width = cx.view.viewport_size().width.max(0.0);
         let modal_width = (viewport_width - 48.0).clamp(360.0, 820.0);
         let webview_width = (modal_width - 96.0).clamp(260.0, 680.0);
-        let close = ctx.bind(
+        let close = cx.bind(
             ToggleBrowserDemo(false),
             reduce_with!(set_browser_demo_open),
         );
-        Modal {
+    } =>
+        Modal(
             id: WidgetId::explicit("browser_modal"),
-            title: "Browser & Links Demo".into(),
+            title: "Browser & Links Demo",
             is_open: true,
-            on_dismiss: Some(close.clone()),
+            on_dismiss: close.clone(),
             backdrop_semantics_identifier: Some("inbox.browser.backdrop".into()),
             close_semantics_identifier: Some("inbox.browser.close".into()),
             surface_semantics_identifier: Some("inbox.browser.surface".into()),
-            width: Some(modal_width),
-            content: VStack {
-                spacing: Some(24.0),
-                children: vec![
-                    // Section 1: Embedded
-                    VStack {
-                        spacing: Some(8.0),
-                        children: vec![
-                            Text::new("Mechanism 1: Embedded Widget").size(16.0).into(),
-                            Text::new("A native WebView embedded directly in the layout.")
+            width: modal_width,
+            content: VStack(
+                spacing: 24.0,
+                children: [
+                    VStack(
+                        spacing: 8.0,
+                        children: [
+                            Text("Mechanism 1: Embedded Widget").size(16.0),
+                            Text("A native WebView embedded directly in the layout.")
                                 .size(12.0)
-                                .color(tokens.colors.text_secondary)
-                                .into(),
-                            Container::new(WebView {
+                                .color(tokens.colors.text_secondary),
+                            Container(
+                                WebView(
                                 id: WidgetId::explicit("demo_webview"),
-                                label: None,
-                                url: view.state().browser_url.clone(),
-                                user_agent: None,
-                                width: Some(webview_width),
-                                height: Some(300.0),
-                            })
+                                url: state.browser_url.clone(),
+                                width: webview_width,
+                                height: 300.0,
+                                ),
+                            )
                             .width(webview_width)
                             .height(300.0)
-                            .border(tokens.colors.border, 1.0)
-                            .into(),
+                            .border(tokens.colors.border, 1.0),
                         ],
-                    }
-                    .into(),
-                    // Section 2: System / In-App
-                    VStack {
-                        spacing: Some(8.0),
-                        children: vec![
-                            Text::new("Mechanism 2: System / In-App").size(16.0).into(),
-                            HStack {
-                                spacing: Some(16.0),
-                                children: vec![
-                                    fission::widgets::Button {
-                                        variant: fission::widgets::ButtonVariant::Outline,
-                                        child: Some(Text::new("Open System Browser").into()),
-                                        on_press: Some(
-                                            OpenSystemLink("https://google.com".into()).into(),
-                                        ),
-                                        ..Default::default()
-                                    }
-                                    .into(),
-                                    fission::widgets::Button {
-                                        variant: fission::widgets::ButtonVariant::Filled,
-                                        child: Some(
-                                            Text::new("Open In-App (Custom Tab)")
-                                                .color(tokens.colors.on_primary)
-                                                .into(),
-                                        ),
-                                        on_press: Some(
-                                            OpenInAppLink("https://fission.rs".into()).into(),
-                                        ),
-                                        ..Default::default()
-                                    }
-                                    .into(),
+                    ),
+                    VStack(
+                        spacing: 8.0,
+                        children: [
+                            Text("Mechanism 2: System / In-App").size(16.0),
+                            HStack(
+                                spacing: 16.0,
+                                children: [
+                                    Button(
+                                        variant: ButtonVariant::Outline,
+                                        child: Text("Open System Browser"),
+                                        on_press: ActionEnvelope::from(OpenSystemLink("https://google.com".into())),
+                                    ),
+                                    Button(
+                                        variant: ButtonVariant::Filled,
+                                        child: Text("Open In-App (Custom Tab)")
+                                            .color(tokens.colors.on_primary),
+                                        on_press: ActionEnvelope::from(OpenInAppLink("https://fission.rs".into())),
+                                    ),
                                 ],
-                            }
-                            .into(),
+                            ),
                         ],
-                    }
-                    .into(),
+                    ),
                 ],
-            }
-            .into(),
+            ),
             actions: vec![ModalAction {
                 label: "Close".into(),
                 is_primary: true,
-                on_press: Some(close),
+                on_press: Some(close.clone()),
                 semantics_identifier: Some("inbox.browser.done".into()),
             }],
-            motion: None,
-        }
-        .into()
-    }
+        )
 }

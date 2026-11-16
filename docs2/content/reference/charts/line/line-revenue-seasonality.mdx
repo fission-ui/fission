@@ -1,0 +1,67 @@
+---
+title: Revenue seasonality
+sidebar_label: Revenue seasonality
+description: Fission Charts reference for Revenue seasonality.
+---
+
+# Revenue seasonality
+
+![Revenue seasonality screenshot](/img/charts/line-revenue-seasonality.png)
+
+Seasonal comparison is easier when the same month occupies the same position for each year. Two aligned annual series can expose a repeated pattern that a single continuous revenue line makes harder to compare. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example compares monthly net revenue in GBP. A repeated shape is not itself evidence of a seasonal cause; promotions, changed pricing or a different customer base can produce a similar pattern.
+
+## Data model
+
+Supply month labels and the corresponding values for both years under one revenue definition. Keep currency, refund treatment and month cut-off consistent, and exclude or clearly identify incomplete current-year months. Chart f32 values are a presentation mapping, not financial storage.
+
+## Authoring from a Fission component
+
+The parent supplies prepared values and matching reporting labels. Keep loading and calculation errors in that parent workflow.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RevenueSeasonalityChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            previous_year: Vec<f32>,
+            current_year: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.previous_year.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.current_year.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Reconcile the monthly totals against the financial report and test a partial year. Keep exact amounts available alongside the lines so a visual comparison cannot replace the underlying figures.
+
+Tags: `line`, `seasonal`.
+
+[Line family overview](./overview)

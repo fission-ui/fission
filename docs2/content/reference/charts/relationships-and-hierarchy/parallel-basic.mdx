@@ -1,0 +1,57 @@
+---
+title: Parallel coordinates
+sidebar_label: Parallel coordinates
+description: Fission Charts reference for Parallel coordinates.
+---
+
+# Parallel coordinates
+
+![Parallel coordinates screenshot](/img/charts/parallel-basic.png)
+
+Parallel coordinates compare several dimensions for each observation. For service reviews, one line can show four policy scores without pretending that their raw source measurements share a unit. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use a consistent dimension order and a common 0–100 scale. The current renderer does not provide per-dimension labels or brush-filter controls, so present the names and equivalent filtering separately.
+
+## Data model
+
+`ParallelSeries` accepts `Vec<Vec<f32>>`, with one row per observation. The renderer takes the first row's length as its axis count and maps all values to 0–100. Equal-length arrays make the four-dimension requirement explicit before conversion.
+
+## Authoring from a Fission component
+
+The parent supplies validated score rows and a localized explanation of dimension order.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceScoreComparison<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            scores_by_service: Vec<[f32; 4]>,
+            dimension_description: TextContent,
+        }
+    }
+    view(report, _state, _cx) {
+        let rows = report.scores_by_service.iter().map(|scores| scores.to_vec()).collect();
+    } => Column(children: [
+        Text(report.dimension_description.clone()),
+        Chart(
+            title: Some(report.chart_title.clone()),
+            series: vec![ParallelSeries::new(&report.series_label).data(rows).into()],
+        ),
+    ])
+}
+```
+
+## Testing and accessibility
+
+Test an unavailable dimension, an empty report and observations with similar values. Retain stable service IDs and exact values outside the projection. Do not describe this static series as an interactive multidimensional filter without implementing real application controls.
+
+Tags: `parallel`, `dimensions`.
+
+[Relationships and hierarchy family overview](./overview)

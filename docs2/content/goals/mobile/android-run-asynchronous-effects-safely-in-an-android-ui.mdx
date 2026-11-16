@@ -1,0 +1,488 @@
+---
+layout: goal
+title: Run asynchronous effects safely in an Android UI
+description: Request a real clipboard read from a Rust reducer, show pending and failure states, and keep a late result from replacing a newer edit.
+goal: Paste delivery instructions without blocking editing or overwriting a newer draft
+path: /blog/run-asynchronous-effects-safely-in-an-android-ui/
+order: 29
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-run-asynchronous-effects-safely-in-an-android-ui
+outcomes:
+  - Request host work from a synchronous reducer
+  - Decode actual success and failure completions
+  - Ignore stale results and test the ordering explicitly
+---
+
+A delivery coordinator copies instructions from another application and pastes them into the current delivery note. Reading the clipboard is host work: it can complete later, contain no text, or fail because access is unavailable. The screen should remain useful in all three cases.
+
+There is a less obvious case too. The coordinator can start typing while the read is pending. Applying the earlier clipboard result unconditionally would then destroy the newer draft. We will record which draft revision the request belongs to and compare it with the current revision before accepting the result.
+
+The small string checks in this example stay synchronous. Marking a function `async` does not make those checks faster or move CPU work off the UI thread. It is the clipboard request—not an artificially delayed validation—that crosses the effect boundary.
+
+## Create the project and add the target
+
+Complete the [Android toolchain setup](/blog/set-up-rust-android-gui-development-with-fission/) first. The clipboard API needs no separate capability declaration, but it still needs a working host provider.
+
+```sh
+cargo install cargo-fission
+fission init delivery-note
+cd delivery-note
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+## Project layout
+
+```text
+delivery-note/
+├── src/
+│   ├── lib.rs            # thin target launchers
+│   ├── app.rs            # Compose screen
+│   ├── state.rs          # draft and completion policy
+│   ├── reducers.rs       # host request and result decoding
+│   └── translations.rs
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
+└── platforms/android/
+```
+
+<!-- fission:step id="start-screen" -->
+## Request the read without taking ownership of future edits
+
+The draft is application data. Its `revision` changes whenever the text changes. `pending_revision` records the revision at the start of the one permitted clipboard request; it is not the current value of the text and must not change as someone types.
+
+The starting reducer binds both completion actions before borrowing the effect builder. Each callback reads the actual result from `cx.input`. An authored action payload would carry the value supplied when the action was bound, not the value returned by the host.
+
+The button disables additional paste requests while one is pending, but the text field remains editable. A spinner represents pending work. Empty and failed reads preserve the draft and allow another attempt.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NoteState {
+    pub draft: String,
+    pub revision: u64,
+    pub pending_revision: Option<u64>,
+    pub status: &'static str,
+    pub error: Option<String>,
+}
+impl GlobalState for NoteState {}
+
+impl NoteState {
+    pub fn edit(&mut self, text: String) {
+        self.draft = text;
+        self.revision += 1;
+        self.status = "paste.status.editing";
+        self.error = None;
+    }
+
+    pub fn begin_paste(&mut self) -> bool {
+        if self.pending_revision.is_some() {
+            return false;
+        }
+        self.pending_revision = Some(self.revision);
+        self.status = "paste.status.pending";
+        self.error = None;
+        true
+    }
+
+    pub fn complete_paste(&mut self, result: Result<Option<String>, String>) {
+        let Some(request_revision) = self.pending_revision.take() else { return };
+        if request_revision != self.revision {
+            self.status = "paste.status.ignored";
+            return;
+        }
+        match result {
+            Ok(Some(text)) if !text.trim().is_empty() => {
+                if text.chars().count() > 2000 {
+                    self.status = "paste.status.too_long";
+                    return;
+                }
+                self.edit(text);
+                self.status = "paste.status.pasted";
+            }
+            Ok(_) => self.status = "paste.status.empty",
+            Err(error) => {
+                self.status = "paste.status.failed";
+                self.error = Some(error);
+            }
+        }
+    }
+}
+```
+</TabItem>
+<TabItem label="src/reducers.rs">
+<!-- fission:file path="src/reducers.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::NoteState;
+
+pub fn request_paste(state: &mut NoteState, cx: &mut ReducerContext<NoteState>) {
+    if !state.begin_paste() { return; }
+    let ok = cx.effects.bind(PasteCompleted, reduce_with!(paste_completed));
+    let err = cx.effects.bind(PasteFailed, reduce_with!(paste_failed));
+    cx.effects.clipboard().read_text().on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(PasteCompleted)]
+fn paste_completed(state: &mut NoteState, cx: &mut ReducerContext<NoteState>) {
+    let result = cx.input.capability_ok(READ_CLIPBOARD_TEXT)
+        .map(|value| value.text)
+        .ok_or_else(|| "Clipboard completion had no text result".to_owned());
+    state.complete_paste(result);
+}
+
+#[fission_reducer(PasteFailed)]
+fn paste_failed(state: &mut NoteState, cx: &mut ReducerContext<NoteState>) {
+    let error = cx.input.capability_error(READ_CLIPBOARD_TEXT)
+        .map(|error| error.message)
+        .or_else(|| cx.input.capability_error_message(READ_CLIPBOARD_TEXT).map(str::to_owned))
+        .unwrap_or_else(|| "Clipboard read failed".to_owned());
+    state.complete_paste(Err(error));
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{reducers::request_paste, state::NoteState};
+
+fission_component! {
+    pub DeliveryNote<NoteState> {}
+    view(_note, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if state.status.is_empty() { "paste.status.ready" } else { state.status };
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("paste.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("paste.summary")).color(tokens.colors.text_secondary),
+            TextInput(
+                label: Some(cx.tr("paste.note.label").into()),
+                value: state.draft.clone(),
+                multiline: true,
+                min_lines: Some(4),
+                max_lines: Some(8),
+                max_length: Some(2000),
+                semantics_identifier: Some("delivery-note.draft".into()),
+                on_input: reduce {
+                    if let Some(change) = cx.input.text_change() {
+                        state.edit(change.new_text.clone());
+                    }
+                },
+            ),
+            Button(
+                child: Text(cx.tr("paste.action")),
+                key: "paste-note",
+                disabled: state.pending_revision.is_some(),
+                on_press: reduce { request_paste(state, cx); },
+            ).semantics_identifier("delivery-note.paste"),
+            if state.pending_revision.is_some() { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr("paste.status.pending"))) },
+            Text(cx.tr(status)),
+            if let Some(error) = &state.error {
+                Code(text: error.clone())
+            },
+            Text(cx.tr("paste.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(720.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod reducers;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::NoteState, _>::new(app::DeliveryNote)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::NoteState, app::DeliveryNote> {
+    let app = MobileApp::<state::NoteState, _>::new(app::DeliveryNote)
+        .with_env(translations::create_env())
+        .with_title("Delivery note");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::NoteState, _>::new(app::DeliveryNote)
+        .with_env(translations::create_env())
+        .with_title("Delivery note")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod state;
+mod reducers;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::NoteState, _>::new(app::DeliveryNote)
+        .with_env(translations::create_env())
+        .with_title("Delivery note")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+paste.title: "Delivery instructions"
+paste.summary: "Paste instructions you have copied, or type a new note. A late clipboard result must not replace a newer edit."
+paste.note.label: "Instructions for this delivery"
+paste.action: "Paste from clipboard"
+paste.status.ready: "No clipboard request has been made."
+paste.status.editing: "Draft changed; nothing has been submitted."
+paste.status.pending: "Reading the clipboard…"
+paste.status.ignored: "Your newer edit was kept. The earlier paste result was ignored."
+paste.status.too_long: "The copied text exceeds the 2,000-character limit. Your draft was kept."
+paste.status.pasted: "Copied text inserted; review it before using it."
+paste.status.empty: "The clipboard contains no plain text. Your draft was kept."
+paste.status.failed: "The clipboard could not be read. Keep typing or try again."
+paste.scope: "This draft stays in app memory. It is not saved or sent to a delivery service. Clipboard access occurs only after pressing Paste."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+paste.title: "Instrucciones de entrega"
+paste.summary: "Pega instrucciones que hayas copiado o escribe una nota. Un resultado tardío no debe sustituir una edición más reciente."
+paste.note.label: "Instrucciones para esta entrega"
+paste.action: "Pegar del portapapeles"
+paste.status.ready: "No se ha solicitado acceso al portapapeles."
+paste.status.editing: "Borrador modificado; no se ha enviado nada."
+paste.status.pending: "Leyendo el portapapeles…"
+paste.status.ignored: "Se ha conservado tu edición más reciente y se ha ignorado el resultado anterior."
+paste.status.too_long: "El texto copiado supera el límite de 2000 caracteres. Se conserva el borrador."
+paste.status.pasted: "Texto copiado insertado; revísalo antes de usarlo."
+paste.status.empty: "El portapapeles no contiene texto. Se conserva el borrador."
+paste.status.failed: "No se ha podido leer el portapapeles. Sigue escribiendo o inténtalo de nuevo."
+paste.scope: "El borrador permanece en la memoria de la app. No se guarda ni se envía a un servicio. Solo se accede al portapapeles al pulsar Pegar."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Copy a short delivery instruction in another app and press Paste. Review the inserted text. If the host denies access or has no clipboard provider, the screen must explain that result and remain editable; it must not invent a successful paste.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Prove that a late result cannot replace newer work
+
+The host may complete too quickly to reproduce a race by hand. Test the ordering directly: begin a read, edit the draft, then deliver the old result. No sleep or live clipboard is needed, so the test is deterministic and does not read private data from the developer's machine.
+
+The same rule applies to a network lookup or a database load that would replace editable data: capture the operation's relevant revision, then compare it in the completion reducer. Ignoring a stale completion is not cancellation. The operation has still run; this code only decides whether its result may change the current draft.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NoteState {
+    pub draft: String,
+    pub revision: u64,
+    pub pending_revision: Option<u64>,
+    pub status: &'static str,
+    pub error: Option<String>,
+}
+impl GlobalState for NoteState {}
+
+impl NoteState {
+    pub fn edit(&mut self, text: String) {
+        self.draft = text;
+        self.revision += 1;
+        self.status = "paste.status.editing";
+        self.error = None;
+    }
+
+    pub fn begin_paste(&mut self) -> bool {
+        if self.pending_revision.is_some() {
+            return false;
+        }
+        self.pending_revision = Some(self.revision);
+        self.status = "paste.status.pending";
+        self.error = None;
+        true
+    }
+
+    pub fn complete_paste(&mut self, result: Result<Option<String>, String>) {
+        let Some(request_revision) = self.pending_revision.take() else { return };
+        if request_revision != self.revision {
+            self.status = "paste.status.ignored";
+            return;
+        }
+        match result {
+            Ok(Some(text)) if !text.trim().is_empty() => {
+                if text.chars().count() > 2000 {
+                    self.status = "paste.status.too_long";
+                    return;
+                }
+                self.edit(text);
+                self.status = "paste.status.pasted";
+            }
+            Ok(_) => self.status = "paste.status.empty",
+            Err(error) => {
+                self.status = "paste.status.failed";
+                self.error = Some(error);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_draft_accepts_the_result_once() {
+        let mut state = NoteState::default();
+        assert!(state.begin_paste());
+        assert!(!state.begin_paste());
+        state.complete_paste(Ok(Some("Leave at the staffed reception.".into())));
+        assert_eq!(state.draft, "Leave at the staffed reception.");
+        state.complete_paste(Ok(Some("Duplicate completion".into())));
+        assert_eq!(state.draft, "Leave at the staffed reception.");
+    }
+
+    #[test]
+    fn typing_during_the_read_preserves_the_newer_edit() {
+        let mut state = NoteState::default();
+        state.begin_paste();
+        state.edit("Use the side entrance.".into());
+        state.complete_paste(Ok(Some("Older copied instructions".into())));
+        assert_eq!(state.draft, "Use the side entrance.");
+        assert_eq!(state.status, "paste.status.ignored");
+        assert!(state.pending_revision.is_none());
+    }
+
+    #[test]
+    fn denied_or_empty_reads_preserve_the_existing_draft() {
+        let mut state = NoteState::default();
+        state.edit("Fragile parcel.".into());
+        state.begin_paste();
+        state.complete_paste(Err("permission_denied".into()));
+        assert_eq!(state.draft, "Fragile parcel.");
+        assert_eq!(state.error.as_deref(), Some("permission_denied"));
+        assert!(state.begin_paste());
+        state.complete_paste(Ok(None));
+        assert_eq!(state.draft, "Fragile parcel.");
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn oversized_text_is_not_installed_in_the_field() {
+        let mut state = NoteState::default();
+        state.begin_paste();
+        state.complete_paste(Ok(Some("x".repeat(2001))));
+        assert!(state.draft.is_empty());
+        assert_eq!(state.status, "paste.status.too_long");
+    }
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Run all four tests. In particular, the late-result test must preserve the exact newer text, and an empty or denied read must leave the previous draft untouched.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify the real Android host
+
+The browser preview uses its own host. Browser clipboard policy can require a secure context, focus and a user gesture; an unsupported or denied response is an outcome to handle, not permission to install a memory provider in production. Native Android clipboard behaviour must be checked on Android.
+
+```sh
+cargo test
+fission doctor android --project-dir .
+./platforms/android/run-emulator.sh
+adb devices -l
+fission run --target android --device <adb-serial> --project-dir .
+fission logs --target android --device <adb-serial> --project-dir . --follow
+```
+
+The [emulator tutorial](/blog/create-and-launch-a-fission-android-emulator/) and [physical-phone tutorial](/blog/run-a-fission-app-on-a-physical-android-phone/) cover the launch prerequisites. On the selected target, copy plain text in another application, return to this app and paste it. Then try an empty clipboard and background the app during a read. Verify the actual response without assuming that the operating system leaves clipboard access unchanged while the app is in the background.
+
+This tutorial replaces the field contents deliberately. A full editor should instead reconcile insertion at the current selection; that is a different editing contract, not something to approximate with string offsets here.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Confirm that only a visible Paste action reads the clipboard, that failure permits retry, and that typing still works after returning from the background. Use the deterministic tests for completion ordering rather than depending on device timing.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Related reference
+
+- [Clipboard capability](/reference/capabilities/clipboard/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Fission widget catalogue](/reference/widgets/catalog/)

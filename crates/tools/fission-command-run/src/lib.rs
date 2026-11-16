@@ -1,4 +1,6 @@
 pub mod doctor;
+pub mod review;
+pub mod serving;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
@@ -18,7 +20,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Read, Seek, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -153,12 +155,33 @@ pub fn run_app_with_web_cargo_options(
     options: RunOptions,
     web_cargo: WebCargoOptions,
 ) -> Result<()> {
+    run_app_with_serving_options(
+        options,
+        web_cargo,
+        serving::ServeOptions::default(),
+        fission_command_site::serving::human_event,
+    )
+}
+
+pub fn run_app_with_serving_options(
+    options: RunOptions,
+    web_cargo: WebCargoOptions,
+    serving: serving::ServeOptions,
+    notify: impl FnMut(serving::ServingEvent) -> Result<()>,
+) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let device = select_device(
         &options.project_dir,
         options.target,
         options.device.as_deref(),
     )?;
+    if !matches!(device.target, Target::Web | Target::Site)
+        && (serving.mount != "/"
+            || serving.stdin_control
+            || serving.startup_timeout != Duration::from_secs(900))
+    {
+        bail!("--mount, --stdin-control, and --startup-timeout-seconds apply to attached browser serving");
+    }
     ensure_native_variant_target(device.target, options.variant.as_ref())?;
     ensure_web_cargo_feature_target(
         device.target,
@@ -172,13 +195,44 @@ pub fn run_app_with_web_cargo_options(
         Target::Linux | Target::Macos | Target::Terminal | Target::Windows => {
             run_desktop(&project, &options, &device)
         }
-        Target::Web => run_web(&options, &device, &web_cargo),
-        Target::Site => site_serve(
+        Target::Web if options.detach => {
+            if options.port == 0 || serving.mount != "/" || serving.stdin_control {
+                bail!("detached Web serving requires a fixed port and root mount; use attached run for --port 0, --mount, or --stdin-control");
+            }
+            run_web(&options, &device, &web_cargo)
+        }
+        Target::Web => {
+            let server = fission_command_site::serving::ServerOptions {
+                host: options.host.clone(),
+                port: options.port,
+                mount: serving.mount.clone(),
+                spa: true,
+                port_search: true,
+            };
+            fission_command_site::serving::serve(
+                || {
+                    build_web(
+                        &options.project_dir,
+                        options.release,
+                        &web_cargo.features,
+                        web_cargo.no_default_features,
+                    )?;
+                    Ok(options.project_dir.join("platforms/web"))
+                },
+                server,
+                serving,
+                !options.no_open,
+                notify,
+            )
+        }
+        Target::Site => fission_command_site::serve_with_options(
             &options.project_dir,
             options.release,
             options.host,
             options.port,
             !options.no_open,
+            serving,
+            notify,
         ),
         Target::Server => fission_command_server::serve(
             &options.project_dir,
@@ -198,6 +252,14 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
 pub fn build_app_with_web_cargo_options(
     options: BuildOptions,
     web_cargo: WebCargoOptions,
+) -> Result<()> {
+    build_app_internal(options, web_cargo, false)
+}
+
+fn build_app_internal(
+    options: BuildOptions,
+    web_cargo: WebCargoOptions,
+    test_control: bool,
 ) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
@@ -260,9 +322,10 @@ pub fn build_app_with_web_cargo_options(
             target,
             options.variant.as_ref(),
         ),
-        Target::Web => build_web(
+        Target::Web => build_web_with_test_control(
             &options.project_dir,
             options.release,
+            test_control,
             &web_cargo.features,
             web_cargo.no_default_features,
         ),
@@ -437,9 +500,26 @@ fn browser_test_web(
     cargo_features: &[String],
     cargo_no_default_features: bool,
 ) -> Result<()> {
-    build_web_for_test(project_dir, cargo_features, cargo_no_default_features)?;
-    let server = StaticTestServer::start(project_dir.to_path_buf())?;
-    let url = format!("{}/platforms/web/", server.base_url());
+    let startup = fission_command_process::StartupContext::new(
+        Duration::from_secs(300),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let session = serving::build_and_serve(
+        BuildOptions {
+            project_dir: project_dir.into(),
+            target: Some(Target::Web),
+            release: false,
+            variant: None,
+        },
+        WebCargoOptions {
+            features: cargo_features.to_vec(),
+            no_default_features: cargo_no_default_features,
+        },
+        Default::default(),
+        &startup,
+        true,
+    )?;
+    let url = session.url.clone();
     let client = fission_test_driver::LiveTestClient::launch_browser(
         fission_test_driver::BrowserTestOptions::new(url).fission_canvas(),
     )?;
@@ -459,23 +539,30 @@ fn browser_test_web(
 }
 
 fn browser_test_site(project_dir: &Path) -> Result<()> {
-    match fission_command_site::build_for_browser_test(project_dir, false)? {
-        Some(output_dir) => {
-            let server = StaticTestServer::start(output_dir)?;
-            let report = fission_test_driver::run_browser_smoke(
-                fission_test_driver::BrowserTestOptions::new(format!("{}/", server.base_url())),
-            )?;
-            println!(
-                "Static site browser smoke passed: title=\"{}\" body_text_len={}",
-                report.title, report.body_text_len
-            );
-            Ok(())
-        }
-        None => {
-            println!("Custom static site entry built; run its project-specific browser tests for route coverage.");
-            Ok(())
-        }
-    }
+    let startup = fission_command_process::StartupContext::new(
+        Duration::from_secs(300),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let session = serving::build_and_serve(
+        BuildOptions {
+            project_dir: project_dir.into(),
+            target: Some(Target::Site),
+            release: false,
+            variant: None,
+        },
+        Default::default(),
+        Default::default(),
+        &startup,
+        false,
+    )?;
+    let report = fission_test_driver::run_browser_smoke(
+        fission_test_driver::BrowserTestOptions::new(session.url.clone()),
+    )?;
+    println!(
+        "Static site browser smoke passed: title=\"{}\" body_text_len={}",
+        report.title, report.body_text_len
+    );
+    Ok(())
 }
 
 fn browser_test_server(project_dir: &Path) -> Result<()> {
@@ -495,127 +582,31 @@ fn browser_test_server(project_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 struct StaticTestServer {
+    _server: fission_command_site::serving::OwnedServer,
     base_url: String,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    handle: Option<std::thread::JoinHandle<()>>,
 }
-
+#[cfg(test)]
 impl StaticTestServer {
     fn start(root: PathBuf) -> Result<Self> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        listener.set_nonblocking(true)?;
-        let port = listener.local_addr()?.port();
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread_stop = stop.clone();
-        let handle = std::thread::spawn(move || {
-            while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        if let Err(error) = stream.set_nonblocking(false) {
-                            eprintln!("Web test server connection setup failed: {error}");
-                            continue;
-                        }
-                        if let Err(error) = serve_static_test_request(stream, &root) {
-                            eprintln!("Web test server request failed: {error}");
-                        }
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                    Err(error) => {
-                        eprintln!("Web test server accept failed: {error}");
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                }
-            }
-        });
+        let server = fission_command_site::serving::OwnedServer::start(
+            root,
+            &fission_command_site::serving::ServerOptions {
+                spa: true,
+                ..Default::default()
+            },
+        )?;
+        let base_url = server.base_url().trim_end_matches('/').to_string();
         Ok(Self {
-            base_url: format!("http://127.0.0.1:{port}"),
-            stop,
-            handle: Some(handle),
+            _server: server,
+            base_url,
         })
     }
-
     fn base_url(&self) -> &str {
         &self.base_url
     }
 }
-
-impl Drop for StaticTestServer {
-    fn drop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        let _ = TcpStream::connect(self.base_url.trim_start_matches("http://"));
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
-    let mut buffer = [0u8; 4096];
-    let n = stream.read(&mut buffer)?;
-    let request = String::from_utf8_lossy(&buffer[..n]);
-    let mut request_parts = request
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .split_whitespace();
-    let method = request_parts.next().unwrap_or("GET");
-    let path = request_parts
-        .next()
-        .unwrap_or("/")
-        .split('?')
-        .next()
-        .unwrap_or("/");
-    if method == "POST" && path == "/__fission/renderer" {
-        stream.write_all(
-            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        )?;
-        return Ok(());
-    }
-    let relative = path.trim_start_matches('/');
-    let mut candidate = root.join(relative);
-    if path.ends_with('/') || candidate.is_dir() {
-        candidate = candidate.join("index.html");
-    }
-    let (status, content_type, body) = if candidate.is_file() {
-        (
-            "200 OK",
-            static_content_type(&candidate),
-            fs::read(&candidate).unwrap_or_default(),
-        )
-    } else {
-        ("404 Not Found", "text/plain", b"not found".to_vec())
-    };
-    let header = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    stream.write_all(header.as_bytes())?;
-    stream.write_all(&body)?;
-    Ok(())
-}
-
-fn static_content_type(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-    {
-        "html" => "text/html; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "wasm" => "application/wasm",
-        "json" => "application/json; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    }
-}
-
 fn free_local_port() -> Result<u16> {
     Ok(TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port())
 }
@@ -1186,20 +1177,6 @@ fn build_web(
     )
 }
 
-fn build_web_for_test(
-    project_dir: &Path,
-    cargo_features: &[String],
-    cargo_no_default_features: bool,
-) -> Result<()> {
-    build_web_with_test_control(
-        project_dir,
-        false,
-        true,
-        cargo_features,
-        cargo_no_default_features,
-    )
-}
-
 fn build_web_with_test_control(
     project_dir: &Path,
     release: bool,
@@ -1209,13 +1186,21 @@ fn build_web_with_test_control(
 ) -> Result<()> {
     let project_dir = absolute_path(project_dir)?;
     let out_dir = project_dir.join("platforms/web/pkg");
+    let wasm_simd = web_wasm_simd_from_env()?;
+    let dev_dependency_opt_level = if release {
+        None
+    } else {
+        Some(web_dev_dependency_opt_level_from_env()?)
+    };
     let mut command = web_build_command(
         &project_dir,
         &out_dir,
         release,
         cargo_features,
         cargo_no_default_features,
-    );
+        wasm_simd,
+        dev_dependency_opt_level,
+    )?;
     if test_control {
         enable_web_test_control(&mut command);
     }
@@ -1243,7 +1228,9 @@ fn web_build_command(
     release: bool,
     cargo_features: &[String],
     cargo_no_default_features: bool,
-) -> Command {
+    wasm_simd: bool,
+    dev_dependency_opt_level: Option<u8>,
+) -> Result<Command> {
     let mut command = Command::new("wasm-pack");
     command
         .arg("build")
@@ -1259,7 +1246,173 @@ fn web_build_command(
     if !cargo_features.is_empty() {
         command.arg("--features").arg(cargo_features.join(","));
     }
-    command
+    if !release {
+        let opt_level = dev_dependency_opt_level
+            .ok_or_else(|| anyhow::anyhow!("missing Web dev dependency optimization setting"))?;
+        command
+            .arg("--config")
+            .arg(format!("profile.dev.package.\"*\".opt-level={opt_level}"));
+    }
+    configure_web_wasm_simd(&mut command, wasm_simd)?;
+    Ok(command)
+}
+
+const WEB_WASM_SIMD_ENV: &str = "FISSION_WEB_WASM_SIMD";
+const WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV: &str = "FISSION_WEB_DEV_DEPENDENCY_OPT_LEVEL";
+const WEB_WASM_TARGET_RUSTFLAGS: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS";
+
+fn web_wasm_simd_from_env() -> Result<bool> {
+    match env::var(WEB_WASM_SIMD_ENV) {
+        Ok(value) => parse_web_wasm_simd(Some(&value)),
+        Err(env::VarError::NotPresent) => parse_web_wasm_simd(None),
+        Err(error) => Err(error).context("failed to read Fission Web SIMD setting"),
+    }
+}
+
+fn parse_web_wasm_simd(value: Option<&str>) -> Result<bool> {
+    match value {
+        Some(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" | "simd" | "simd128" => Ok(true),
+            "0" | "false" | "no" | "off" | "scalar" => Ok(false),
+            _ => bail!("{WEB_WASM_SIMD_ENV} must be `simd` (the default) or `scalar`"),
+        },
+        None => Ok(true),
+    }
+}
+
+fn web_dev_dependency_opt_level_from_env() -> Result<u8> {
+    match env::var(WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV) {
+        Ok(value) => parse_web_dev_dependency_opt_level(Some(&value)),
+        Err(env::VarError::NotPresent) => parse_web_dev_dependency_opt_level(None),
+        Err(error) => {
+            Err(error).context("failed to read Fission Web dev dependency optimization setting")
+        }
+    }
+}
+
+fn parse_web_dev_dependency_opt_level(value: Option<&str>) -> Result<u8> {
+    match value {
+        None => Ok(1),
+        Some(value) => match value.trim().parse::<u8>() {
+            Ok(level @ 0..=3) => Ok(level),
+            _ => bail!("{WEB_DEV_DEPENDENCY_OPT_LEVEL_ENV} must be an integer from 0 to 3"),
+        },
+    }
+}
+
+fn configure_web_wasm_simd(command: &mut Command, enabled: bool) -> Result<()> {
+    let global_rustflags = if let Some(value) = env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        Some(("CARGO_ENCODED_RUSTFLAGS", value))
+    } else {
+        env::var_os("RUSTFLAGS").map(|value| ("RUSTFLAGS", value))
+    };
+
+    if let Some((variable, value)) = global_rustflags {
+        let value = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("{variable} must contain UTF-8 Rust compiler flags"))?;
+        let flags = if variable == "CARGO_ENCODED_RUSTFLAGS" {
+            value.split('\u{1f}').map(str::to_owned).collect::<Vec<_>>()
+        } else {
+            shell_words::split(&value).with_context(|| format!("failed to parse {variable}"))?
+        };
+        match target_feature_state(&flags, "simd128") {
+            Some(true) if enabled => return Ok(()),
+            Some(false) if !enabled => return Ok(()),
+            Some(_) => bail!(
+                "{WEB_WASM_SIMD_ENV} conflicts with {variable}; update its `target-feature` flags or remove it"
+            ),
+            None if enabled => bail!(
+                "{variable} overrides Cargo's target-specific Web flags; add `-C target-feature=+simd128` there or set {WEB_WASM_SIMD_ENV}=scalar"
+            ),
+            None => return Ok(()),
+        }
+    }
+
+    let existing = env::var(WEB_WASM_TARGET_RUSTFLAGS).ok();
+    let flags = update_simd_target_feature_flags(existing.as_deref().unwrap_or_default(), enabled)?;
+    if !flags.is_empty() || existing.is_some() {
+        command.env(WEB_WASM_TARGET_RUSTFLAGS, flags);
+    }
+    Ok(())
+}
+
+fn target_feature_state(flags: &[String], feature: &str) -> Option<bool> {
+    let mut last_features = None;
+    let mut index = 0;
+    while index < flags.len() {
+        let value = if flags[index] == "-C" {
+            index += 1;
+            flags
+                .get(index)
+                .and_then(|argument| argument.strip_prefix("target-feature="))
+        } else {
+            flags[index].strip_prefix("-Ctarget-feature=")
+        };
+        if let Some(value) = value {
+            last_features = Some(value.to_owned());
+        }
+        index += 1;
+    }
+    last_features.and_then(|features| {
+        features
+            .split(',')
+            .filter_map(|entry| {
+                let (enabled, name) = match entry.as_bytes().first().copied()? {
+                    b'+' => (true, &entry[1..]),
+                    b'-' => (false, &entry[1..]),
+                    _ => return None,
+                };
+                (name == feature).then_some(enabled)
+            })
+            .last()
+    })
+}
+
+fn update_simd_target_feature_flags(flags: &str, enabled: bool) -> Result<String> {
+    let arguments = shell_words::split(flags).context("failed to parse Web target Rust flags")?;
+    let mut retained = Vec::with_capacity(arguments.len() + 2);
+    let mut last_features = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        if arguments[index] == "-C" {
+            if let Some(value) = arguments.get(index + 1) {
+                if let Some(features) = value.strip_prefix("target-feature=") {
+                    last_features = Some(features.to_owned());
+                    index += 2;
+                    continue;
+                }
+            }
+        } else if let Some(features) = arguments[index].strip_prefix("-Ctarget-feature=") {
+            last_features = Some(features.to_owned());
+            index += 1;
+            continue;
+        }
+        retained.push(arguments[index].clone());
+        index += 1;
+    }
+
+    let mut features = last_features
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .filter(|entry| {
+            !matches!(
+                entry.strip_prefix('+').or_else(|| entry.strip_prefix('-')),
+                Some("simd128")
+            )
+        })
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if enabled {
+        features.push("+simd128".into());
+    }
+    if !features.is_empty() {
+        retained.push("-C".into());
+        retained.push(format!("target-feature={}", features.join(",")));
+    }
+    Ok(retained.join(" "))
 }
 
 fn ensure_web_cargo_feature_target(
@@ -1277,6 +1430,7 @@ fn ensure_web_cargo_feature_target(
 }
 
 fn package_android(project_dir: &Path, release: bool) -> Result<PathBuf> {
+    fission_command_core::prepare_android_capability_helper(project_dir)?;
     let script = project_dir.join("platforms/android/package-apk.sh");
     let mut command = command_for_script(&script)?;
     command.current_dir(project_dir);
@@ -2370,14 +2524,6 @@ mod tests {
     }
 
     #[test]
-    fn browser_test_server_serves_javascript_modules() {
-        assert_eq!(
-            static_content_type(Path::new("platforms/web/bootstrap.mjs")),
-            "text/javascript; charset=utf-8"
-        );
-    }
-
-    #[test]
     fn browser_test_server_serves_multiple_resources() {
         let root = env::temp_dir().join(format!(
             "fission-web-test-server-{}-{}",
@@ -2395,6 +2541,14 @@ mod tests {
         let index = ureq::get(&format!("{}/", server.base_url()))
             .call()
             .expect("fetch index");
+        assert_eq!(
+            index.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            index.header("cross-origin-embedder-policy"),
+            Some("require-corp")
+        );
         assert_eq!(index.into_string().expect("read index"), "ready");
         let module = ureq::get(&format!("{}/bootstrap.mjs", server.base_url()))
             .call()
@@ -2402,6 +2556,14 @@ mod tests {
         assert_eq!(
             module.header("content-type"),
             Some("text/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            module.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            module.header("cross-origin-embedder-policy"),
+            Some("require-corp")
         );
         assert_eq!(
             module.into_string().expect("read module"),
@@ -2429,6 +2591,14 @@ mod tests {
             .send_string(r#"{"active":"canvas2d-software"}"#)
             .expect("post renderer diagnostics");
         assert_eq!(response.status(), 204);
+        assert_eq!(
+            response.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            response.header("cross-origin-embedder-policy"),
+            Some("require-corp")
+        );
 
         drop(server);
         fs::remove_dir_all(root).expect("remove test root");
@@ -2529,7 +2699,10 @@ mod tests {
             false,
             &["fixtures".into(), "diagnostics".into()],
             true,
-        );
+            true,
+            Some(1),
+        )
+        .unwrap();
         let args = command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -2548,8 +2721,19 @@ mod tests {
                 "--no-default-features",
                 "--features",
                 "fixtures,diagnostics",
+                "--config",
+                "profile.dev.package.\"*\".opt-level=1",
             ]
         );
+        let wasm_flags = command
+            .get_envs()
+            .find_map(|(name, value)| {
+                (name == WEB_WASM_TARGET_RUSTFLAGS)
+                    .then(|| value.and_then(|value| value.to_str()))
+                    .flatten()
+            })
+            .expect("Web builds must set target-specific compiler flags");
+        assert!(wasm_flags.contains("target-feature=+simd128"));
     }
 
     #[test]
@@ -2560,7 +2744,10 @@ mod tests {
             false,
             &[],
             false,
-        );
+            true,
+            Some(1),
+        )
+        .unwrap();
         enable_web_test_control(&mut command);
         let configured = command
             .get_envs()
@@ -2568,6 +2755,75 @@ mod tests {
             .any(|(name, value)| name == "FISSION_WEB_TEST_CONTROL" && value == "1");
 
         assert!(configured, "test builds must identify their shell artifact");
+    }
+
+    #[test]
+    fn web_simd_defaults_on_and_accepts_scalar_builds() {
+        assert!(parse_web_wasm_simd(None).unwrap());
+        assert!(parse_web_wasm_simd(Some("simd")).unwrap());
+        assert!(!parse_web_wasm_simd(Some("scalar")).unwrap());
+        assert!(!parse_web_wasm_simd(Some("0")).unwrap());
+        assert!(parse_web_wasm_simd(Some("mystery")).is_err());
+    }
+
+    #[test]
+    fn web_dev_dependency_optimization_defaults_to_one_and_accepts_overrides() {
+        assert_eq!(parse_web_dev_dependency_opt_level(None).unwrap(), 1);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some("0")).unwrap(), 0);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some(" 2 ")).unwrap(), 2);
+        assert_eq!(parse_web_dev_dependency_opt_level(Some("3")).unwrap(), 3);
+        assert!(parse_web_dev_dependency_opt_level(Some("4")).is_err());
+        assert!(parse_web_dev_dependency_opt_level(Some("fast")).is_err());
+    }
+
+    #[test]
+    fn web_release_build_does_not_add_dev_dependency_optimization() {
+        let command = web_build_command(
+            Path::new("/workspace/app"),
+            Path::new("/workspace/app/platforms/web/pkg"),
+            true,
+            &[],
+            false,
+            true,
+            None,
+        )
+        .unwrap();
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(args.last().map(String::as_str), Some("--release"));
+        assert!(!args.iter().any(|arg| arg == "--config"));
+    }
+
+    #[test]
+    fn web_simd_preserves_other_target_features_and_supports_scalar_override() {
+        let configured = update_simd_target_feature_flags(
+            "-C opt-level=2 -C target-feature=+atomics,-simd128",
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            configured,
+            "-C opt-level=2 -C target-feature=+atomics,+simd128"
+        );
+        let configured_args = shell_words::split(&configured).unwrap();
+        assert!(configured_args
+            .windows(2)
+            .any(|pair| pair == ["-C", "opt-level=2"]));
+        assert!(configured_args
+            .windows(2)
+            .any(|pair| pair == ["-C", "target-feature=+atomics,+simd128"]));
+
+        let scalar =
+            update_simd_target_feature_flags("-C target-feature=+atomics,+simd128", false).unwrap();
+        assert_eq!(scalar, "-C target-feature=+atomics");
+        assert_eq!(
+            shell_words::split(&scalar).unwrap(),
+            ["-C", "target-feature=+atomics"]
+        );
+        assert_eq!(update_simd_target_feature_flags("", false).unwrap(), "");
     }
 
     #[test]

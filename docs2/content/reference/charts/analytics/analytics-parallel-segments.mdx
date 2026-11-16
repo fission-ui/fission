@@ -1,0 +1,63 @@
+---
+title: Segment parallel
+sidebar_label: Segment parallel
+description: Compare segment profiles on explicit 0–100 dimensions using ParallelSeries.
+---
+
+# Segment parallel
+
+![Segment parallel screenshot](/img/charts/analytics-parallel-segments.png)
+
+Parallel coordinates put several measures side by side and draw one path through each segment's values. They are useful for asking whether the same segment scores highly on activation, repeat use and retention.
+
+The measures need compatible scales. Putting currency, session counts and percentages directly on identical axes would create a visual comparison with no coherent meaning.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ParallelSeries, Series};
+
+#[derive(Clone)]
+pub struct SegmentProfile {
+    pub activation_percent: f32,
+    pub repeat_use_percent: f32,
+    pub retained_percent: f32,
+}
+
+fission_component! {
+    pub SegmentProfiles<()> {
+        props {
+            title: String,
+            profile_label: String,
+            explanation: TextContent,
+            segments: Vec<SegmentProfile>,
+        }
+    }
+    view(profiles, _state, _cx) {
+        let rows = profiles.segments.iter().map(|segment| vec![
+            segment.activation_percent,
+            segment.repeat_use_percent,
+            segment.retained_percent,
+        ]).collect();
+    } => Column(children: [
+        Text(profiles.explanation.clone()),
+        Chart(
+            title: Some(profiles.title.clone()),
+            series: vec![Series::Parallel(
+                ParallelSeries::new(&profiles.profile_label).data(rows),
+            )],
+        ),
+    ])
+}
+```
+
+Validate finite percentages in 0–100 and keep the three positions in the declared order. The renderer currently uses this fixed range; configuring Cartesian axes does not introduce separate scales for each parallel dimension.
+
+## Labels are part of the report
+
+The series does not carry individual dimension labels or row identities. The parent-provided explanation must identify the axis order, and an adjacent labelled table must identify the segments and exact values. Colour alone is not an adequate row key.
+
+With many overlapping paths, a small set of selected segments or separate bar comparisons is usually more useful. Test that the source-to-vector mapping has not swapped two measures. The gallery screenshot illustrates a different fixture.
+
+[Analytics family overview](./overview)

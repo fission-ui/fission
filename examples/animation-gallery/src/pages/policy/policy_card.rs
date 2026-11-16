@@ -4,22 +4,20 @@ use fission::prelude::*;
 
 const SWATCH_HEIGHT: f32 = 44.0;
 
-pub(super) struct PolicyCard<'a> {
-    pub title: &'a str,
-    pub body: &'a str,
-    pub active: bool,
-}
-
-impl From<PolicyCard<'_>> for Widget {
-    fn from(card: PolicyCard<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(super) PolicyCard<AnimationGalleryState> {
+        title: &'static str,
+        body: &'static str,
+        active: bool,
+    } |card, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                Container::new(Text::new(" "))
+    } =>
+        Container(
+            Column(
+            gap: tokens.spacing.s,
+            children: [
+                Container(Text(" "))
                     .height(SWATCH_HEIGHT)
                     .border_radius(tokens.radii.large)
                     .bg(if card.active {
@@ -27,15 +25,14 @@ impl From<PolicyCard<'_>> for Widget {
                     } else {
                         style::surface_sunken()
                     }),
-                Text::new(card.title)
+                Text(card.title)
                     .size(typography.body_medium_size)
                     .color(style::text_primary()),
-                Text::new(card.body)
+                Text(card.body)
                     .size(typography.font_size_sm)
                     .color(style::text_muted()),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.s)
         .border(
             if card.active {
@@ -47,6 +44,4 @@ impl From<PolicyCard<'_>> for Widget {
         )
         .border_radius(tokens.radii.xl)
         .bg(style::surface())
-        .into()
-    }
 }

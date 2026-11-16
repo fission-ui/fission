@@ -1,0 +1,66 @@
+---
+title: Channel stack
+sidebar_label: Channel stack
+description: Compare mutually exclusive acquisition channels within each reporting period using stacked bars.
+---
+
+# Channel stack
+
+![Channel stack screenshot](/img/charts/analytics-channel-stack.png)
+
+The total number of new accounts tells us whether acquisition is changing. A channel stack adds a second question: which sources account for that change?
+
+The stack only makes sense if its parts can be added. Assign each account to one channel under an explicit attribution rule; putting the same account in both paid and referral acquisition inflates the total.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Legend, Series};
+
+#[derive(Clone)]
+pub struct ChannelPeriod {
+    pub label: String,
+    pub paid_accounts: u32,
+    pub referral_accounts: u32,
+}
+
+fission_component! {
+    pub AcquisitionChannels<()> {
+        props {
+            title: String,
+            paid_label: String,
+            referral_label: String,
+            periods: Vec<ChannelPeriod>,
+        }
+    }
+    view(channels, _state, _cx) {
+        let labels = channels.periods.iter().map(|row| row.label.as_str()).collect();
+        let paid = channels.periods.iter().map(|row| row.paid_accounts as f32).collect();
+        let referrals = channels.periods.iter()
+            .map(|row| row.referral_accounts as f32)
+            .collect();
+    } => Chart(
+        title: Some(channels.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            Series::Bar(BarSeries::new(&channels.paid_label)
+                .data(paid).stack("acquisition")),
+            Series::Bar(BarSeries::new(&channels.referral_label)
+                .data(referrals).stack("acquisition")),
+        ],
+    )
+}
+```
+
+Both series use the same internal stack name. That identifier groups geometry; it is not a user-facing label and does not need translation. The parent supplies translated display labels and validated, ordered periods.
+
+## What to compare
+
+This is an absolute-count chart, not a percentage breakdown. A channel can grow whilst its share falls because the other channel grew faster. If share is the question, calculate percentages deliberately and retain the underlying counts.
+
+Check that channel totals reconcile with acquisition totals. Keep channel order and colours consistent between reporting windows, and provide values outside the coloured segments. The gallery image is illustrative rather than the output of this particular dataset.
+
+[Analytics family overview](./overview)

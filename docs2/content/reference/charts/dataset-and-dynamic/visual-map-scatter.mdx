@@ -1,0 +1,59 @@
+---
+title: Visual map scatter
+sidebar_label: Visual map scatter
+description: Use real bubble coordinates and a colour scale for a declared cohort-size measure.
+---
+
+# Visual map scatter
+
+![Visual map scatter screenshot](/img/charts/visual-map-scatter.png)
+
+A bubble can carry two rates through position and a cohort size through radius. Mapping that same size to colour adds emphasis, but it does not create a fourth independent measure.
+
+This example uses activation on x, retention on y and eligible account count for both size and colour.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BubbleSeries, Chart, Series, VisualMap};
+
+#[derive(Clone)]
+pub struct CohortOutcome {
+    pub activation_percent: f32,
+    pub retention_percent: f32,
+    pub accounts: u32,
+}
+
+fission_component! {
+    pub CohortSizeScatter<()> {
+        props {
+            title: String,
+            cohorts_label: String,
+            activation_label: String,
+            retention_label: String,
+            cohorts: Vec<CohortOutcome>,
+            count_scale: VisualMap,
+        }
+    }
+    view(outcomes, _state, _cx) {
+        let points = outcomes.cohorts.iter().map(|cohort| (
+            cohort.activation_percent, cohort.retention_percent, cohort.accounts as f32,
+        )).collect();
+    } => Chart(
+        title: Some(outcomes.title.clone()),
+        x_axis: Some(Axis::value().name(outcomes.activation_label.clone()).min(0.0).max(100.0)),
+        y_axis: Some(Axis::value().name(outcomes.retention_label.clone()).min(0.0).max(100.0)),
+        visual_map: Some(outcomes.count_scale.clone()),
+        series: vec![Series::Bubble(
+            BubbleSeries::new(&outcomes.cohorts_label).data(points),
+        )],
+    )
+}
+```
+
+Validate finite percentage rates and known denominators, and supply translated labels plus a stable, explained count colour scale. The bubble renderer reads its third value for colour; ordinary scatter maps its y value instead.
+
+Radius uses per-series normalisation with a minimum visible size, not an exact count-area scale. Preserve cohort names, IDs and exact counts in an adjacent list, including a deliberate rule for ineligible cohorts.
+
+Test changed cohort sizes, overlap and scale endpoints after refresh. Do not describe this as density estimation: these are individual cohort observations. The screenshot uses separate gallery data.
+
+[Dataset and dynamic family overview](./overview)

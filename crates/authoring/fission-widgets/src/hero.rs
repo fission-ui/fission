@@ -22,6 +22,15 @@ pub struct Hero {
     pub child: Widget,
 }
 
+impl Default for Hero {
+    fn default() -> Self {
+        Self {
+            tag: String::new(),
+            child: fission_core::ui::widgets::Spacer::default().into(),
+        }
+    }
+}
+
 impl From<Hero> for Widget {
     fn from(component: Hero) -> Self {
         let this = &component;

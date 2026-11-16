@@ -16,6 +16,13 @@ pub struct GalleryState {
     pub animations: bool,
     pub markers: bool,
     pub last_interaction: Option<String>,
+    /// Whether another app, such as the example showcase, mounts the gallery. The
+    /// host already names the example, so the gallery drops its own app title.
+    #[serde(default)]
+    pub embedded: bool,
+    /// Whether the category picker that leads the narrow layout is open.
+    #[serde(default)]
+    pub category_picker_open: bool,
 }
 
 impl Default for GalleryState {
@@ -30,6 +37,8 @@ impl Default for GalleryState {
             animations: false,
             markers: false,
             last_interaction: None,
+            embedded: false,
+            category_picker_open: false,
         }
     }
 }
@@ -40,6 +49,12 @@ impl GlobalState for GalleryState {}
 pub(crate) fn select_chart(state: &mut GalleryState, category: usize, chart: usize) {
     state.selected_category = category;
     state.selected_chart = chart;
+    state.category_picker_open = false;
+}
+
+#[fission_reducer(SetCategoryPickerOpen)]
+pub(crate) fn set_category_picker_open(state: &mut GalleryState, open: bool) {
+    state.category_picker_open = open;
 }
 
 #[fission_reducer(ToggleSmooth)]

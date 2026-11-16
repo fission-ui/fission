@@ -1,0 +1,55 @@
+---
+title: Data zoom long
+sidebar_label: Data zoom long
+description: Give an ordered queue history an actual retained data-zoom slider.
+---
+
+# Data zoom long
+
+![Data zoom long screenshot](/img/charts/component-data-zoom-long.png)
+
+A data-zoom window lets the reader focus on part of an ordered history without changing the stored report. For queue monitoring, a broad initial window preserves context before the user narrows it.
+
+The chart retains the user's zoom state under its identity. Initial percentages are therefore not a replacement for an application-controlled filter or a command to reset an already-used chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries, Series};
+
+fission_component! {
+    pub ZoomableQueueHistory<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            jobs_label: String,
+            intervals: Vec<String>,
+            waiting_jobs: Vec<u32>,
+            initial_start: f32,
+            initial_end: f32,
+        }
+    }
+    view(history, _state, _cx) {
+        let labels = history.intervals.iter().map(String::as_str).collect();
+        let values = history.waiting_jobs.iter().map(|count| *count as f32).collect();
+    } => Chart(
+        id: Some(history.chart_id),
+        title: Some(history.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(0.0)),
+        data_zoom: Some(DataZoom::new()
+            .start_percent(history.initial_start)
+            .end_percent(history.initial_end)),
+        series: vec![Series::Line(
+            LineSeries::new(&history.jobs_label).data(values),
+        )],
+    )
+}
+```
+
+Put the component in `widgets/zoomable_queue_history.rs`. Supply translated labels, aligned equal-interval data and finite percentages with `0 <= start < end <= 100`. For a broad view, initialise to 0 and 100.
+
+`DataZoom::new()` selects the slider presentation. Its percentages select positions in the supplied category sequence, not a server-side time query. The current filtering path supports this line series; it is not a promise that every series type shares the same filtering behaviour.
+
+Use LiveTest to drag the slider continuously and verify the resulting visible categories. Test narrow windows and empty history, and keep an accessible reporting-range control outside the chart. The screenshot alone does not verify the gesture.
+
+[Components and interaction family overview](./overview)

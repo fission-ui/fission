@@ -1,0 +1,58 @@
+---
+title: Boxplot
+sidebar_label: Boxplot
+description: Fission Charts reference for Boxplot.
+---
+
+# Boxplot
+
+![Boxplot screenshot](/img/charts/boxplot-basic.png)
+
+A boxplot preserves spread which an average hides. For a fulfilment report, it can compare delivery durations across service levels without drawing every delivery. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Keep the delivery start/end definition and reporting population comparable. A shorter median does not by itself establish fewer late deliveries; retain the service promise and tail information separately.
+
+## Data model
+
+`BoxplotSeries::data` accepts `[min, Q1, median, Q3, max]` rows, not raw durations. `calculate_from_raw` is a separate helper using floor-index order statistics and skipping empty groups. Choose and test the quantile convention your report requires.
+
+## Authoring from a Fission component
+
+Prepared five-value arrays enforce row length and stay aligned with their group labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeliveryDurationBoxplots<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test empty groups, a single delivery and skewed durations. Validate ordered finite summaries and provide group sample sizes and exact values outside the chart. Missing data is not a zero-duration delivery.
+
+Tags: `statistics`, `distribution`.
+
+[Statistical and finance family overview](./overview)

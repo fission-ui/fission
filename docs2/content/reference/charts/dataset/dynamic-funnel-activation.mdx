@@ -1,0 +1,39 @@
+---
+title: Live activation funnel
+sidebar_label: Live activation funnel
+description: Update one activation cohort without mixing independent stage counts.
+---
+
+# Live activation funnel
+
+![Live activation funnel screenshot](/img/charts/dynamic-funnel-activation.png)
+
+A live activation funnel can be misleading if each refresh counts a different population. An account which signed up today and one which completed onboarding last month do not establish a conversion rate between those stages.
+
+Use the [checkout funnel component](../analytics/analytics-conversion-funnel), stored in `widgets/checkout_funnel.rs`, for any ordered cohort progression:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::checkout_funnel::{CheckoutFunnel, CheckoutStage};
+
+fission_component! {
+    pub ActivationCohort<()> {
+        props {
+            title: String,
+            cohort_label: String,
+            stages: Vec<CheckoutStage>,
+        }
+    }
+    view(report, _state, _cx) => CheckoutFunnel {
+        title: report.title.clone(),
+        cohort_label: report.cohort_label.clone(),
+        stages: report.stages.clone(),
+    }
+}
+```
+
+Build the stages from the same eligible account IDs and cutoff time, in process order. Their translated labels might describe invited, registered and first useful action, but the definition of that action belongs in the product's reporting model. Counts should not increase at later cumulative stages.
+
+Refresh through an effect and replace the complete snapshot in its completion reducer. Do not mutate one stage at a time whilst leaving the others from an earlier report. Preserve the last successful report with an explicit stale/error indication if refresh fails. Test a zero-entry cohort and out-of-order completions; animation is presentation, not proof that the numbers are current. The gallery image is a separate fixture.
+
+[Dataset family overview](./overview)

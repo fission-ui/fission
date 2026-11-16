@@ -1,0 +1,101 @@
+---
+title: Correlation grid
+sidebar_label: Correlation grid
+description: Fission Charts reference for Correlation grid.
+---
+
+# Correlation grid
+
+![Correlation grid screenshot](/img/charts/heatmap-correlation-grid.png)
+
+A correlation grid compares pairs of measures using the same row and column labels. This makes related movements visible, but does not explain why they move together. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Keep both axes in the same metric order and the scale fixed at minus one to one. A correlation close to one is not evidence that changing one measure will change the other. Explain the time window and calculation in the surrounding report.
+
+## Data model
+
+Here, each value is a correlation coefficient between minus one and one, computed from aligned latency, CPU and queue samples. Fission draws the coefficients; it does not calculate them from these labels.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Correlation between service metrics")
+    .x_axis(Axis::category(vec!["Latency", "CPU", "Queue"]))
+    .y_axis(Axis::category(vec!["Latency", "CPU", "Queue"]))
+    .visual_map(VisualMap::new().min(-1.0).max(1.0))
+    .series(vec![HeatmapSeries::new("Correlation")
+        .data(vec![
+            (0, 0, 1.0),
+            (1, 0, 0.7),
+            (2, 0, 0.9),
+            (0, 1, 0.7),
+            (1, 1, 1.0),
+            (2, 1, 0.5),
+            (0, 2, 0.9),
+            (1, 2, 0.5),
+            (2, 2, 1.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub CorrelationGridChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(-1.0).max(1.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check the diagonal, mirrored pairs and an undefined coefficient such as a constant-valued input. Do not substitute zero for an undefined result; that would claim no linear correlation where there was no valid calculation.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `correlation`.
+
+[Heatmap family overview](./overview)

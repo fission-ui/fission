@@ -1,72 +1,64 @@
+use crate::layout::{REPRO_ACCENT_WIDTH, REPRO_ROW_WIDTH};
+use crate::palette::{REPRO_ACCENT_COOL, REPRO_ACCENT_WARM, REPRO_ROW_BORDER};
 use crate::scenario::ReproScenario;
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub(crate) struct ReproRow {
-    pub(crate) index: usize,
-    pub(crate) scenario: ReproScenario,
-    pub(crate) height: f32,
-    pub(crate) image_path: Option<String>,
-    pub(crate) cache_image: bool,
-}
-
-impl From<ReproRow> for Widget {
-    fn from(row: ReproRow) -> Self {
-        let (_ctx, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(crate) ReproRow<()> {
+        index: usize,
+        scenario: ReproScenario,
+        height: f32,
+        image_path: Option<String>,
+        cache_image: bool,
+    } |row, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let accent = if row.index % 3 == 0 {
             REPRO_ACCENT_COOL
         } else {
             REPRO_ACCENT_WARM
         };
-
-        let media: Widget = if let Some(path) = row.image_path {
-            let size = row.height - tokens.spacing.m;
-            let image = Image::file(path).size(size, size);
-            if row.cache_image {
-                image
-                    .cache_size(size.ceil() as u32, size.ceil() as u32)
-                    .into()
-            } else {
-                image.into()
-            }
-        } else {
-            Container::new(Spacer {
-                width: Some(REPRO_ACCENT_WIDTH),
-                height: Some(row.height - tokens.spacing.m),
-                ..Default::default()
-            })
-            .width(REPRO_ACCENT_WIDTH)
-            .height(row.height - tokens.spacing.m)
-            .bg(accent)
-            .border_radius(tokens.radii.small)
-            .into()
-        };
-
-        Container::new(Row {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                media,
-                // Takes the width left beside the media so the description is measured at the
-                // width it wraps to, and the row's height accounts for both lines.
-                Column {
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
-                    gap: Some(tokens.spacing.xs),
-                    children: widgets![
-                        Text::new(format!("{} / row {}", row.scenario.label(), row.index + 1))
+        let media_size = row.height - tokens.spacing.m;
+    } =>
+        Container(
+            Row(
+                gap: tokens.spacing.m,
+                children: [
+                    if let Some(path) = row.image_path.clone() {
+                        if row.cache_image {
+                            Image::file(path)
+                                .size(media_size, media_size)
+                                .cache_size(media_size.ceil() as u32, media_size.ceil() as u32)
+                        } else {
+                            Image::file(path).size(media_size, media_size)
+                        }
+                    } else {
+                        Container(
+                            Spacer(width: REPRO_ACCENT_WIDTH, height: media_size),
+                        )
+                        .width(REPRO_ACCENT_WIDTH)
+                        .height(media_size)
+                        .bg(accent)
+                        .border_radius(tokens.radii.small)
+                    },
+                    Column(
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        gap: tokens.spacing.xs,
+                        children: [
+                            Text(format!(
+                                "{} / row {}",
+                                row.scenario.label(),
+                                row.index + 1,
+                            ))
                             .size(tokens.typography.body_medium_size),
-                        Text::new("Repeated scroll content to reproduce retained renderer memory.")
-                            .size(tokens.typography.font_size_xs),
-                    ],
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        })
+                            Text("Repeated scroll content to reproduce retained renderer memory.")
+                                .size(tokens.typography.font_size_xs),
+                        ],
+                    ),
+                ],
+            ),
+        )
         .width(REPRO_ROW_WIDTH)
-        // A minimum, not a fixed height: the description wraps to a second line and the
-        // row grows to hold it rather than clipping it at the bottom edge.
         .min_height(row.height)
         .flex_shrink(0.0)
         .padding([
@@ -78,8 +70,4 @@ impl From<ReproRow> for Widget {
         .bg(tokens.colors.surface)
         .border(REPRO_ROW_BORDER, 1.0)
         .border_radius(tokens.radii.large)
-        .into()
-    }
 }
-use crate::layout::{REPRO_ACCENT_WIDTH, REPRO_ROW_WIDTH};
-use crate::palette::{REPRO_ACCENT_COOL, REPRO_ACCENT_WARM, REPRO_ROW_BORDER};

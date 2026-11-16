@@ -1,0 +1,36 @@
+---
+title: Large matrix heatmap
+sidebar_label: Large matrix heatmap
+description: Bound the report before a large heatmap becomes unreadable.
+---
+
+# Large matrix heatmap
+
+![Large matrix heatmap screenshot](/img/charts/heatmap-large-matrix.png)
+
+More cells do not necessarily provide more information. Once each service/window cell is too small to inspect, the report needs a smaller question: a selected service group, a bounded time window or an explicit aggregation.
+
+Use the actual Compose `MetricMatrix` from [availability matrices](./heatmap-availability), in `widgets/metric_matrix.rs`. A window projection must rebase column indices and labels together:
+
+```rust
+use crate::widgets::metric_matrix::MetricCell;
+
+pub fn window_cells(cells: &[MetricCell], start: usize, end: usize) -> Vec<MetricCell> {
+    cells.iter()
+        .filter(|cell| cell.column >= start && cell.column < end)
+        .map(|cell| MetricCell {
+            column: cell.column - start,
+            row: cell.row,
+            value: cell.value,
+        })
+        .collect()
+}
+```
+
+Validate `start <= end <= columns.len()` in the report builder and pass `columns[start..end]` with this projection. Keep row indices unchanged only when the row list is unchanged. If grouping periods, define whether cells represent totals, weighted rates or peaks; averaging percentages with unequal denominators can mislead.
+
+This is bounded presentation, not chart virtualisation or a claim of unlimited matrix performance. Keep colour bounds consistent and translated labels readable at the target size. Provide a table/detail view for exact inspection.
+
+Test empty and edge windows, index rebasing and missing cells. Measure representative frame/interaction costs before making performance claims. The gallery uses separate data.
+
+[Heatmap and calendar family overview](./overview)

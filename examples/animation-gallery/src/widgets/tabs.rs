@@ -2,8 +2,7 @@ use super::common::*;
 use super::tabs_preview::TabsPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/tabs";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Primary,
 };
 
-pub struct TabsPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<TabsPage<'_>> for Widget {
-    fn from(page: TabsPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: TabsPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub TabsPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), TabsPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -60,9 +40,8 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Tabs {
+const SOURCE: &str = r#"Tabs(
     active_index: view.state().selected_tab,
     items,
-    motion: Some(TabsMotion::Indicator + TabsMotion::SlideContent),
-    ..Default::default()
-}.into()"#;
+    motion: TabsMotion::Indicator + TabsMotion::SlideContent,
+)"#;

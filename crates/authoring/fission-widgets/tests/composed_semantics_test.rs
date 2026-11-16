@@ -206,12 +206,14 @@ fn select_and_menu_button_identify_triggers_and_popup_items() {
                     icon: None,
                     on_select: action("country.ca"),
                     semantics_identifier: Some("country.ca".into()),
+                    form_value: Some("ca".into()),
                 },
                 SelectItem {
                     label: "France".into(),
                     icon: None,
                     on_select: action("country.fr"),
                     semantics_identifier: Some("country.fr".into()),
+                    form_value: Some("fr".into()),
                 },
             ],
             is_open: true,
@@ -219,6 +221,10 @@ fn select_and_menu_button_identify_triggers_and_popup_items() {
             trigger_semantics_identifier: Some("country.trigger".into()),
             placeholder: "Country".into(),
             width: Some(240.0),
+            name: Some("country".into()),
+            form_id: Some("profile".into()),
+            form_value: Some("ca".into()),
+            ..Default::default()
         }
         .into()
     });
@@ -228,6 +234,12 @@ fn select_and_menu_button_identify_triggers_and_popup_items() {
     assert_eq!(select_trigger.value.as_deref(), Some("Canada"));
     assert_eq!(select_trigger.expanded, Some(true));
     assert_eq!(select_trigger.has_popup, Some(PopupKind::ListBox));
+    assert_eq!(select_trigger.text_field_name.as_deref(), Some("country"));
+    assert_eq!(select_trigger.text_form_id.as_deref(), Some("profile"));
+    assert_eq!(select_trigger.form_value.as_deref(), Some("ca"));
+    assert_eq!(select_trigger.form_select_options.len(), 2);
+    assert_eq!(select_trigger.form_select_options[0].value, "ca");
+    assert_eq!(select_trigger.form_select_options[1].value, "fr");
     assert_eq!(select_trigger.controls.len(), 1);
 
     let select_popup_id = select_trigger.controls[0];
@@ -324,12 +336,14 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
                     icon: None,
                     on_select: action("density.first"),
                     semantics_identifier: Some("density.first".into()),
+                    form_value: None,
                 },
                 SelectItem {
                     label: "Second".into(),
                     icon: None,
                     on_select: action("density.second"),
                     semantics_identifier: Some("density.second".into()),
+                    form_value: None,
                 },
             ],
             is_open: true,
@@ -337,6 +351,7 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
             trigger_semantics_identifier: Some("density.trigger".into()),
             placeholder: "Choose".into(),
             width: Some(240.0),
+            ..Default::default()
         }
         .into()
     });
@@ -510,6 +525,7 @@ fn closed_menu_and_select_triggers_are_collapsed_without_mounting_popups() {
             trigger_semantics_identifier: Some("closed-select.trigger".into()),
             placeholder: "Choose".into(),
             width: Some(200.0),
+            ..Default::default()
         }
         .into()
     });
@@ -556,12 +572,14 @@ fn select_option_without_an_external_identifier_has_a_stable_structural_id() {
                 icon: None,
                 on_select: action("structural-option-id.select"),
                 semantics_identifier: None,
+                form_value: None,
             }],
             is_open: true,
             on_toggle: Some(action("structural-option-id.toggle")),
             trigger_semantics_identifier: Some("structural-option-id.trigger".into()),
             placeholder: "Choose".into(),
             width: Some(200.0),
+            ..Default::default()
         }
         .into()
     });

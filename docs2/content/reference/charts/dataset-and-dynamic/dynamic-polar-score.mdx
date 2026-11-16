@@ -1,0 +1,46 @@
+---
+title: Dynamic polar score
+sidebar_label: Dynamic polar score
+description: Use actual polar bars for a cyclic completion profile with clearly stated relative scaling.
+---
+
+# Dynamic polar score
+
+![Dynamic polar score screenshot](/img/charts/dynamic-polar-score.png)
+
+A circular completion profile can show how a measure changes through a repeating schedule. It must not imply that a full radial extent means one hundred percent: the current polar-bar renderer scales against the largest displayed value.
+
+For a weekday fulfilment profile, keep a fixed weekday order and show exact percentages alongside the circle.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PolarBarSeries, Series};
+
+fission_component! {
+    pub WeekdayCompletionCycle<()> {
+        props {
+            title: String,
+            completion_label: String,
+            weekday_labels: [String; 7],
+            completed_percent: [f32; 7],
+            inner_radius: f32,
+        }
+    }
+    view(cycle, _state, _cx) {
+        let values = cycle.weekday_labels.iter().zip(cycle.completed_percent.iter())
+            .map(|(label, value)| (label.as_str(), *value)).collect();
+    } => Chart(
+        title: Some(cycle.title.clone()),
+        series: vec![Series::PolarBar(
+            PolarBarSeries::new(&cycle.completion_label)
+                .inner_radius(cycle.inner_radius).data(values),
+        )],
+    )
+}
+```
+
+Validate finite percentages in 0–100 and a finite non-negative inner radius. Translate weekday labels in the parent and rotate labels and values together if the locale uses another first day.
+
+Changing the largest value changes the radial scaling. Use fixed-range Cartesian bars when comparing absolute completion across updates is essential. Test uniform but incomplete percentages, a missing day and a changed maximum. This is a real `PolarBarSeries` view, not a pie chart or a combined health score. The screenshot uses gallery data.
+
+[Dataset and dynamic family overview](./overview)

@@ -1,0 +1,37 @@
+---
+title: Route arcs
+sidebar_label: Route arcs
+description: Use curved connections to show dispatch relationships, not inferred road paths.
+---
+
+# Route arcs
+
+![Route arcs screenshot](/img/charts/geo-route-arcs.png)
+
+An arc makes an origin-to-destination relationship visible without claiming that a vehicle travelled along that curve. This distinction matters in dispatch screens, where a plausible-looking line could otherwise be mistaken for navigation.
+
+The [lines example](../geographic-and-route/lines-basic) defines `ServiceConnections` in `widgets/service_connections.rs`. Supply completed dispatch routes to it:
+
+```rust
+use crate::widgets::service_connections::ServiceConnection;
+
+pub fn dispatch_connection(
+    dispatch_id: String,
+    depot: (f32, f32),
+    destination: (f32, f32),
+    parcels: u32,
+) -> ServiceConnection {
+    ServiceConnection {
+        id: dispatch_id,
+        from: depot,
+        to: destination,
+        traffic: parcels as f32,
+    }
+}
+```
+
+The third value controls relative intensity, including the curve's bend and line width. It is not a travel-time or distance parameter. Use the same reporting units for every route and keep exact parcel counts outside the drawing. Translate the component's title, series caption and explanation in the caller.
+
+Validate finite endpoints and omit zero-volume routes deliberately if absence means no dispatch. Test both directions between the same locations: overlapping curves can hide relationships, so a route list is still needed. The supplied coordinates are independently fitted to this plot and do not automatically align with a geographic map. The gallery is a separate fixture.
+
+[Geo and route family overview](./overview)

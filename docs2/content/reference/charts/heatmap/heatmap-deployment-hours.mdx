@@ -1,0 +1,97 @@
+---
+title: Deployment hour heatmap
+sidebar_label: Deployment hour heatmap
+description: Fission Charts reference for Deployment hour heatmap.
+---
+
+# Deployment hour heatmap
+
+![Deployment hour heatmap screenshot](/img/charts/heatmap-deployment-hours.png)
+
+A deployment heatmap shows when releases are concentrated. This is useful when a team needs to compare deployment habits with staffing or support coverage rather than simply count releases. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The example keeps three weekdays and three hours so the mapping is visible. Extend both category lists and their indexed samples for a full week. A concentration of deployments is not itself evidence that those deployments caused incidents.
+
+## Data model
+
+Each sample is a weekday index, hour index and deployment count for a declared reporting period. Aggregate completed deployments once, using one timezone; counting every status update would inflate a busy cell.
+
+`HeatmapSeries::data` takes `Vec<(usize, usize, f32)>`. The first two values are category indices; they must refer to the same ordered labels used by the axes.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `Chart::x_axis` | `Axis` | Supplies the column categories. |
+| `Chart::y_axis` | `Axis` | Supplies the row categories, not the cell-value range. |
+| `HeatmapSeries::data` | `Vec<(usize, usize, f32)>` | Supplies the indexed cells and their values. |
+| `Chart::visual_map` | `VisualMap` | Sets the numeric range used for colour. |
+
+## Example
+
+```rust
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+let chart = Chart::new()
+    .title("Deployments by weekday and hour")
+    .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
+    .y_axis(Axis::category(vec!["09:00", "10:00", "11:00"]))
+    .visual_map(VisualMap::new().min(0.0).max(10.0))
+    .series(vec![HeatmapSeries::new("Deployments")
+        .data(vec![
+            (0, 0, 2.0),
+            (0, 1, 5.0),
+            (1, 0, 3.0),
+            (1, 2, 1.0),
+            (2, 1, 7.0),
+        ])
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+Pass the prepared samples into the component. Fetching, aggregation and failure handling stay outside the build; the component presents values already available to its parent.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeploymentHourHeatmapChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            column_labels: Vec<String>,
+            row_labels: Vec<String>,
+            samples: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(chart, _state, _cx) =>
+        Chart(
+            title: Some(chart.chart_title.clone()),
+            x_axis: Some(Axis::category(
+                chart.column_labels.iter().map(String::as_str).collect(),
+            )),
+            y_axis: Some(Axis::category(
+                chart.row_labels.iter().map(String::as_str).collect(),
+            )),
+            visual_map: Some(VisualMap::new().min(0.0).max(10.0)),
+            series: vec![HeatmapSeries::new(&chart.series_label)
+                .data(chart.samples.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check repeated deployment events, timezone boundaries and hours with no releases. Keep the aggregation period visible so a month's counts are not compared directly with a week's counts.
+
+Give the matrix a text summary and an exact-value view when decisions depend on its cells. Inspect the actual rendered width and label lengths; a correctly indexed matrix is still unusable if its category names cannot be read.
+
+Tags: `heatmap`, `deployment`.
+
+[Heatmap family overview](./overview)

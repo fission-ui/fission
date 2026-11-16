@@ -1,0 +1,94 @@
+---
+title: Radial taxonomy
+sidebar_label: Radial taxonomy
+description: Fission Charts reference for Radial taxonomy.
+---
+
+# Radial taxonomy
+
+![Radial taxonomy screenshot](/img/charts/tree-radial-taxonomy.png)
+
+A radial tree places a taxonomy around its root. The presentation changes, but the rule remains the same: every category belongs to one parent in the hierarchy being shown. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the radial form for a shallow, fairly balanced taxonomy. It is not automatically better for a large hierarchy; dense outer labels can become harder to read than a conventional tree.
+
+## Data model
+
+TreeSeries takes nested TreemapNode records and enables this layout with radial(true). Values do not define angles or a quantitative scale here. The category structure is carried by the children field.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `TreeSeries::data` | `Vec<TreemapNode>` | Supplies the root nodes and their nested children. |
+| `TreemapNode::children` | `Vec<TreemapNode>` | Describes the next level of the hierarchy. |
+| `TreemapNode::value` | `f32` | Carries the node's numeric measure. |
+| `Chart::series` | `Vec<Series>` | Adds this hierarchy without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+let nodes = vec![TreemapNode {
+    name: "Catalog".into(),
+    value: 2.0,
+    children: vec![
+        TreemapNode {
+            name: "Hardware".into(),
+            value: 1.0,
+            children: vec![],
+        },
+        TreemapNode {
+            name: "Software".into(),
+            value: 1.0,
+            children: vec![],
+        },
+    ],
+}];
+
+let chart = Chart::new()
+    .title("Product taxonomy")
+    .series(vec![TreeSeries::new("Categories")
+        .data(nodes)
+        .radial(true)
+        .into()]);
+```
+
+## Authoring from a Fission component
+
+The parent supplies the prepared hierarchy. Keep loading, aggregation and any errors outside this presentation component.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, TreeSeries, TreemapNode};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub RadialTaxonomyChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<TreemapNode>,
+        }
+    }
+    view(hierarchy, _state, _cx) =>
+        Chart(
+            title: Some(hierarchy.chart_title.clone()),
+            series: vec![TreeSeries::new(&hierarchy.series_label)
+                .data(hierarchy.nodes.clone())
+                .radial(true)
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test an unbalanced branch and long category names at the actual viewport size. Keep a conventional or textual hierarchy available when the radial labels cannot be read without zooming.
+
+Tags: `tree`, `radial`.
+
+[Hierarchy and flow family overview](./overview)

@@ -1,0 +1,41 @@
+---
+title: Dynamic sales funnel
+sidebar_label: Dynamic sales funnel
+description: Render refreshed checkout cohorts without changing the meaning of funnel stages.
+---
+
+# Dynamic sales funnel
+
+![Dynamic sales funnel screenshot](/img/charts/dynamic-funnel-sales.png)
+
+A refreshed funnel is still a report about a defined cohort. If the next update silently changes the eligible starting group, a difference between frames cannot be interpreted as customers moving through the pipeline.
+
+The [checkout funnel](../analytics/analytics-conversion-funnel) defines `CheckoutStage` and `CheckoutFunnel`. Put them in `widgets/checkout_funnel.rs`:
+
+```rust
+use fission::prelude::*;
+use crate::widgets::checkout_funnel::{CheckoutFunnel, CheckoutStage};
+
+fission_component! {
+    pub CheckoutProgressReport<()> {
+        props {
+            title: String,
+            cohort_label: String,
+            stages: Vec<CheckoutStage>,
+        }
+    }
+    view(report, _state, _cx) => CheckoutFunnel {
+        title: report.title.clone(),
+        cohort_label: report.cohort_label.clone(),
+        stages: report.stages.clone(),
+    }
+}
+```
+
+The parent updates its authoritative report state through the normal effect/reducer flow and passes a ready snapshot. This component does not invent a separate live-data engine.
+
+Supply translated stage names in process order and count each eligible checkout once per stage. Distinguish a growing observation window for one cohort from a different cohort, and handle failed refreshes without replacing the last valid report with zeros.
+
+Test stage ordering, retries and incomplete cohorts before checking a rendered update. Provide exact stage counts and denominators outside the funnel. The gallery screenshot demonstrates a static fixture, not a completed refresh workflow.
+
+[Dataset and dynamic family overview](./overview)

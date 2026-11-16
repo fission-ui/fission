@@ -1,0 +1,329 @@
+---
+layout: goal
+title: Add an Android app icon and native splash screen
+description: "Configure Android launcher and splash assets, then distinguish the operating system's launch screen from the first interactive Fission frame."
+goal: "Package intentional launcher and splash assets and open the same visit-start screen after native launch."
+path: /blog/add-an-android-app-icon-and-native-splash-screen/
+order: 38
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-add-an-android-app-icon-and-native-splash-screen
+outcomes:
+  - "Configure app-owned Android icon and splash inputs through fission.toml"
+  - "Keep native launch artwork separate from retained application UI"
+  - "Launch the actual shared visit-start flow on native and Web targets"
+  - "Inspect installed launcher artwork, cold launch and the first interactive screen separately"
+---
+
+An app launch crosses a boundary that is easy to miss when developing the screen itself. Android draws the launcher icon and native splash before Fission can draw anything. A correct Compose screen therefore tells us nothing about whether the packaged launch assets are correct.
+
+Here, we give a field-service app its launcher identity and a short native splash, then hand over to the visit screen. The screen has one real action: starting the visit. It remains usable in the browser, but the browser cannot verify Android resources.
+
+## Create the project and add the target
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first. Fission generates the host; the visit screen stays in shared Rust.
+
+```sh
+cargo install cargo-fission
+fission init android-add-an-android-app-icon-and-native-splash-screen
+cd android-add-an-android-app-icon-and-native-splash-screen
+cargo add serde_yaml
+fission add-target android --project-dir .
+```
+
+## Files created by Fission
+
+This is the starter tree Fission generates. Keep shared app code in `src/`; the generated platform files handle native launch and packaging.
+
+```text
+android-add-an-android-app-icon-and-native-splash-screen/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # shared Fission screen
+└── platforms/
+    └── android/              # generated Android host
+```
+
+Keep the screen, shared state, reducers and reusable `fission_component!` components in the Rust project. Add a feature-specific state, service or effect module only when it gives the feature a useful boundary. The generated platform files handle native launch and packaging; shared components do not need to import platform APIs.
+
+<!-- fission:step id="start-screen" -->
+## Create the app screen
+
+The native splash ends when the first frame is ready. That makes it unsuitable for onboarding or for showing progress on a network request. Our first frame is the visit arrival screen; starting a visit changes retained local state rather than holding the splash open.
+
+Replace the generated `src/lib.rs` as well as `src/app.rs`. Otherwise `fission run --target android` would still launch the scaffold counter whilst the embedded Web preview showed a different app. The two shells below use the same screen and translation bundles.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub VisitArrival<()> {
+        state { started: bool = false }
+    }
+    view(visit, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("android-add-an-android-app-icon-and-native-splash-screen".to_string()),
+        label: Some(cx.tr("preview.title")),
+        child: SafeArea(child: Scroll(child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text(cx.tr("preview.app.name"))
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(cx.tr("preview.route"))
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Spacer(flex_grow: 1.0),
+                    Badge(text: cx.tr("preview.status.ready")),
+                ]),
+                Divider(),
+                Text(cx.tr("preview.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("preview.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("preview.context.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("preview.context.one")),
+                        Text(cx.tr("preview.context.two")),
+                        Text(cx.tr("preview.result"))
+                            .color(tokens.colors.text_secondary),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Button(
+                    child: Text(cx.tr(if visit.started { "visit.reopen" } else { "visit.start" })),
+                    key: "visit-start",
+                    on_press: reduce { visit.started = !visit.started; },
+                ).semantics_identifier("visit.start"),
+                Text(cx.tr(if visit.started { "visit.started" } else { "visit.waiting" })),
+                Text(cx.tr("preview.footer"))
+                    .color(tokens.colors.text_secondary),
+            ])
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large))),
+    )
+}
+
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod translations;
+
+use app::VisitArrival;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(VisitArrival::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<(), VisitArrival> {
+    let app = MobileApp::<(), _>::new(VisitArrival::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(VisitArrival::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("i18n/en-US.yaml")),
+        ("es-ES", include_str!("i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::VisitArrival::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="src/i18n/en-US.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Service visit · Android"
+preview.title: "Start the service visit"
+preview.summary: "Check the launcher identity, the short native splash, and the first Fission screen as separate parts of one launch."
+preview.context.title: "Launch sequence"
+preview.context.one: "Launcher icon: Northbank Field Service"
+preview.context.two: "Native splash appears before the app draws its first frame."
+preview.result: "This is the first Fission frame after the native splash. The browser cannot inspect generated Android assets."
+preview.footer: "Cold-launch the Android app to verify the packaged launcher icon and splash resources."
+preview.status.ready: "On-site visit"
+visit.start: "Start visit"
+visit.reopen: "Return to arrival"
+visit.started: "Visit started. Continue with the inspection."
+visit.waiting: "Start the visit when you arrive at the site."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="src/i18n/es-ES.yaml" -->
+```yaml
+preview.app.name: "Northbank Field Service"
+preview.route: "Visita de servicio · Android"
+preview.title: "Iniciar la visita de servicio"
+preview.summary: "Comprueba la identidad del icono, la breve pantalla nativa y la primera pantalla de Fission como partes distintas del inicio."
+preview.context.title: "Secuencia de inicio"
+preview.context.one: "Icono de la app: Northbank Field Service"
+preview.context.two: "La pantalla nativa aparece antes del primer fotograma de la app."
+preview.result: "Este es el primer fotograma de Fission después de la pantalla inicial nativa. El navegador no puede inspeccionar los recursos generados de Android."
+preview.footer: "Inicia Android en frío para comprobar el icono y los recursos de la pantalla inicial empaquetados."
+preview.status.ready: "Visita presencial"
+visit.start: "Iniciar visita"
+visit.reopen: "Volver a la llegada"
+visit.started: "Visita iniciada. Continúa con la inspección."
+visit.waiting: "Inicia la visita cuando llegues al lugar."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Configure generated launcher assets and splash settings
+
+Treat the Android launcher icon and native splash as separate assets. The icon may use adaptive foreground and background art; the splash is the short operating-system-owned frame shown before Fission starts. Configure the actual files in `fission.toml`, then run the Android package command and inspect the generated resources. Keep onboarding and loading progress in a Fission route after startup rather than stretching the native splash into an app screen. Force-stop and cold-launch an emulator to check icon cropping, splash contrast and the transition into the first frame.
+
+```toml
+[package.icons.android]
+foreground = "assets/android/icon-foreground.png"
+background = "assets/android/icon-background.png"
+
+[app.splash]
+image = "assets/android/splash-mark.png"
+background_color = "#F8FAFC"
+android_animated_icon = "assets/android/splash-animated.xml"
+android_animation_duration_ms = 800
+```
+
+Create those asset files before packaging; the paths are project-relative and the animated icon must be an Android vector-drawable XML file, not an animated GIF or SVG. Omit `android_animated_icon` and `android_animation_duration_ms` when you only need the static splash image. Changing these paths does not create artwork for you.
+
+The Web preview deliberately stays the same in this step. It is still the app's first frame, not an imitation of Android's splash.
+
+
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Start the visit and return to arrival in the preview. That checks the first Fission frame and its interaction, not the launcher icon or splash. Those assets belong to the Android package and must be inspected on the emulator or phone. Visit progress here is intentionally not persisted across restarts.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check the launch experience on Android
+
+Build and install the target package, then cold-launch it. Confirm the launcher icon uses the intended foreground and background, the native splash stays legible, and it hands off to the first Fission frame without showing a blank screen.
+
+Repeat after changing the asset paths so you know the generated package picked up the new files. Keep onboarding and loading progress in the app’s first route; the operating-system splash is only a short launch frame.
+
+### Run, test and build
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+
+
+### Emulator and connected-device commands
+
+Run these emulator checks from the generated project root:
+
+```sh
+fission doctor android --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
+```
+
+
+### Current references
+
+These references explain the API contract behind the example and the target-specific behavior to verify:
+
+- [Fission package command and release options](/reference/cli/overview/)
+- [Fission project configuration](/reference/config/fission-toml/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:step -->

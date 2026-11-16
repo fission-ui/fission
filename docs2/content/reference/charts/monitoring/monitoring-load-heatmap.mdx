@@ -1,0 +1,61 @@
+---
+title: Load heatmap
+sidebar_label: Load heatmap
+description: Fission Charts reference for Load heatmap.
+---
+
+# Load heatmap
+
+![Load heatmap screenshot](/img/charts/monitoring-load-heatmap.png)
+
+A load heatmap compares the same resource measure across services and reporting intervals. Keeping both dimensions visible helps distinguish a busy service from a period when the whole system was busy. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use one consistently defined measure, such as mean CPU utilisation in each five-minute interval. Mixing CPU, memory and request counts in the same colour scale would make the colours incomparable. A hot cell identifies a value to investigate, not a diagnosis.
+
+## Data model
+
+`HeatmapSeries` stores `(column_index, row_index, value)` triples. Columns identify intervals and rows identify services. Both index sets must agree with their category labels. A missing cell means no supplied observation; do not replace it with zero utilisation unless that was measured.
+
+## Authoring from a Fission component
+
+The parent aggregates and validates the observations before building this component. A fixed percentage scale preserves the meaning of a colour when new intervals arrive.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, HeatmapSeries, VisualMap};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceCpuHeatmap<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            intervals: Vec<String>,
+            services: Vec<String>,
+            utilisation: Vec<(usize, usize, f32)>,
+        }
+    }
+    view(load, _state, _cx) {
+        let intervals = load.intervals.iter().map(String::as_str).collect();
+        let services = load.services.iter().map(String::as_str).collect();
+    } => Chart(
+        title: Some(load.chart_title.clone()),
+        x_axis: Some(Axis::category(intervals)),
+        y_axis: Some(Axis::category(services)),
+        visual_map: Some(VisualMap::new().min(0.0).max(100.0)),
+        series: vec![HeatmapSeries::new(&load.series_label)
+            .data(load.utilisation.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test index bounds, duplicate cells, unavailable observations and values exactly at 0 and 100. Keep service order stable across refreshes unless the user asks to sort it. Provide values and a list of intervals above the operational limit outside the colour-only view.
+
+Tags: `monitoring`, `heatmap`.
+
+[Monitoring family overview](./overview)

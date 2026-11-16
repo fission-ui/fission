@@ -1,0 +1,62 @@
+---
+title: Region ranking
+sidebar_label: Region ranking
+description: Rank regional orders with deterministic sorting and horizontal bars.
+---
+
+# Region ranking
+
+![Region ranking screenshot](/img/charts/bar-region-rank.png)
+
+Ranking asks which region has the most of a declared measure. Sorting belongs in the projection so the chart and the accompanying value list agree.
+
+Use a durable region ID to break ties. Sorting by a translated name instead could change the order when the reader changes language, even though the underlying results have not changed.
+
+## Compose example
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct RegionOrderTotal {
+    pub region_id: String,
+    pub label: String,
+    pub orders: u32,
+}
+
+fission_component! {
+    pub RegionOrderRanking<()> {
+        props {
+            title: String,
+            measure_label: String,
+            regions: Vec<RegionOrderTotal>,
+        }
+    }
+    view(ranking, _state, _cx) {
+        let mut ranked = ranking.regions.clone();
+        ranked.sort_by(|a, b|
+            b.orders.cmp(&a.orders).then_with(|| a.region_id.cmp(&b.region_id))
+        );
+        let labels = ranked.iter().map(|region| region.label.as_str()).collect();
+        let values = ranked.iter().map(|region| region.orders as f32).collect();
+    } => Chart(
+        title: Some(ranking.title.clone()),
+        x_axis: Some(Axis::value().min(0.0)),
+        y_axis: Some(Axis::category(labels)),
+        series: vec![Series::Bar(
+            BarSeries::new(&ranking.measure_label).horizontal().data(values),
+        )],
+    )
+}
+```
+
+The numeric axis is x because the bars are horizontal. The first category is placed at the top by this renderer, so descending input puts the highest count first without relying on an inverse-axis setting.
+
+## A rank is not a performance explanation
+
+Use a single reporting window and deduplicate region IDs before building the view. A region with more customers may naturally have more orders; do not label that as better performance without a suitable denominator.
+
+Show ties and exact counts, and keep missing reports outside the ranking until they are resolved. Test equal counts, an empty report and long labels. The screenshot is a gallery fixture, not the output of these props.
+
+[Bar family overview](./overview)

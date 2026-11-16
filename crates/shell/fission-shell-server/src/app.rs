@@ -46,7 +46,7 @@ type BrowserPropsResolver = dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<B
     + Sync
     + 'static;
 type ServerFormDecoder =
-    dyn Fn(&[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
+    dyn Fn(&ActionEnvelope, &[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
 
 #[derive(Clone)]
 pub(crate) struct ServerFormActionBinding {
@@ -55,9 +55,13 @@ pub(crate) struct ServerFormActionBinding {
 }
 
 impl ServerFormActionBinding {
-    pub(crate) fn decode(&self, submitted: &[(String, String)]) -> Result<ActionEnvelope> {
+    pub(crate) fn decode(
+        &self,
+        signed_action: &ActionEnvelope,
+        submitted: &[(String, String)],
+    ) -> Result<ActionEnvelope> {
         let normalized = self.schema.normalize(submitted)?;
-        (self.decode)(&normalized)
+        (self.decode)(signed_action, &normalized)
     }
 }
 
@@ -387,6 +391,12 @@ impl FissionServerApp {
         self
     }
 
+    /// Selects how SSR HTML output delivers packaged fonts.
+    pub fn with_font_delivery(mut self, delivery: fission_shell_site::WebFontDelivery) -> Self {
+        self.document = self.document.with_font_delivery(delivery);
+        self
+    }
+
     /// Replaces the complete base environment cloned for each request.
     ///
     /// This is the SSR equivalent of `WebApp::with_env` and is the normal way to
@@ -577,13 +587,58 @@ impl FissionServerApp {
         let form_id = schema.id.clone();
         let binding = ServerFormActionBinding {
             schema,
-            decode: Arc::new(move |submitted| {
+            decode: Arc::new(move |_signed_action, submitted| {
                 let encoded = form_urlencoded::Serializer::new(String::new())
                     .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
                     .finish();
                 let form = serde_html_form::from_str::<P>(&encoded)
                     .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
                 Ok(create_action(form).into())
+            }),
+        };
+        assert!(
+            self.form_actions.insert(key, binding).is_none(),
+            "server form action `{form_id}` was registered more than once for this action type"
+        );
+        self
+    }
+
+    /// Registers a typed signed form decoder that retains the action payload
+    /// created while rendering the original request.
+    ///
+    /// Use this when the submit action already contains trusted context such
+    /// as an OAuth request, return destination, or entity identifier. The
+    /// callback receives that verified action together with the validated
+    /// browser-editable form fields and returns the final action to dispatch.
+    /// The action type and identity cannot change.
+    pub fn form_action_with_context<P, A, F>(
+        mut self,
+        schema: ServerFormSchema,
+        create_action: F,
+    ) -> Self
+    where
+        P: DeserializeOwned + 'static,
+        A: Action,
+        F: Fn(A, P) -> A + Send + Sync + 'static,
+    {
+        let key = (schema.id.clone(), A::static_id());
+        let form_id = schema.id.clone();
+        let binding = ServerFormActionBinding {
+            schema,
+            decode: Arc::new(move |signed_action, submitted| {
+                if signed_action.id != A::static_id() {
+                    anyhow::bail!("signed server form action type changed");
+                }
+                let context =
+                    serde_json::from_slice::<A>(&signed_action.payload).map_err(|error| {
+                        anyhow::anyhow!("invalid signed server form action: {error}")
+                    })?;
+                let encoded = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
+                    .finish();
+                let form = serde_html_form::from_str::<P>(&encoded)
+                    .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
+                Ok(create_action(context, form).into())
             }),
         };
         assert!(
@@ -1068,7 +1123,7 @@ where
             &resources,
             &mut build_ctx,
             &mut state,
-            ctx.jobs,
+            ctx,
             &mut executed_jobs,
         )?;
         final_node = Some(node);
@@ -1132,16 +1187,26 @@ fn drain_action_effects<S: GlobalState>(
         let Effect::Job(payload) = &effect.effect else {
             continue;
         };
-        ctx.jobs.require_job(&payload.job_name)?;
-        let result = ctx.jobs.run(
-            &payload.job_name,
-            payload.payload.clone(),
-            crate::ServerJobCtx::new_runtime(
+        let result = if let Some(inline) = payload.inline.clone() {
+            run_inline_job(
+                inline,
+                payload.payload.clone(),
                 effect.req_id,
-                format!("action-effect:{}", payload.job_name),
                 ctx.jobs.data_streams(),
-            ),
-        );
+            )
+        } else {
+            ctx.jobs.require_job(&payload.job_name)?;
+            ctx.jobs.run(
+                &payload.job_name,
+                payload.payload.clone(),
+                crate::ServerJobCtx::new_runtime(
+                    effect.req_id,
+                    format!("action-effect:{}", payload.job_name),
+                    ctx.jobs.data_streams(),
+                )
+                .with_session(ctx.session.clone()),
+            )
+        };
         match result {
             Ok(result_payload) => {
                 if let Some(action) = &effect.on_ok {
@@ -1346,7 +1411,7 @@ fn drain_server_jobs<S: GlobalState>(
     resources: &[RuntimeResourceDeclaration],
     build_ctx: &mut BuildCtx<S>,
     state: &mut S,
-    jobs: &ServerJobRegistry,
+    ctx: &ServerRenderContext<'_>,
     executed_jobs: &mut BTreeSet<String>,
 ) -> Result<bool> {
     let mut dispatched = false;
@@ -1370,15 +1435,16 @@ fn drain_server_jobs<S: GlobalState>(
         if !executed_jobs.insert(execution_key) {
             continue;
         }
-        jobs.require_job(&payload.job_name)?;
-        let result = jobs.run(
+        ctx.jobs.require_job(&payload.job_name)?;
+        let result = ctx.jobs.run(
             &payload.job_name,
             payload.payload.clone(),
             crate::ServerJobCtx::new_runtime(
                 job.effect.req_id,
                 resource.key.clone(),
-                jobs.data_streams(),
-            ),
+                ctx.jobs.data_streams(),
+            )
+            .with_session(ctx.session.clone()),
         );
         match result {
             Ok(result_payload) => {
@@ -1415,6 +1481,31 @@ fn drain_server_jobs<S: GlobalState>(
         }
     }
     Ok(dispatched)
+}
+
+fn run_inline_job(
+    inline: fission_core::InlineJob,
+    payload: Vec<u8>,
+    req_id: u64,
+    data_streams: fission_core::DataStreamRegistry,
+) -> std::result::Result<Vec<u8>, crate::ServerJobError> {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| crate::ServerJobError::message(error.to_string()))?;
+        runtime
+            .block_on(inline.run(
+                payload,
+                fission_core::JobCtx::new_runtime(req_id, data_streams),
+            ))
+            .map_err(|error| crate::ServerJobError {
+                payload: error.payload,
+                message: error.message,
+            })
+    })
+    .join()
+    .map_err(|_| crate::ServerJobError::message("app effect worker panicked"))?
 }
 
 pub(crate) fn normalize_server_path(path: &str) -> String {

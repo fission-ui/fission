@@ -1,0 +1,44 @@
+---
+title: ToastKind
+description: Choose the urgency and icon treatment for a Toast notification.
+slug: /widgets/toast-kind
+---
+# ToastKind
+
+`ToastKind` sets the tone of a [`Toast`](/reference/widgets/toast): information,
+success, warning, or error.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view, after a confirmed sync result; the parent owns dismissal state.
+Toast(
+    kind: ToastKind::Success,
+    message: cx.tr("sync.completed"),
+    on_close: dismiss_toast_action,
+)
+```
+
+Do not show a success toast when work has merely been queued. The close
+action removes this toast from app state; its configured duration dispatches
+that same action rather than deleting your state on the widget's behalf.
+
+## Choice table
+
+| Choice | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `Info` | `ToastKind` | Neutral informational update. | Good for short confirmations or status notes. |
+| `Success` | `ToastKind` | Positive completion or confirmation. | Good when the user should feel closure after a task. |
+| `Warning` | `ToastKind` | Something deserves attention soon. | Use sparingly because toasts disappear quickly. |
+| `Error` | `ToastKind` | Something failed. | Best when the failure can be explained briefly and the user can recover elsewhere. |
+
+## Specific advice
+
+Reserve error toasts for failures that are still understandable in a short overlay. If recovery steps need more room, an inline alert usually serves users better.
+
+
+## Related
+
+[`Toast`](/reference/widgets/toast), [`AlertKind`](/reference/widgets/alert-kind), [`Alert`](/reference/widgets/alert), and [`Badge`](/reference/widgets/badge).

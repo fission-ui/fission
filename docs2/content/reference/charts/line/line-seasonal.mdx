@@ -1,0 +1,61 @@
+---
+title: Seasonal line
+sidebar_label: Seasonal line
+description: Fission Charts reference for Seasonal line.
+---
+
+# Seasonal line
+
+![Seasonal line screenshot](/img/charts/line-seasonal.png)
+
+A seasonal line keeps measurements in calendar order so repeated demand can be compared with the time of year. For a building's heating use, that gives an operator context that a yearly total removes. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The line presents recorded monthly energy use. It does not fit a seasonal model or forecast the next winter. Occupancy changes and weather can also alter the shape, so the report should not infer a cause from a repeated peak alone.
+
+## Data model
+
+Supply energy use in kWh with month labels in the same order. Keep the meter boundary and measurement definition stable across months. A longer month can naturally use more energy; use a daily-normalised measure if that is the comparison required.
+
+## Authoring from a Fission component
+
+Prepare the source aggregate before building the chart. The component receives labels and values as props, with no asynchronous work hidden in the view.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SeasonalLineChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            energy_kwh: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.energy_kwh.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test a missing meter period, a meter replacement and an incomplete current month. Keep the exact consumption available and avoid interpreting a partial month as unusually low demand.
+
+Tags: `line`, `seasonal`.
+
+[Line family overview](./overview)

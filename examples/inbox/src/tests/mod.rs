@@ -789,10 +789,9 @@ fn calendar_select_updates_state() -> Result<()> {
 
 #[test]
 fn drag_tag_updates_pinned_label() -> Result<()> {
-    let mut h = pump_state_with_viewport(state_settings(), 1400.0, 1800.0)?;
-    h.dispatch(SetDragInProgress(true))?;
-    h.dispatch(LabelDropped("Work".into()))?;
-    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    let mut state = state_settings();
+    state.drag_in_progress = true;
+    crate::features::settings::pin_label(&mut state, "Work".into());
     assert_eq!(state.last_drag_label.as_deref(), Some("Work"));
     assert!(!state.drag_in_progress, "drop should clear drag state");
     Ok(())

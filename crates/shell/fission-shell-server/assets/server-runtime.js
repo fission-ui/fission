@@ -113,6 +113,59 @@
     normalizeMessages(output).forEach(function(message){applyMessage(bridge,message);});
     normalizeBindings(output).forEach(function(binding){bindEvent(bridge,binding);});
     bindFissionBrowserActions(bridge);
+    positionFissionFlyouts(browserActionRoot(bridge)||document);
+  }
+
+  function flyoutNode(root,nodeId){
+    if(!nodeId)return null;
+    var selector='[data-fission-node="'+cssEscape(nodeId)+'"]';
+    if(root&&typeof root.querySelector==='function'){
+      var local=root.querySelector(selector);
+      if(local)return local;
+    }
+    return document.querySelector(selector);
+  }
+
+  function positionFlyout(flyout,root){
+    if(!flyout||!flyout.style||typeof flyout.getBoundingClientRect!=='function')return;
+    var anchor=flyoutNode(root,flyout.getAttribute('data-fission-flyout-anchor'));
+    var content=flyoutNode(flyout,flyout.getAttribute('data-fission-flyout-content'))||flyout;
+    if(!anchor||typeof anchor.getBoundingClientRect!=='function'||typeof content.getBoundingClientRect!=='function')return;
+    var anchorRect=anchor.getBoundingClientRect();
+    var widthPolicy=flyout.getAttribute('data-fission-flyout-width')||'Content';
+    flyout.style.position='fixed';
+    flyout.style.width='max-content';
+    flyout.style.minWidth='0px';
+    if(widthPolicy==='MatchAnchor')flyout.style.width=anchorRect.width+'px';
+    else if(widthPolicy==='AtLeastAnchor')flyout.style.minWidth=anchorRect.width+'px';
+    var contentRect=content.getBoundingClientRect();
+    var viewportWidth=Math.max(0,document.documentElement.clientWidth||window.innerWidth||0);
+    var viewportHeight=Math.max(0,document.documentElement.clientHeight||window.innerHeight||0);
+    var gap=Number(flyout.getAttribute('data-fission-flyout-gap'))||0;
+    var margin=8;
+    var alignment=flyout.getAttribute('data-fission-flyout-alignment')||'Start';
+    var left=alignment==='End'?anchorRect.right-contentRect.width:anchorRect.left;
+    var below=anchorRect.bottom+gap;
+    var above=anchorRect.top-gap-contentRect.height;
+    var placement=flyout.getAttribute('data-fission-flyout-placement')||'Auto';
+    var top=below;
+    if(placement==='Above')top=above;
+    else if(placement==='Auto'&&below+contentRect.height>viewportHeight-margin&&above>=margin)top=above;
+    var alignmentTarget=flyoutNode(flyout,flyout.getAttribute('data-fission-flyout-alignment-target'));
+    if(alignmentTarget&&typeof alignmentTarget.getBoundingClientRect==='function'){
+      var targetRect=alignmentTarget.getBoundingClientRect();
+      var targetCentre=(targetRect.top-contentRect.top)+targetRect.height/2;
+      top=anchorRect.top+anchorRect.height/2-targetCentre;
+    }
+    flyout.style.left=Math.max(margin,Math.min(left,viewportWidth-contentRect.width-margin))+'px';
+    flyout.style.top=Math.max(margin,Math.min(top,viewportHeight-contentRect.height-margin))+'px';
+  }
+
+  function positionFissionFlyouts(root){
+    if(!root||typeof root.querySelectorAll!=='function')return;
+    root.querySelectorAll('[data-fission-flyout-anchor]').forEach(function(flyout){
+      positionFlyout(flyout,root);
+    });
   }
 
   function applyMessage(bridge,message){
@@ -128,6 +181,10 @@
       console.error('[fission '+bridge.kind+' '+bridge.id+'] '+(message.message||'browser artifact error'));
       return;
     }
+    if(message.type==='request'){
+      handleBridgeRequest(bridge,message);
+      return;
+    }
     if(message.type==='navigate'){
       if(message.url&&safeUrl(message.url)){
         if(message.mode==='replace')window.history.replaceState({},'',message.url);
@@ -139,6 +196,51 @@
     if(message.type==='dom_batch'&&Array.isArray(message.ops)){
       message.ops.forEach(function(op){applyDomOp(bridge,op);});
     }
+  }
+
+  function completeBridgeRequest(bridge,requestId,ok,payload,error){
+    var response={
+      type:'response',
+      request_id:requestId,
+      ok:ok,
+      payload:payload==null?null:payload,
+      error:error==null?null:String(error)
+    };
+    try{dispatchBridgeEvent(bridge,response);}catch(dispatchError){
+      setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+dispatchError.message);
+    }
+  }
+
+  function handleBridgeRequest(bridge,request){
+    var requestId=request.request_id;
+    if(!Number.isSafeInteger(requestId)||requestId<0)return;
+    var clipboard=globalThis.navigator&&globalThis.navigator.clipboard;
+    if(request.kind==='clipboard_write_text'){
+      var text=request.payload&&typeof request.payload.text==='string'?request.payload.text:null;
+      if(text===null||!clipboard||typeof clipboard.writeText!=='function'){
+        completeBridgeRequest(bridge,requestId,false,null,'clipboard write is unavailable');
+        return;
+      }
+      clipboard.writeText(text).then(function(){
+        completeBridgeRequest(bridge,requestId,true,{},null);
+      }).catch(function(error){
+        completeBridgeRequest(bridge,requestId,false,null,error&&error.message||'clipboard write failed');
+      });
+      return;
+    }
+    if(request.kind==='clipboard_read_text'){
+      if(!clipboard||typeof clipboard.readText!=='function'){
+        completeBridgeRequest(bridge,requestId,false,null,'clipboard read is unavailable');
+        return;
+      }
+      clipboard.readText().then(function(text){
+        completeBridgeRequest(bridge,requestId,true,{text:text==null?null:String(text)},null);
+      }).catch(function(error){
+        completeBridgeRequest(bridge,requestId,false,null,error&&error.message||'clipboard read failed');
+      });
+      return;
+    }
+    completeBridgeRequest(bridge,requestId,false,null,'unsupported browser request '+String(request.kind||''));
   }
 
   function targetForOp(op){
@@ -164,10 +266,12 @@
       case'blur_by_semantics': if(el&&typeof el.blur==='function')el.blur(); break;
       case'replace_children_html_by_semantics':
         if(el&&typeof op.html==='string'){
-          var focused=captureFocusedTextControl(el);
-          el.innerHTML=op.html;
-          bindFissionBrowserActions(bridge);
-          restoreFocusedTextControl(el,focused);
+          if(shouldDeferDomReplacement(bridge,el)){
+            if(!bridge.deferredDomReplacements)bridge.deferredDomReplacements=Object.create(null);
+            bridge.deferredDomReplacements[op.semantics]={semantics:op.semantics,html:op.html};
+          }else{
+            replaceChildrenHtml(bridge,el,op.html);
+          }
         }
         break;
       case'set_stylesheet': setStylesheet(op.id,op.css); break;
@@ -175,6 +279,58 @@
       case'replace_history': if(safeUrl(op.url))window.history.replaceState({},'',op.url); break;
       case'announce': announce(op.text,op.politeness); break;
     }
+  }
+
+  function replaceChildrenHtml(bridge,el,html){
+    var focused=captureFocusedTextControl(el);
+    var menuFocus=captureMenuFocus(el);
+    el.innerHTML=html;
+    bindFissionBrowserActions(bridge);
+    restoreFocusedTextControl(el,focused);
+    restoreMenuFocus(bridge,el,menuFocus);
+  }
+
+  // Replacing an island subtree destroys the browser's in-progress native
+  // control interaction. Keep the live control until range dragging or an
+  // input without selection APIs (notably type=number) has been committed.
+  function controlByNode(root,node){
+    if(!root||!node)return null;
+    var controls=root.querySelectorAll('[data-fission-node]');
+    for(var index=0;index<controls.length;index++){
+      if(controls[index].getAttribute('data-fission-node')===node)return controls[index];
+    }
+    return null;
+  }
+
+  function shouldDeferDomReplacement(bridge,root){
+    return Boolean(
+      bridge.deferredDomFlushScheduled||
+      controlByNode(root,bridge.activeRangeNode)||
+      controlByNode(root,bridge.activeNonSelectableTextNode)
+    );
+  }
+
+  function flushDeferredDomReplacements(bridge){
+    if(!bridge||bridge.activeRangeNode||bridge.activeNonSelectableTextNode)return;
+    var deferred=bridge.deferredDomReplacements;
+    bridge.deferredDomReplacements=null;
+    if(!deferred)return;
+    Object.keys(deferred).forEach(function(key){
+      var op=deferred[key];
+      var el=targetForOp(op);
+      if(el)replaceChildrenHtml(bridge,el,op.html);
+    });
+  }
+
+  function finishControlInteraction(bridge,kind,node){
+    if(kind==='range'&&bridge.activeRangeNode===node)bridge.activeRangeNode=null;
+    if(kind==='text'&&bridge.activeNonSelectableTextNode===node)bridge.activeNonSelectableTextNode=null;
+    if(bridge.deferredDomFlushScheduled)return;
+    bridge.deferredDomFlushScheduled=true;
+    setTimeout(function(){
+      bridge.deferredDomFlushScheduled=false;
+      flushDeferredDomReplacements(bridge);
+    },0);
   }
 
   function setStylesheet(id,css){
@@ -256,6 +412,98 @@
     }
   }
 
+  function controlledMenu(root,controls){
+    if(!controls)return null;
+    var menu=document.getElementById(controls);
+    return menu&&root.contains(menu)&&menu.getAttribute('role')==='menu'?menu:null;
+  }
+
+  function menuController(root,controls){
+    var candidates=root.querySelectorAll('[aria-haspopup="menu"][aria-controls]');
+    for(var index=0;index<candidates.length;index++){
+      if(candidates[index].getAttribute('aria-controls')===controls)return candidates[index];
+    }
+    return null;
+  }
+
+  function enabledMenuItems(menu){
+    return Array.prototype.filter.call(menu.querySelectorAll('[role="menuitem"]'),function(item){
+      return item.getAttribute('aria-disabled')!=='true'&&!item.disabled;
+    });
+  }
+
+  function captureMenuFocus(root){
+    var active=document.activeElement;
+    if(!active||!root.contains(active))return null;
+    if(active.matches('[aria-haspopup="menu"][aria-controls]')){
+      return{controls:active.getAttribute('aria-controls'),edge:'first',returnToTrigger:false};
+    }
+    var menu=active.closest('[role="menu"]');
+    if(menu&&menu.id)return{controls:menu.id,edge:'first',returnToTrigger:true};
+    return null;
+  }
+
+  function restoreMenuFocus(bridge,root,captured){
+    var state=bridge.pendingMenuFocus||captured;
+    bridge.pendingMenuFocus=null;
+    if(!state||!state.controls)return;
+    var trigger=menuController(root,state.controls);
+    var menu=controlledMenu(root,state.controls);
+    if(menu&&trigger&&trigger.getAttribute('aria-expanded')==='true'&&!state.returnToTrigger){
+      var items=enabledMenuItems(menu);
+      var item=state.edge==='last'?items[items.length-1]:items[0];
+      if(item)item.focus({preventScroll:true});
+    }else if(trigger&&state.returnToTrigger){
+      trigger.focus({preventScroll:true});
+    }
+  }
+
+  function bindMenuKeyboard(bridge,root){
+    root.querySelectorAll('[aria-haspopup="menu"][aria-controls]').forEach(function(trigger){
+      if(trigger.__fissionMenuTriggerBound)return;
+      trigger.__fissionMenuTriggerBound=true;
+      trigger.addEventListener('keydown',function(event){
+        if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+        event.preventDefault();
+        var controls=trigger.getAttribute('aria-controls');
+        var edge=event.key==='ArrowUp'?'last':'first';
+        var menu=controlledMenu(root,controls);
+        if(menu&&trigger.getAttribute('aria-expanded')==='true'){
+          var items=enabledMenuItems(menu);
+          var item=edge==='last'?items[items.length-1]:items[0];
+          if(item)item.focus();
+          return;
+        }
+        bridge.pendingMenuFocus={controls:controls,edge:edge,returnToTrigger:false};
+        trigger.click();
+      });
+    });
+    root.querySelectorAll('[role="menu"]').forEach(function(menu){
+      if(menu.__fissionMenuKeyboardBound)return;
+      menu.__fissionMenuKeyboardBound=true;
+      menu.addEventListener('keydown',function(event){
+        var items=enabledMenuItems(menu);
+        if(!items.length)return;
+        var index=items.indexOf(document.activeElement);
+        var next=null;
+        if(event.key==='ArrowDown')next=items[(index+1+items.length)%items.length];
+        else if(event.key==='ArrowUp')next=items[(index-1+items.length)%items.length];
+        else if(event.key==='Home')next=items[0];
+        else if(event.key==='End')next=items[items.length-1];
+        else if(event.key==='Escape'){
+          event.preventDefault();
+          var trigger=menuController(root,menu.id);
+          if(trigger){
+            bridge.pendingMenuFocus={controls:menu.id,edge:'first',returnToTrigger:true};
+            trigger.click();
+          }
+          return;
+        }
+        if(next){event.preventDefault();next.focus();}
+      });
+    });
+  }
+
   function utf8Offset(value,utf16Offset){
     var bounded=Math.max(0,Math.min(value.length,typeof utf16Offset==='number'?utf16Offset:value.length));
     if(bounded>0&&bounded<value.length){
@@ -279,17 +527,45 @@
   function bindFissionBrowserActions(bridge){
     var root=browserActionRoot(bridge);
     if(!root)return;
-    root.querySelectorAll('[data-fission-browser-action="true"]').forEach(function(el){
-      if(el.__fissionBrowserActionBound)return;
-      el.__fissionBrowserActionBound=true;
-      var handler=function(domEvent){
-        domEvent.preventDefault();
+    root.querySelectorAll('[data-fission-browser-range-action="true"]').forEach(function(el){
+      if(el.__fissionBrowserRangeActionBound)return;
+      el.__fissionBrowserRangeActionBound=true;
+      el.addEventListener('input',function(){
+        var node=el.getAttribute('data-fission-node')||'';
+        bridge.activeRangeNode=node;
         var payload={
           type:'event',
           artifact:{kind:bridge.kind,id:bridge.id},
           binding:{
             semantics:el.getAttribute('data-fission-semantics')||null,
-            event:'click',
+            event:'input',
+            message:{
+              fission_browser_range_action:true,
+              target_node:el.getAttribute('data-fission-action-target')||''
+            }
+          },
+          value:String(el.value==null?'':el.value),
+          checked:null,
+          sequence:++bridge.sequence
+        };
+        try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
+      });
+      el.addEventListener('change',function(){finishControlInteraction(bridge,'range',el.getAttribute('data-fission-node')||'');});
+      el.addEventListener('blur',function(){finishControlInteraction(bridge,'range',el.getAttribute('data-fission-node')||'');});
+      el.addEventListener('pointercancel',function(){finishControlInteraction(bridge,'range',el.getAttribute('data-fission-node')||'');});
+    });
+    root.querySelectorAll('[data-fission-browser-action="true"]').forEach(function(el){
+      if(el.__fissionBrowserActionBound)return;
+      el.__fissionBrowserActionBound=true;
+      var nativeCheckable=el.matches('input[type="checkbox"],input[type="radio"]');
+      var handler=function(domEvent){
+        if(!nativeCheckable)domEvent.preventDefault();
+        var payload={
+          type:'event',
+          artifact:{kind:bridge.kind,id:bridge.id},
+          binding:{
+            semantics:el.getAttribute('data-fission-semantics')||null,
+            event:nativeCheckable?'change':'click',
             message:{
               fission_browser_action:true,
               action_id:el.getAttribute('data-fission-action-id')||'',
@@ -303,12 +579,7 @@
         };
         try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
       };
-      el.addEventListener('click',handler);
-      el.addEventListener('keydown',function(domEvent){
-        if(domEvent.key==='Enter'||domEvent.key===' '){
-          handler(domEvent);
-        }
-      });
+      el.addEventListener(nativeCheckable?'change':'click',handler);
     });
     root.querySelectorAll('[data-fission-browser-text-action="true"]').forEach(function(el){
       if(el.__fissionBrowserTextActionBound)return;
@@ -327,6 +598,9 @@
       var dispatchTextInput=function(domEvent){
         if(composing||domEvent.isComposing)return;
         var value=String(el.value==null?'':el.value);
+        if(typeof el.selectionStart!=='number'){
+          bridge.activeNonSelectableTextNode=el.getAttribute('data-fission-node')||'';
+        }
         if(domEvent.type==='input'&&compositionCommitValue!==null){
           var duplicateCompositionInput=value===compositionCommitValue;
           compositionCommitValue=null;
@@ -361,7 +635,10 @@
         dispatchTextInput(domEvent);
       });
       el.addEventListener('input',dispatchTextInput);
+      el.addEventListener('change',function(){finishControlInteraction(bridge,'text',el.getAttribute('data-fission-node')||'');});
+      el.addEventListener('blur',function(){finishControlInteraction(bridge,'text',el.getAttribute('data-fission-node')||'');});
     });
+    bindMenuKeyboard(bridge,root);
   }
 
   if(globalThis.__FISSION_SERVER_RUNTIME_TEST_HOOK__){
@@ -369,8 +646,17 @@
       bindFissionBrowserActions:bindFissionBrowserActions,
       captureFocusedTextControl:captureFocusedTextControl,
       restoreFocusedTextControl:restoreFocusedTextControl,
+      captureMenuFocus:captureMenuFocus,
+      restoreMenuFocus:restoreMenuFocus,
+      bindMenuKeyboard:bindMenuKeyboard,
+      positionFlyout:positionFlyout,
+      positionFissionFlyouts:positionFissionFlyouts,
+      handleBridgeRequest:handleBridgeRequest,
       textControlSelection:textControlSelection,
-      utf8Offset:utf8Offset
+      utf8Offset:utf8Offset,
+      applyDomOp:applyDomOp,
+      flushDeferredDomReplacements:flushDeferredDomReplacements,
+      shouldDeferDomReplacement:shouldDeferDomReplacement
     };
   }
 
@@ -534,6 +820,7 @@ self.onmessage=function(event){
 
   var currentManifest={};
   document.addEventListener('DOMContentLoaded',function(){
+    positionFissionFlyouts(document);
     var manifestEl=document.getElementById('fission-route-manifest');
     if(!manifestEl)return;
     try{currentManifest=JSON.parse(manifestEl.textContent||'{}');}catch(error){return;}
@@ -544,4 +831,6 @@ self.onmessage=function(event){
       instantiateArtifact(island,'island').catch(function(error){setTextBySemantics('island-status:'+island.id,'Island failed: '+error.message);});
     });
   });
+  window.addEventListener('resize',function(){positionFissionFlyouts(document);});
+  window.addEventListener('scroll',function(){positionFissionFlyouts(document);},true);
 }());

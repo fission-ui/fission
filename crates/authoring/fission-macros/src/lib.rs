@@ -126,17 +126,16 @@ pub fn fission_reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Marks a struct as a Fission component and turns `#[local_state]` fields into
-/// typed accessor methods.
+/// Adds retained local state to a widget or component struct.
 ///
-/// This implements the v2 authoring shape where props remain ordinary struct
-/// fields and retained local state is accessed through generated
-/// `StateField<T>` handles.
+/// Ordinary fields remain constructor properties. Fields annotated with
+/// `#[local_state]` are removed from the constructor shape and exposed through
+/// generated `StateField<T>` accessor methods.
 #[proc_macro_attribute]
-pub fn fission_component(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn with_local_state(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemStruct);
 
-    match expand_fission_component(input) {
+    match expand_with_local_state(input) {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }
@@ -231,7 +230,7 @@ struct LocalStateField {
     default: Expr,
 }
 
-fn expand_fission_component(mut input: ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
+fn expand_with_local_state(mut input: ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
     let component_ident = input.ident.clone();
     let component_name = quote! { concat!(module_path!(), "::", stringify!(#component_ident)) };
     let fission_core_path = fission_core_path();
@@ -240,7 +239,7 @@ fn expand_fission_component(mut input: ItemStruct) -> syn::Result<proc_macro2::T
     let Fields::Named(fields) = &mut input.fields else {
         return Err(syn::Error::new_spanned(
             &input.fields,
-            "#[fission_component] requires a struct with named fields",
+            "#[with_local_state] requires a struct with named fields",
         ));
     };
 

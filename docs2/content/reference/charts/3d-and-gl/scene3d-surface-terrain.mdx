@@ -1,0 +1,53 @@
+---
+title: 3D terrain response
+sidebar_label: 3D terrain response
+description: Present an elevation-like field with an explicit measurement and interpolation contract.
+---
+
+# 3D terrain response
+
+![3D terrain response screenshot](/img/charts/scene3d-surface-terrain.png)
+
+A terrain-like surface may represent physical elevation or another response drawn as height. Those meanings should not be left ambiguous. A high point in an equipment-response model is not necessarily a physical hill or a more dangerous operating condition.
+
+State what the two ground-plane coordinates and height represent before choosing units and scale.
+
+## Compose the validated field
+
+Use `regular_surface` from [3D surface](./surface3d-basic) for complete regular grids, then render the geometry with `SurveySurface` from [Mesh surface](./mesh-surface), placed in `widgets/survey_surface.rs`.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::three_d::Point3D;
+use crate::widgets::survey_surface::SurveySurface;
+
+fission_component! {
+    pub MeasuredFieldSurface<()> {
+        props {
+            title: TextContent,
+            field_vertices: Vec<Point3D>,
+            triangles: Vec<u32>,
+            field_color: Color,
+        }
+    }
+    view(field, _state, _cx) => SurveySurface {
+        title: field.title.clone(),
+        vertices: field.field_vertices.clone(),
+        indices: field.triangles.clone(),
+        surface_color: field.field_color,
+    }
+}
+```
+
+Enable the `three-d` feature. The parent provides translated text and theme colour; the projection owns finite coordinates, triangle connectivity and the missing-measurement policy.
+
+## Checks
+
+Do not fill absent values with zero merely to obtain a complete mesh. Test the units and interpolation on a small known dataset, then inspect the rendered shape for misleading slopes or holes.
+
+Provide a source-value table or accessible explanation of the field. `Scene3D` renders geometry; it does not infer axis labels, camera settings or per-cell chart events. The screenshot is sample gallery output.
+
+Tags: `3d`, `terrain`.
+
+[3D and GL family overview](./overview)

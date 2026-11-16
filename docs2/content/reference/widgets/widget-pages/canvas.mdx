@@ -1,0 +1,70 @@
+---
+title: canvas
+description: Draw a lightweight custom surface from a deterministic lowering closure.
+slug: /widgets/canvas
+---
+# canvas
+
+`canvas(...)` is a low-level drawing helper for Fission library code.
+
+It creates a fixed-size custom widget and runs your painter closure during
+lowering. Use it for small surfaces such as custom indicators or chart details
+that ordinary widget composition cannot express.
+
+Most application authors should start with normal widgets such as [`Container`](/reference/widgets/container), [`Composite`](/reference/widgets/composite), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), and [`Text`](/reference/widgets/text). Those widgets are easier to theme, test, document, and make accessible. Reach for `canvas(...)` only when you need custom IR emission.
+
+## Example shape
+
+```rust
+use fission::prelude::*;
+use fission::authoring::IrBuilder;
+use fission::op::Op;
+
+fn vector_marker(fill: Fill) -> Widget {
+    canvas(Some(16.0), Some(16.0), move |cx| {
+        let marker = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Paint(PaintOp::DrawPath {
+                path: "M 2 2 L 14 8 L 2 14 Z".into(),
+                fill: Some(fill.clone()),
+                stroke: None,
+                view_box: Some([16.0, 16.0]),
+            }),
+        )
+        .build(cx);
+        vec![marker]
+    })
+}
+```
+
+This emits a triangular marker and takes its fill from the caller. For an
+ordinary symbol use `Icon`; this small example isolates the IR hook. Product
+components still use `fission_component!`, calling a low-level drawing helper
+only when normal widget composition cannot express the required surface.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `width` | `Option<f32>` | Fixed width of the canvas box. | `None` leaves width to the parent constraints. |
+| `height` | `Option<f32>` | Fixed height of the canvas box. | `None` leaves height to the parent constraints. |
+| `painter` | `Fn(&mut LoweringContext) -> Vec<WidgetId>` | Closure that emits child IR ids to group inside the canvas box. | Required. This is an advanced lowering hook, not normal app authoring. |
+
+## Behavior and advice
+
+`canvas(...)` is still descriptive. The closure runs during lowering and should not start network work, mutate product state, spawn tasks, or touch host APIs. It should emit deterministic IR for the current inputs.
+
+The helper does not automatically add semantics. If the visual surface communicates meaning, wrap it in surrounding widgets that provide labels or interaction. If the surface needs custom hit testing, event handling, input method editor behavior, or runtime painting, use [`CustomWidget`](/reference/widgets/custom-widget) and document the custom behavior carefully.
+
+Treat `canvas(...)` as an advanced library escape hatch. It should not appear in ordinary examples that teach application structure.
+
+## Production checklist
+
+- Verify the painter emits deterministic nodes and returns their built IDs.
+- Supply theme-derived paint; do not hide another palette inside the helper.
+- Add surrounding semantics when the surface communicates meaning, and use a
+  specific input widget when it must respond to interaction.
+
+## Related
+
+[`CanvasLowerer`](/reference/widgets/canvas-lowerer), [`CustomWidget`](/reference/widgets/custom-widget), [`Composite`](/reference/widgets/composite), and [`Container`](/reference/widgets/container).

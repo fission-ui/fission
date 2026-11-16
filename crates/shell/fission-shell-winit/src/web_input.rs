@@ -42,6 +42,7 @@ pub(crate) fn to_winit(defaults: BrowserDefaults) -> winit::platform::web::Brows
     let mut result = WinitDefaults::NONE;
     for (fission, winit) in [
         (BrowserDefaults::KEYBOARD, WinitDefaults::KEYBOARD),
+        (BrowserDefaults::KEYBOARD, WinitDefaults::KEYBOARD_SHORTCUTS),
         (BrowserDefaults::POINTER, WinitDefaults::POINTER),
         (BrowserDefaults::TOUCH, WinitDefaults::TOUCH),
         (BrowserDefaults::WHEEL, WinitDefaults::WHEEL),

@@ -1,35 +1,8 @@
 use crate::app::StoreState;
 use fission::prelude::*;
-
-pub struct StatusChip {
-    pub label: &'static str,
-    pub identifier: &'static str,
-    pub status: &'static str,
-}
-
-impl From<StatusChip> for Widget {
-    fn from(chip: StatusChip) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
-        let typography = &tokens.typography;
-
-        Column {
-            gap: Some(tokens.spacing.xs),
-            children: widgets![
-                Text::new(chip.label)
-                    .size(typography.font_size_xs)
-                    .line_height(typography.font_size_xs * typography.line_height_snug)
-                    .weight(typography.font_weight_bold)
-                    .color(tokens.colors.text_muted),
-                Text::new(chip.status)
-                    .size(typography.body_medium_size)
-                    .line_height(typography.body_medium_size * typography.line_height_snug)
-                    .weight(typography.font_weight_bold)
-                    .color(tokens.colors.text_secondary)
-                    .semantics_identifier(chip.identifier),
-            ],
-            ..Default::default()
-        }
-        .into()
-    }
+fission_component! { pub StatusChip<StoreState> { label: &'static str, identifier: &'static str, status: &'static str } |chip, _state, cx| { let t=&cx.view.env().theme.tokens; } =>
+    Column(gap:t.spacing.xs, children:[
+        Text(chip.label).size(t.typography.font_size_xs).line_height(t.typography.font_size_xs*t.typography.line_height_snug).weight(t.typography.font_weight_bold).color(t.colors.text_muted),
+        Text(chip.status).size(t.typography.body_medium_size).line_height(t.typography.body_medium_size*t.typography.line_height_snug).weight(t.typography.font_weight_bold).color(t.colors.text_secondary).semantics_identifier(chip.identifier),
+    ])
 }

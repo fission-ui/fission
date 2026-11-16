@@ -1,0 +1,54 @@
+---
+title: Score gauge
+sidebar_label: Score gauge
+description: Fission Charts reference for Score gauge.
+---
+
+# Score gauge
+
+![Score gauge screenshot](/img/charts/gauge-score.png)
+
+A readiness score can summarise a defined set of checks, but the number only means something if the scoring rule is visible. A gauge presents a score; it does not calculate readiness or decide whether a release is safe. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the score to orient the reader before showing the checks which produced it. A score of 90 is not a 90% probability of success, and an average must not conceal a blocking failed check.
+
+## Data model
+
+The renderer maps the first `GaugeSeries` value onto a fixed 0–100 arc. Calculate the policy score and validate its range before building the component. Keep failed and unavailable checks in the report, not just the resulting number.
+
+## Authoring from a Fission component
+
+The component is a presentation boundary for an already-computed deployment readiness score. It has no local state because the score belongs to the parent's readiness report.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GaugeSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DeploymentReadinessGauge<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            value_label: String,
+            readiness_score: f32,
+        }
+    }
+    view(readiness, _state, _cx) => Chart(
+        title: Some(readiness.chart_title.clone()),
+        series: vec![GaugeSeries::new(&readiness.series_label)
+            .data(vec![(&readiness.value_label, readiness.readiness_score)])
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test all checks passing, a blocking failure and missing check results. Verify that rounding cannot turn a score just below a policy threshold into an apparent pass. Provide the named score, its scale and the blocking checks as accessible content outside the gauge.
+
+Tags: `gauge`, `score`.
+
+[Pie and radial family overview](./overview)

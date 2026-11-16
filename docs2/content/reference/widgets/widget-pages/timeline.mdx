@@ -1,0 +1,89 @@
+---
+title: Timeline
+description: Show a vertical sequence of events, milestones, or activity entries.
+slug: /widgets/timeline
+---
+# Timeline
+
+`Timeline` is the chronological sequence widget.
+
+Use it when order matters more than tabular comparison. Timelines work well for activity feeds, deployment history, message milestones, shipping updates, and audit trails.
+
+Use `TimelineLayout` when entries contain retained interactive content or have
+different heights. It keeps the marker rail and connector owned by Fission while
+the application supplies cards, controls, or other semantic entry content.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub DeploymentHistory<()> {
+        props { events: Vec<TimelineItem> }
+    }
+
+    view(history, _state, _cx) =>
+        Timeline(items: history.events.clone())
+}
+```
+
+The parent maps real deployment events into translated titles, useful
+explanations, and locale-formatted timestamps in chronological order. It must
+not show queued/running fixture events as evidence of a deployment.
+
+For rich entries, give each entry a durable identity. This configuration excerpt
+assumes the parent owns these entry children and bound review action:
+
+```rust
+let widget: Widget = TimelineLayout::new(vec![
+    TimelineEntry::new(
+        WidgetId::explicit("deploy.build"),
+        Card {
+            child: Text::new(cx.tr("deployment.build_and_test")).into(),
+            ..Default::default()
+        },
+    ),
+    TimelineEntry::new(
+        WidgetId::explicit("deploy.review"),
+        Button {
+            content: Some(ButtonContent::new(cx.tr("deployment.review"))),
+            on_press: Some(review_action),
+            ..Default::default()
+        },
+    ),
+])
+.spacing(cx.view.env().theme.tokens.spacing.m, cx.view.env().theme.tokens.spacing.l)
+.into();
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `items` | `Vec<TimelineItem>` | Events shown from top to bottom. | Defaults to an empty list. |
+
+`TimelineLayout` accepts `TimelineEntry` values with a stable `id`, retained
+`child`, and optional retained `marker`. Its builders configure marker geometry,
+entry spacing, and connector paint without making callers draw connector
+segments themselves.
+
+## Layout and usage guidance
+
+The checked-in renderer draws a dot and vertical connector line for each item, then stacks the event content beside it. This makes the widget easy to scan in a single column.
+
+A timeline is strongest when entries represent real moments in a meaningful order. If users mostly need to compare attributes across many rows, a table is usually the better fit.
+
+## Specific advice
+
+Avoid stuffing a full paragraph into every event. Timelines stay readable when the title carries the main meaning and the description adds only the context that helps the user decide what happened.
+
+## Check the timeline in context
+
+- Pass events in the order you want people to read them; keep the title short and put only useful context in the description.
+- Use `TimelineLayout` when entries have different heights or contain controls, and give each retained entry a durable identity.
+- Test long translated entries and narrow widths so text does not obscure the marker rail or connector.
+
+## Related
+
+[`TimelineItem`](/reference/widgets/timeline-item), [`DataTable`](/reference/widgets/data-table), [`Alert`](/reference/widgets/alert), and [`Card`](/reference/widgets/card).

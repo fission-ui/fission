@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.15.1", features = ["desktop"] }
+fission = { version = "0.16.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
@@ -26,6 +26,13 @@ fission init my-app
 cd my-app
 fission run
 ```
+
+### Using Fission from Git
+
+For native desktop and mobile builds, Fission's shell and its built-in
+AccessKit adapter share the same pinned `fission-winit` dependency. Cargo does
+not need an application-level `[patch.crates-io]` entry when you consume Fission
+from Git.
 
 ## What the facade gives you
 
@@ -60,47 +67,44 @@ Portable widgets and core APIs are available from the facade without making appl
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
-struct CounterApp {
-    #[local_state(default = 0)]
-    count: i32,
-}
-
-#[fission_reducer(Increment)]
-fn increment(count: &mut i32) {
-    *count += 1;
-}
-
-impl From<CounterApp> for Widget {
-    fn from(counter: CounterApp) -> Widget {
-        let (ctx, _) = fission::build::current::<()>();
-        let count = counter.count();
-        let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
-
-        Container::new(Column {
-            gap: Some(20.0),
-            children: widgets![
-                Text::new("Counter").size(32.0),
-                Text::new(format!("{}", count.get())).size(56.0),
-                Button {
-                    on_press: Some(increment),
-                    child: Some(Text::new("Increment").into()),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        })
-        .padding_all(32.0)
-        .into()
+fission_component! {
+    pub CounterApp<()> {
+        state {
+            count: i32 = 0,
+        }
     }
+    view(counter, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            children: [
+                Text("Counter").size(tokens.typography.heading1_size),
+                Text(counter.count.to_string())
+                    .size(tokens.typography.display_md_size),
+                Button(
+                    child: Text("Increment"),
+                    key: "increment",
+                    on_press: reduce { counter.count += 1; },
+                ),
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::<(), _>::new(CounterApp {}).run()
+    DesktopApp::<(), _>::new(CounterApp).run()
 }
 ```
 
-Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when you want a named action type that is shared across modules or documented as part of your app API.
+Compose is the recommended authoring surface. It resolves every widget through ordinary Rust imports,
+uses direct public struct fields with `Default` for omitted values and lowers to Fission's existing
+widget, action and effect contracts. Use a small inline handler for component-specific transitions;
+use `#[fission_reducer]` or `#[fission_action]` when the action is shared, independently tested or
+part of your application API. Handwritten `From<YourWidget> for Widget` implementations remain the
+lower-level escape hatch for custom rendering and infrastructure.
 
 ## Lifecycle workflow
 
@@ -122,6 +126,7 @@ fission distribute --project-dir . --provider github-releases --artifact target/
 Start at [fission.rs](https://fission.rs):
 
 - [Quickstart](https://fission.rs/docs/learn/quickstart/)
+- [Compose](https://fission.rs/compose/)
 - [App structure](https://fission.rs/docs/guides/app-structure/)
 - [Widgets and layout](https://fission.rs/docs/guides/layout-and-widgets/)
 - [Design systems](https://fission.rs/docs/guides/design-system/)

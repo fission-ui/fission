@@ -1,0 +1,153 @@
+---
+title: Microphone
+description: Request microphone permission and capture bounded audio through the host.
+---
+
+# Microphone
+
+Microphone capture is sensitive and should be explicit. The shared app asks for a bounded recording; the host owns device selection, permission, capture, encoding, and cancellation.
+
+This example records a five-second voice note and retains the capture metadata and stream handle. It is a bounded capture, not a recorder with pause, resume, or an editable timeline. The button states that limit before the user starts it.
+
+Do not start recording from build code or background state changes. Use a visible user action, make the recording duration clear, and handle cancellation or denied permission.
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Debug, Default)]
+struct MicrophoneState {
+    voice_note: Option<MicrophoneCapture>,
+    microphone_error: Option<String>,
+    recording: bool,
+}
+
+impl GlobalState for MicrophoneState {}
+```
+
+Keep the status separate from the captured note. `MicrophoneCapture` contains the actual sample rate, channel count, content type, duration, and stream id. The stream belongs to this runtime session; persisting its id does not save the recording. Playback, upload, or durable storage must consume the stream through the appropriate asynchronous service.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability microphone --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android `RECORD_AUDIO` and iOS `NSMicrophoneUsageDescription`. Packaged macOS apps need microphone usage text, and Windows packages may need microphone capability metadata.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed microphone request your reducer makes; the record call is shown below.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Recording completes after its starting reducer returns. Handle the stream result and errors in completion reducers.
+
+```rust
+#[fission_reducer(AudioCaptured)]
+fn on_audio_captured(state: &mut MicrophoneState, ctx: &mut ReducerContext<MicrophoneState>) {
+    state.recording = false;
+    match ctx.input.capability_ok(CAPTURE_MICROPHONE_AUDIO) {
+        Some(capture) => {
+            state.voice_note = Some(capture);
+            state.microphone_error = None;
+        }
+        None => state.microphone_error = Some("The host returned no recording".into()),
+    }
+}
+
+#[fission_reducer(AudioCaptureFailed)]
+fn on_audio_capture_failed(state: &mut MicrophoneState, ctx: &mut ReducerContext<MicrophoneState>) {
+    state.recording = false;
+    state.microphone_error = Some(
+        ctx.input.capability_error(CAPTURE_MICROPHONE_AUDIO)
+            .map(|error| error.message)
+            .unwrap_or_else(|| "The host could not record audio".into()),
+    );
+}
+```
+
+The completion action is only a signal to run the reducer. Read the real capture from `ctx.input`; passing `MicrophoneCapture::default()` in the action would not populate it with the host response. Both paths clear `recording`, so denial cannot leave the screen permanently busy.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+#[fission_reducer(RecordVoiceNote)]
+fn on_record_voice_note(state: &mut MicrophoneState, ctx: &mut ReducerContext<MicrophoneState>) {
+    if state.recording { return; }
+    state.recording = true;
+    state.voice_note = None;
+    state.microphone_error = None;
+    let captured = ctx.effects.bind(AudioCaptured, reduce_with!(on_audio_captured));
+    let failed = ctx.effects.bind(AudioCaptureFailed, reduce_with!(on_audio_capture_failed));
+    ctx.effects.microphone().capture_audio(MicrophoneCaptureRequest {
+        duration_ms: 5_000,
+        channels: Some(1),
+        sample_format: AudioSampleFormat::I16,
+        ..Default::default()
+    }).on_ok(captured).on_err(failed);
+}
+```
+
+The host chooses its supported sample rate and reports the actual value in the capture. Request a particular rate only when the downstream service requires one, and handle a host that cannot supply it. If this grows into a longer recorder, add an explicit cancellation action using `cancel_capture`, rather than keeping the microphone open indefinitely.
+
+## 5. Trigger the reducer from the UI
+
+Bind the button to the reducer that starts recording:
+
+```rust
+fission_component! {
+    pub RecordVoiceNoteButton<MicrophoneState> {}
+    view(_button, state, cx) {
+        let run = cx.bind(RecordVoiceNote, reduce!(on_record_voice_note));
+    }
+    => Column(children: [
+        Button(child: Text(cx.tr("voice_note.record_five_seconds")), disabled: state.recording, on_press: run),
+        if state.recording { Spinner(motion: SpinnerMotion::Default, label: cx.tr("voice_note.recording")) },
+        if state.voice_note.is_some() { Text(cx.tr("voice_note.captured")) },
+        if let Some(error) = &state.microphone_error { Alert(title: error.clone(), kind: AlertKind::Error) },
+    ])
+}
+```
+Add the `voice_note.*` labels to the app's translation bundles. A captured status means audio is available in this session, not that it has been uploaded or saved. Those operations need their own pending, success, and failure states.
+
+## 6. Provide and test the host behavior
+
+Register a `MicrophoneHost` with `.with_microphone_host(...)`. Use `MemoryMicrophoneHost` in tests. Providers should keep capture bounded and return typed errors for denied permission, no input devices, and unsupported formats.
+
+Test permission denial, no microphone, successful capture, unsupported format, and cancellation. Reducers should clear recording state on both success and failure.
+
+Test the duration limit, cancellation, permission denial, stream result, and provider failure. Test playback or upload as separate work that consumes the stream.
+
+## Platform expectations
+
+Android, iOS, web, Windows, and macOS have microphone APIs. Linux depends on portals and audio services such as PulseAudio or PipeWire. Browser capture requires a secure origin and user permission.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Microphone reference](/reference/capabilities/microphone/).
+
+## Finished capability flow
+
+A complete `Microphone` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

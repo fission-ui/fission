@@ -1,0 +1,502 @@
+---
+layout: goal
+title: Localise a Fission Android app
+description: "Switch a service-enquiry draft between English and Spanish without translating the user's text or storing already-translated validation messages."
+goal: "Keep the selected locale in app state and render the same enquiry, validation and review flow through checked-in English and Spanish bundles."
+path: /blog/localise-a-fission-android-app/
+order: 35
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-localise-a-fission-android-app
+outcomes:
+  - "Load both translation bundles once when configuring the shell"
+  - "Mirror locale from shared state into Env"
+  - "Translate meaningful labels and errors without changing entered names or notes"
+  - "Test key parity, long messages and preserving content across locale changes"
+---
+
+## Separate the interface language from application content
+
+Changing language should change the interface, not rewrite what the user entered. The distinction is easy to lose if a reducer stores a translated error message: that message stays in the old language after the rest of the screen changes.
+
+Here, the selected locale belongs to `GlobalState`. A single shell callback mirrors it into `Env`, and components resolve message keys whilst building the current view. The second step adds a service-enquiry draft so we can check a long action label, a validation error and an empty state in both languages. Preparing the enquiry is a local review; this example does not claim to submit it.
+
+## Create the project
+
+Complete [Android SDK/NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and prepare [an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [a phone](/blog/run-a-fission-app-on-a-physical-android-phone/).
+
+```sh
+fission init android-localise-a-fission-android-app
+cd android-localise-a-fission-android-app
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+Keep the generated `src/main.rs`. Both native and Web entrypoints below install the same bundles and the same environment synchronisation. There is no second locale registry in the screen.
+
+<!-- fission:step id="start-screen" -->
+## Load both bundles and switch the active locale
+
+Translation keys describe meaning, not location. For example, `enquiry.invalid` still makes sense if the form moves to another screen. Keep both bundles in checked-in files so changes can be reviewed and tested.
+
+The language selector changes app state through a reducer. `with_sync_env` then updates the active locale for every component; widgets do not need their own language-switching logic.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Debug)]
+pub struct EnquiryState {
+    pub locale: Locale,
+    pub prepared_subject: Option<String>,
+}
+
+impl Default for EnquiryState {
+    fn default() -> Self {
+        Self { locale: Locale::from("en-US"), prepared_subject: None }
+    }
+}
+impl GlobalState for EnquiryState {}
+
+impl EnquiryState {
+    pub fn prepare(&mut self, subject: &str) -> bool {
+        let subject = subject.trim();
+        if subject.chars().count() < 5 { return false; }
+        self.prepared_subject = Some(subject.to_owned());
+        true
+    }
+}
+```
+</TabItem>
+<TabItem label="src/language_picker.rs">
+<!-- fission:file path="src/language_picker.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::EnquiryState;
+
+fission_component! {
+    pub LanguagePicker<EnquiryState> {}
+    view(_picker, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Column(gap: tokens.spacing.s, children: [
+        Text(cx.tr("language.title")).weight(tokens.typography.font_weight_semibold),
+        Wrap(spacing: tokens.spacing.s, children: [
+            Button(
+                child: Text(cx.tr("language.english")),
+                key: "language-english",
+                disabled: state.locale == Locale::from("en-US"),
+                on_press: reduce { state.locale = Locale::from("en-US"); },
+            ).semantics_identifier("language.english"),
+            Button(
+                child: Text(cx.tr("language.spanish")),
+                key: "language-spanish",
+                disabled: state.locale == Locale::from("es-ES"),
+                on_press: reduce { state.locale = Locale::from("es-ES"); },
+            ).semantics_identifier("language.spanish"),
+        ]),
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::language_picker::LanguagePicker;
+use crate::state::EnquiryState;
+
+fission_component! {
+    pub EnquiryApp<EnquiryState> {}
+    view(_app, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.l, children: [
+                    Text(cx.tr("enquiry.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("enquiry.context")),
+                    LanguagePicker(),
+                    Divider(),
+                    Text(cx.tr("language.explanation")),
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+
+pub fn sync_env(state: &crate::state::EnquiryState, env: &mut Env) {
+    env.locale = state.locale.clone();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_in_locales_have_the_same_keys_and_no_empty_messages() {
+        let english: HashMap<String, String> =
+            serde_yaml::from_str(include_str!("../i18n/en-US.yaml")).unwrap();
+        let spanish: HashMap<String, String> =
+            serde_yaml::from_str(include_str!("../i18n/es-ES.yaml")).unwrap();
+        let mut english_keys: Vec<_> = english.keys().collect();
+        let mut spanish_keys: Vec<_> = spanish.keys().collect();
+        english_keys.sort();
+        spanish_keys.sort();
+        assert_eq!(english_keys, spanish_keys);
+        assert!(english.values().chain(spanish.values()).all(|message| !message.trim().is_empty()));
+    }
+
+    #[test]
+    fn switching_locale_changes_messages_without_changing_user_content() {
+        let mut state = crate::state::EnquiryState::default();
+        assert!(state.prepare("Repair the door handle"));
+        let mut env = create_env();
+        let english = env.tr("enquiry.title");
+        state.locale = Locale::from("es-ES");
+        sync_env(&state, &mut env);
+        assert_ne!(english, env.tr("enquiry.title"));
+        assert_eq!(state.prepared_subject.as_deref(), Some("Repair the door handle"));
+    }
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+enquiry.title: "Prepare a service enquiry"
+enquiry.context: "Choose the interface language. Your own text is not translated or sent anywhere."
+language.title: "Interface language"
+language.english: "English"
+language.spanish: "Español"
+language.explanation: "Changing language updates the interface immediately. It does not change the content of an enquiry."
+enquiry.subject: "What do you need help with?"
+enquiry.subject_help: "Use at least 5 characters so the subject can identify the problem."
+enquiry.invalid: "Describe the problem in at least 5 characters before preparing the enquiry."
+enquiry.prepare: "Prepare this service enquiry for review"
+enquiry.prepared: "Prepared subject"
+enquiry.not_sent: "This is a local review, not a submitted request. No service has received it."
+enquiry.empty: "No enquiry prepared"
+enquiry.empty_help: "Describe the problem above, then prepare it for review."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+enquiry.title: "Preparar una consulta de servicio"
+enquiry.context: "Elige el idioma de la interfaz. Tu propio texto no se traduce ni se envía."
+language.title: "Idioma de la interfaz"
+language.english: "English"
+language.spanish: "Español"
+language.explanation: "Cambiar el idioma actualiza la interfaz inmediatamente. No cambia el contenido de una consulta."
+enquiry.subject: "¿Con qué necesitas ayuda?"
+enquiry.subject_help: "Usa al menos 5 caracteres para que el asunto permita identificar el problema."
+enquiry.invalid: "Describe el problema con al menos 5 caracteres antes de preparar la consulta."
+enquiry.prepare: "Preparar esta consulta de servicio para revisarla antes de continuar"
+enquiry.prepared: "Asunto preparado"
+enquiry.not_sent: "Esto es una revisión local, no una solicitud enviada. Ningún servicio la ha recibido."
+enquiry.empty: "No hay ninguna consulta preparada"
+enquiry.empty_help: "Describe el problema arriba y después prepáralo para revisarlo."
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod language_picker;
+mod translations;
+
+use app::EnquiryApp;
+use state::EnquiryState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<EnquiryState, EnquiryApp> {
+    let app = MobileApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env);
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod language_picker;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::EnquiryState, _>::new(app::EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Switch between English and Spanish. The heading and explanation should change together, whilst the selected-language action becomes disabled. The language names use their own spellings so someone who chose an unfamiliar language can still find the way back.
+
+This example makes the initial locale explicit as `en-US`. It does not detect Android's system language. If the app later adds system-locale selection, resolve it once to a supported bundle and store that result in the same state field rather than adding a competing locale authority.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Keep drafts intact whilst labels and errors change
+
+The enquiry draft is retained local UI state. Preparing a valid subject puts it into shared state for review, but changing language does neither. Error state is represented by `attempted` and the current validation result, not by an English error string.
+
+The Spanish action is deliberately longer. Let it take the space it needs; shortening every translation to match the English width hides the layout problem rather than solving it.
+
+<Tabs>
+<TabItem label="src/enquiry_draft.rs">
+<!-- fission:file path="src/enquiry_draft.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::EnquiryState;
+
+fission_component! {
+    pub EnquiryDraft<EnquiryState> {
+        state {
+            subject: String = String::new(),
+            attempted: bool = false,
+        }
+    }
+    view(draft, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let invalid = draft.attempted && draft.subject.trim().chars().count() < 5;
+    } =>
+    Column(gap: tokens.spacing.m, children: [
+        TextInput(
+            label: Some(cx.tr("enquiry.subject").into()),
+            helper_text: Some(cx.tr("enquiry.subject_help").into()),
+            error_text: if invalid { Some(cx.tr("enquiry.invalid").into()) } else { None },
+            validation_message: if invalid { Some(cx.tr("enquiry.invalid")) } else { None },
+            required: true,
+            bind: draft.subject,
+            semantics_identifier: "enquiry.subject".to_string(),
+        ),
+        Button(
+            child: Text(cx.tr("enquiry.prepare")),
+            key: "prepare-enquiry",
+            on_press: reduce {
+                draft.attempted = true;
+                if state.prepare(&draft.subject) { draft.attempted = false; }
+            },
+        ).semantics_identifier("enquiry.prepare"),
+        if let Some(subject) = &state.prepared_subject {
+            Card(child: Column(gap: tokens.spacing.s, children: [
+                Text(cx.tr("enquiry.prepared")).weight(tokens.typography.font_weight_semibold),
+                Text(subject.clone()),
+                Text(cx.tr("enquiry.not_sent")),
+            ]))
+        } else {
+            EmptyState(
+                title: cx.tr("enquiry.empty"),
+                description: cx.tr("enquiry.empty_help"),
+            )
+        },
+    ])
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::language_picker::LanguagePicker;
+use crate::state::EnquiryState;
+use crate::enquiry_draft::EnquiryDraft;
+fission_component! {
+    pub EnquiryApp<EnquiryState> {}
+    view(_app, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SafeArea(
+        child: Scroll(
+            child: Container(
+                child: Column(gap: tokens.spacing.l, children: [
+                    Text(cx.tr("enquiry.title")).size(tokens.typography.heading2_size),
+                    Text(cx.tr("enquiry.context")),
+                    LanguagePicker(),
+                    Divider(),
+                    EnquiryDraft(),
+                ]),
+            ).padding_all(tokens.spacing.l),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod language_picker;
+mod enquiry_draft;
+mod translations;
+
+use app::EnquiryApp;
+use state::EnquiryState;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<EnquiryState, EnquiryApp> {
+    let app = MobileApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env);
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<EnquiryState, _>::new(EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod language_picker;
+mod enquiry_draft;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::EnquiryState, _>::new(app::EnquiryApp)
+        .with_env(translations::create_env())
+        .with_sync_env(translations::sync_env)
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Try preparing an empty subject, then switch language whilst the validation error is visible. The error, input label, long action and empty-state guidance should all use the new language. Enter a valid subject and prepare it, then switch again: your text should remain exactly as entered.
+
+The bundle test checks key parity and empty messages. It does not prove that every authored key is correct, that the translation is good, or that a long label fits; those need review and rendered checks.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Check real layouts and missing messages
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission run --target android --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Repeat the error and review flows on a narrow phone and a wider emulator window. Increase Android's text size and check that the form remains scrollable, the actions remain reachable and nothing essential is clipped. The Web preview cannot prove Android text scaling or TalkBack behaviour.
+
+Fission's basic bundle registry looks up the exact locale and key. A missing message is rendered as its key; there is no automatic English fallback, plural-rule engine or translation of user-entered content in this example. Add tests and an explicit application policy when those requirements become relevant.
+
+<!-- fission:checkpoint -->
+You now have one state-driven locale, checked-in English and Spanish bundles, and the same language behaviour in native and Web shells. Changing a presentation input does not recreate the draft or turn a local review into a submitted request.
+
+### Current references
+
+- [I18N](/docs/guides/theming-and-i18n/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

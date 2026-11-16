@@ -1,0 +1,49 @@
+---
+title: BoxStyle
+description: Shared typed box model for sizing, spacing, alignment, overflow, positioning, grid placement, and flex participation.
+---
+
+# BoxStyle
+
+Sizing, spacing and alignment describe the same box regardless of whether it
+contains an image, a form or a media preview. `BoxStyle` keeps those layout
+inputs together so the widget's content does not need to implement them again.
+
+```rust
+const MEDIA_MAX_WIDTH: f32 = 960.0;
+const MEDIA_ASPECT_RATIO: f32 = 16.0 / 9.0;
+
+fission_component! {
+    pub MediaFrame<MediaState>
+    view(_frame, _state, cx) {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+        let style = BoxStyle::default()
+            .width(Length::percent(100.0))
+            .max_width(Length::points(MEDIA_MAX_WIDTH))
+            .padding_symmetric(
+                Length::points(spacing.xl),
+                Length::points(spacing.m),
+            )
+            .align(BoxAlignment::Center)
+            .overflow(Overflow::Clip)
+            .aspect_ratio(MEDIA_ASPECT_RATIO);
+    } =>
+    Container(child: MediaPreview(), box_style: style)
+}
+```
+
+The frame follows its parent's width up to the media limit; the aspect ratio
+constrains its shape. These are layout inputs, not instructions to crop the
+media itself. `MediaPreview` still chooses how its content fits that frame.
+
+| Field group | Methods |
+| --- | --- |
+| Preferred size | `width`, `height` |
+| Min/max size | `min_width`, `max_width`, `min_height`, `max_height` |
+| Spacing | `padding`, `padding_all`, `padding_symmetric`, `margin`, `margin_all`, `margin_symmetric` |
+| Overflow | `overflow` |
+| Alignment | `align` |
+| Ratio | `aspect_ratio` |
+| Positioning | `positioned` |
+| Grid placement | `grid` |
+| Flex | `flex` |

@@ -1,0 +1,39 @@
+---
+title: Capacity regions map
+sidebar_label: Capacity regions map
+description: Map regional utilisation with a meaningful capacity denominator.
+---
+
+# Capacity regions map
+
+![Capacity regions map screenshot](/img/charts/map-capacity-regions.png)
+
+A region with the largest workload may not be the region nearest its limit. Compare work against available capacity when deciding where to add resources, and keep both quantities in compatible units.
+
+```rust
+use crate::widgets::regional_report_map::RegionMeasure;
+
+pub fn capacity_use(
+    region_id: String,
+    used_units: f32,
+    available_units: f32,
+) -> Option<RegionMeasure> {
+    if !used_units.is_finite() || used_units < 0.0
+        || !available_units.is_finite() || available_units <= 0.0
+    {
+        return None;
+    }
+    Some(RegionMeasure {
+        region_id,
+        value: 100.0 * used_units / available_units,
+    })
+}
+```
+
+Use `RegionalReportMap` from [choropleth maps](../geographic-and-route/map-choropleth), in `widgets/regional_report_map.rs`, with supplied GeoJSON and these projected values. Translate the title, percentage label and an explanation of what counts as capacity.
+
+Do not silently cap overload at 100%. Choose colour bounds that can represent the expected overload range and include exact values in a list; an overflowing region should not look identical to a full one without explanation. Unknown or zero capacity is not zero utilisation.
+
+Keep capacity and usage from the same reporting snapshot and join stable region IDs rather than display names. Test absent denominators, overload and missing geometry before inspecting the visual. Gallery inputs are independent.
+
+[Geo family overview](./overview)

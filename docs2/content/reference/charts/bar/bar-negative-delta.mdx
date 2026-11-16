@@ -1,0 +1,65 @@
+---
+title: Negative delta bars
+sidebar_label: Negative delta bars
+description: Show whether a support backlog grew or shrank during each reporting period.
+---
+
+# Negative delta bars
+
+![Negative delta bars screenshot](/img/charts/bar-negative-delta.png)
+
+A delta is a change, not a level. For a support backlog, it can be calculated as opened tickets minus resolved tickets for each day. Positive values mean the backlog grew; negative values mean the team resolved more tickets than arrived.
+
+This does not tell the reader how many unresolved tickets remain. Keep that total visible elsewhere rather than asking a change chart to answer both questions.
+
+## Compose example
+
+Preserve period order and calculate changes from the same time window. The source counts remain in the application model; these rows are display projections.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart, Series};
+
+#[derive(Clone)]
+pub struct BacklogPeriod {
+    pub period: String,
+    pub opened_minus_resolved: f32,
+}
+
+fission_component! {
+    pub BacklogChangesChart<()> {
+        props {
+            title: String,
+            change_label: String,
+            rows: Vec<BacklogPeriod>,
+        }
+    }
+    view(backlog, _state, _cx) {
+        let labels = backlog.rows.iter().map(|row| row.period.as_str()).collect();
+        let changes: Vec<f32> = backlog.rows.iter()
+            .map(|row| row.opened_minus_resolved)
+            .collect();
+        let bound = changes.iter()
+            .fold(1.0_f32, |bound, value| bound.max(value.abs()));
+    } => Chart(
+        title: Some(backlog.title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().min(-bound).max(bound)),
+        series: vec![
+            Series::Bar(BarSeries::new(&backlog.change_label).data(changes)),
+        ],
+    )
+}
+```
+
+Enable the `charts` feature. A vertical `BarSeries` accepts negative values without a separate negative-series type. The symmetric limits keep equal changes comparable across zero. Finite inputs are required; an unavailable period should not be inserted as a zero change.
+
+## Interpretation and checks
+
+The position above or below zero carries direction, so a red/green distinction is not required. Keep exact opened, resolved and net counts in an accessible table. Labels and title are supplied by the parent for localisation.
+
+Test a day with equal arrivals and resolutions, one with backlog growth and one with backlog reduction. Check period boundaries and delayed ticket events in the data query, then inspect the zero baseline in a real rendering. The gallery screenshot uses sample values.
+
+Tags: `bar`, `negative`.
+
+[Bar family overview](./overview)

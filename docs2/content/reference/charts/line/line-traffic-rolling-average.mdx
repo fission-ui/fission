@@ -1,0 +1,67 @@
+---
+title: Traffic rolling average
+sidebar_label: Traffic rolling average
+description: Fission Charts reference for Traffic rolling average.
+---
+
+# Traffic rolling average
+
+![Traffic rolling average screenshot](/img/charts/line-traffic-rolling-average.png)
+
+A short rolling mean helps an operator distinguish a brief traffic burst from a sustained increase. Keeping the raw rate visible prevents that smoothing from hiding the burst entirely. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example compares regularly measured requests per second with a trailing five-minute mean. It is not a forecast or a smoothed drawing of the same line. The mean is a separately calculated series.
+
+## Data model
+
+Calculate rates from counters first, then calculate the trailing mean with a defined interval policy. For unequal sample durations, use an appropriate duration-weighted calculation rather than blindly averaging rates. Align each mean with the end of its window.
+
+## Authoring from a Fission component
+
+The component receives the reporting values and labels. Fetch, aggregate and validate those inputs before constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub TrafficRollingAverageChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            labels: Vec<String>,
+            requests_per_second: Vec<f32>,
+            five_minute_mean: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            legend: Some(Legend::top_right()),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.requests_per_second.clone())
+                    .into(),
+                LineSeries::new(&report.comparison_series_label)
+                    .data(report.five_minute_mean.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test counter resets, missing intervals and the first incomplete mean window. Verify the numeric calculation independently, and do not let a clean-looking mean obscure the exact request spike needed for an investigation.
+
+Tags: `line`, `average`.
+
+[Line family overview](./overview)

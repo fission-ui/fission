@@ -23,7 +23,7 @@ struct OpenTab {
 /// Lowers Docusaurus-style MDX `<Tabs>/<TabItem>` blocks into Markdown marker
 /// fences. Markdown inside each panel is still rendered by Fission; the site
 /// enhancement script only groups the already-rendered nodes into interactive tabs.
-pub(crate) fn expand_mdx_tabs(markdown: &str) -> Result<String> {
+pub fn expand_mdx_tabs(markdown: &str) -> Result<String> {
     let mut out = String::new();
     let mut group: Option<TabsGroup> = None;
     let mut tab: Option<OpenTab> = None;

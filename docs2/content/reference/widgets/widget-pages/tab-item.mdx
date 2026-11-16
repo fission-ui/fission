@@ -1,0 +1,53 @@
+---
+title: TabItem
+description: Describe one tab label, one content panel, and the action that selects it.
+slug: /widgets/tab-item
+---
+# TabItem
+
+`TabItem` is the data record used by [`Tabs`](/reference/widgets/tabs).
+
+Each item supplies a tab label, its panel content, and its selection action.
+`Tabs` renders the item whose index matches `active_index`.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+// In view setup: these content/action values belong to the parent settings app.
+let item = TabItem {
+    title: cx.tr("settings.security"),
+    content: security_panel_node,
+    on_press: Some(select_security_tab_action),
+    semantics_identifier: Some("settings.security".into()),
+};
+```
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `title` | `String` | Visible label for the tab button. | Required. |
+| `content` | `Widget` | Panel content for this tab. | Required. Only the active tab's content is shown. |
+| `on_press` | `Option<ActionEnvelope>` | Action fired when the tab is chosen. | Defaults to `None`. Usually sets the active index in state. |
+| `semantics_identifier` | `Option<String>` | Stable identifier for the generated tab semantic node. | Use it when titles may be duplicated or localized. |
+
+## Specific advice
+
+Keep tab titles short and parallel. Tabs work best when users can compare section names at a glance.
+
+`Tabs` turns each item into a semantic `Tab` related to its panel. Only the
+active item is selected and included in page-level Tab order; arrow keys move
+roving focus without dispatching `on_press`. `Enter` or `Space` activates the
+focused item's action, so selection remains controlled by application state.
+
+## Production checklist
+
+Test arrow-key focus separately from activation: moving focus is not selecting
+a tab. Keep `active_index` valid when the item list changes, and use stable
+identifiers and independently constructed panel trees for dynamic tabs.
+
+## Related
+
+[`Tabs`](/reference/widgets/tabs), [`Accordion`](/reference/widgets/accordion), [`Button`](/reference/widgets/button), and [`Text`](/reference/widgets/text).

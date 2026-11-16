@@ -1,0 +1,55 @@
+---
+title: Theme river
+sidebar_label: Theme river
+description: Fission Charts reference for Theme river.
+---
+
+# Theme river
+
+![Theme river screenshot](/img/charts/theme-river.png)
+
+A theme river shows how category contributions change across reporting buckets. For a support report, one band can represent tickets arriving in one primary category during each day. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use mutually exclusive categories and a common counting rule. The bands describe recorded arrivals, not backlog or continuous activity between observations.
+
+## Data model
+
+`ThemeRiverSeries` stores `(time_label, value, category)` tuples. The renderer sorts time labels lexically, spaces them evenly, replaces duplicate time/category entries and fills absent categories with zero. Preaggregate and use regular sortable labels; missing collection must not silently become zero arrivals.
+
+## Authoring from a Fission component
+
+The parent prepares complete daily buckets and localized category labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, ThemeRiverSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub SupportArrivalRiver<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            daily_category_counts: Vec<(String, f32, String)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.daily_category_counts.iter()
+            .map(|(date, count, category)| (date.as_str(), *count, category.as_str()))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![ThemeRiverSeries::new(&report.series_label).data(values).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test duplicate buckets, a category appearing late and a failed collection day. Provide exact daily/category values and the reporting timezone outside the image. Lexical spacing is not elapsed-time interpolation.
+
+Tags: `stream`, `time`.
+
+[Relationships and hierarchy family overview](./overview)

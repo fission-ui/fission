@@ -2,8 +2,7 @@ use super::accordion_preview::AccordionPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/accordion";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Success,
 };
 
-pub struct AccordionPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<AccordionPage<'_>> for Widget {
-    fn from(page: AccordionPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: AccordionPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub AccordionPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), AccordionPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {

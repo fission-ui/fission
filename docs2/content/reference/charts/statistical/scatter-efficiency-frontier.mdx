@@ -1,0 +1,57 @@
+---
+title: Efficiency frontier
+sidebar_label: Efficiency frontier
+description: Fission Charts reference for Efficiency frontier.
+---
+
+# Efficiency frontier
+
+![Efficiency frontier screenshot](/img/charts/scatter-efficiency-frontier.png)
+
+An efficiency comparison needs two explicit objectives. For a benchmark, lower energy consumption and greater completed throughput may be desirable, but only under comparable workloads. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This scatter presents measured configurations for inspection. It does not calculate or draw a Pareto frontier. If a report labels a configuration non-dominated, calculate that relation in the analytics model and retain its assumptions.
+
+## Data model
+
+Use `(energy_per_job, jobs_per_second)` numeric pairs. Validate units, workload, measurement duration and finite values before plotting. A point is dominated only under the explicitly chosen objectives; other constraints can still matter.
+
+## Authoring from a Fission component
+
+The parent supplies measured benchmark observations and localized labels, retaining configuration IDs and test conditions.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, ScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub BenchmarkEfficiencyScatter<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![ScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test equal objective values and measurements from different workloads. Do not claim a frontier or causal advantage from the picture alone. Provide exact values, uncertainty and configuration names outside the plot.
+
+Tags: `scatter`, `efficiency`.
+
+[Statistical family overview](./overview)

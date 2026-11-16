@@ -1,0 +1,616 @@
+---
+layout: goal
+title: Build an interactive canvas for Android
+description: "Build a user-authored workflow plan with stable nodes, real selection and movement, plus visible controls that do not require dragging."
+goal: "Add, connect, select and move actual workflow steps on an InfiniteCanvas without inventing nodes or losing their identity."
+path: /blog/build-an-interactive-canvas-for-android/
+order: 59
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target android --project-dir ."
+app: android-build-an-interactive-canvas-for-android
+outcomes:
+  - "Allocate stable node identities when the user creates workflow steps"
+  - "Decode actual canvas selection and movement payloads in reducers"
+  - "Keep plan records authoritative while drawing their relationships"
+  - "Provide non-gesture movement and removal controls alongside touch pan and zoom"
+---
+
+An inspection plan has two kinds of state. Its steps and their positions describe the document. Pan and zoom describe how someone is looking at that document. Moving the camera should not rewrite the plan, and moving a step should not change which step it is.
+
+Here, we build a small plan editor rather than a picture of a workflow. The user adds the steps, selects them and moves them. Fission's `InfiniteCanvas` supplies the retained canvas interaction; we do not recreate touch hit testing or camera transforms in the screen.
+
+The plan lasts for this app run. It does not execute the inspection, capture photographs or persist a work order.
+
+## Create the project and add the target
+
+Complete [Android SDK and NDK setup](/blog/set-up-rust-android-gui-development-with-fission/) and either [create an emulator](/blog/create-and-launch-a-fission-android-emulator/) or [connect a phone](/blog/run-a-fission-app-on-a-physical-android-phone/) first.
+
+```sh
+fission init android-build-an-interactive-canvas-for-android
+cd android-build-an-interactive-canvas-for-android
+fission add-target android --project-dir .
+cargo add serde_yaml
+```
+
+The Android and Web target features include `interactive-canvas` in this checkout. An app selecting capabilities manually must retain that feature. Keep the generated `src/main.rs`; replace `src/lib.rs` below so a normal Android launch runs the plan editor too.
+
+<!-- fission:step id="start-screen" -->
+## Create actual steps, then select and move them
+
+The draft belongs to the form. Adding a step validates the text and creates a record in app state. Each record receives a stable ID once; the suggested initial position can use the current list length, but identity cannot.
+
+Canvas interaction callbacks arrive through `cx.input.canvas_interaction()`. The reducer only applies changes to known nodes. An action cannot create an arbitrary node merely by naming an unknown ID.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InspectionStep {
+    pub key: String,
+    pub id: CanvasNodeId,
+    pub title: String,
+    pub detail: String,
+    pub bounds: LayoutRect,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InspectionCanvasState {
+    pub steps: Vec<InspectionStep>,
+    pub selected_step: Option<CanvasNodeId>,
+    next_id: u64,
+}
+impl Default for InspectionCanvasState {
+    fn default() -> Self {
+        Self { steps: Vec::new(), selected_step: None, next_id: 1 }
+    }
+}
+impl GlobalState for InspectionCanvasState {}
+
+impl InspectionCanvasState {
+    pub fn add_step(&mut self, title: String, detail: String) -> bool {
+        if title.trim().is_empty() || detail.trim().is_empty() { return false; }
+        let Some(next) = self.next_id.checked_add(1) else { return false };
+        let key = format!("inspection-step.{}", self.next_id);
+        let id = CanvasNodeId::explicit(&key);
+        let column = (self.steps.len() % 3) as f32;
+        let row = (self.steps.len() / 3) as f32;
+        self.steps.push(InspectionStep {
+            key,
+            id,
+            title: title.trim().to_owned(),
+            detail: detail.trim().to_owned(),
+            bounds: LayoutRect::new(column * 240.0, row * 160.0, 200.0, 120.0),
+        });
+        self.selected_step = Some(id);
+        self.next_id = next;
+        true
+    }
+
+    pub fn move_selected(&mut self, x: f32, y: f32) {
+        if let Some(step) = self.steps.iter_mut().find(|step| Some(step.id) == self.selected_step) {
+            step.bounds.origin.x += x;
+            step.bounds.origin.y += y;
+        }
+    }
+    pub fn remove_selected(&mut self) {
+        self.steps.retain(|step| Some(step.id) != self.selected_step);
+        self.selected_step = None;
+    }
+}
+
+#[fission_reducer(SelectInspectionStep)]
+pub fn select_inspection_step(state: &mut InspectionCanvasState, id: CanvasNodeId) {
+    if state.steps.iter().any(|step| step.id == id) {
+        state.selected_step = Some(id);
+    }
+}
+
+#[fission_reducer(EditInspectionCanvas)]
+pub fn edit_inspection_canvas(
+    state: &mut InspectionCanvasState,
+    cx: &mut ReducerContext<InspectionCanvasState>,
+) {
+    let Some(interaction) = cx.input.canvas_interaction() else { return };
+    match interaction.kind {
+        CanvasInteractionKind::SelectNode { node_id }
+            if interaction.phase == CanvasInteractionPhase::Activate =>
+        {
+            let id = CanvasNodeId::from_u128(node_id);
+            if state.steps.iter().any(|step| step.id == id) { state.selected_step = Some(id); }
+        }
+        CanvasInteractionKind::MoveNode { .. }
+            if interaction.phase == CanvasInteractionPhase::Update =>
+        {
+            for change in &interaction.node_changes {
+                if let Some(step) = state.steps.iter_mut().find(|step| step.id.0 == change.node_id) {
+                    step.bounds = change.after;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removing_an_earlier_step_does_not_change_the_remaining_id() {
+        let mut state = InspectionCanvasState::default();
+        state.add_step("Isolate equipment".into(), "Use the approved safety procedure".into());
+        state.add_step("Inspect filter".into(), "Record visible damage".into());
+        let second = state.steps[1].id;
+        state.selected_step = Some(state.steps[0].id);
+        state.remove_selected();
+        assert_eq!(state.steps[0].id, second);
+        state.add_step("Review evidence".into(), "Review the inspection record".into());
+        assert_ne!(state.steps[1].id, second);
+    }
+
+    #[test]
+    fn a_blank_title_leaves_the_plan_unchanged() {
+        let mut state = InspectionCanvasState::default();
+        assert!(!state.add_step(" ".into(), "A detail".into()));
+        assert!(state.steps.is_empty());
+    }
+}
+```
+</TabItem>
+<TabItem label="src/card.rs">
+<!-- fission:file path="src/card.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub InspectionStepCard<()> {
+        props { title: String, detail: String, selected: bool }
+    }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Column(gap: tokens.spacing.xs, children: [
+        Text(card.title.clone()).max_lines(2).weight(tokens.typography.font_weight_semibold),
+        Text(card.detail.clone()).max_lines(2).color(tokens.colors.text_secondary),
+    ]))
+    .padding_all(tokens.spacing.m)
+    .bg(if card.selected { tokens.colors.primary_subtle } else { tokens.colors.surface })
+    .border(if card.selected { tokens.colors.primary } else { tokens.colors.border }, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+
+use crate::card::InspectionStepCard;
+use crate::state::{
+    InspectionCanvasState, EditInspectionCanvas, edit_inspection_canvas,
+    SelectInspectionStep, select_inspection_step,
+};
+
+fission_component! {
+    pub App<InspectionCanvasState> {
+        state {
+            title: String = String::new(),
+            detail: String = String::new(),
+            invalid: bool = false,
+        }
+    }
+    view(draft, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let edit = with_reducer!(cx.build, EditInspectionCanvas, edit_inspection_canvas);
+        let selected = state.selected_step.into_iter().collect::<std::collections::BTreeSet<_>>();
+        let nodes = state.steps.iter().map(|step| {
+            let mut node = InfiniteCanvasNode::new(
+                step.id,
+                step.bounds,
+                Widget::from(InspectionStepCard::new(
+                    step.title.clone(),
+                    step.detail.clone(),
+                    state.selected_step == Some(step.id),
+                )).id(WidgetId::explicit(&format!("{}.card", step.key))),
+            );
+            node.resizable = false;
+            node
+        }).collect::<Vec<_>>();
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("canvas.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("canvas.description")),
+            TextInput(label: Some(cx.tr("canvas.new_title").into()), bind: draft.title,
+                required: true, semantics_identifier: "canvas.draft.title".to_string()),
+            TextInput(label: Some(cx.tr("canvas.new_detail").into()), bind: draft.detail,
+                required: true, semantics_identifier: "canvas.draft.detail".to_string()),
+            Button(
+                child: Text(cx.tr("canvas.add")),
+                key: "add-step",
+                on_press: reduce {
+                    if state.add_step(draft.title.clone(), draft.detail.clone()) {
+                        draft.title.clear();
+                        draft.detail.clear();
+                        draft.invalid = false;
+                    } else { draft.invalid = true; }
+                },
+            ).semantics_identifier("canvas.add-step"),
+            if draft.invalid { Text(cx.tr("canvas.invalid")).color(tokens.colors.error) },
+            if let Some(step) = state.steps.iter().find(|step| Some(step.id) == state.selected_step) {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(step.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(step.detail.clone()),
+                ])
+            },
+            Container(
+                if state.steps.is_empty() {
+                    EmptyState(title: cx.tr("canvas.empty"),
+                        description: Some(cx.tr("canvas.empty_help")))
+                } else {
+                    InfiniteCanvas(
+                        id: Some(WidgetId::explicit("inspection.plan")),
+                        nodes: nodes,
+
+                        selected_nodes: selected,
+                        selection_policy: CanvasSelectionPolicy::Single,
+                        grid: Some(CanvasGrid::lines(32.0, tokens.colors.border, 1.0)),
+                        min_scale: 0.25,
+                        max_scale: 3.0,
+                        actions: InfiniteCanvasActions {
+                            on_selection_change: Some(edit.clone()),
+                            on_node_move: Some(edit),
+                            ..Default::default()
+                        },
+                    )
+                }
+            ).height(360.0).border(tokens.colors.border, 1.0),
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(1040.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+mod state;
+mod card;
+mod translations;
+
+use app::App;
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::InspectionCanvasState, _>::new(App::new())
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::InspectionCanvasState, App> {
+    let app = MobileApp::<state::InspectionCanvasState, _>::new(App::new())
+        .with_env(translations::create_env());
+    #[cfg(all(target_os = "android", debug_assertions))]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::InspectionCanvasState, _>::new(App::new())
+        .with_env(translations::create_env())
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("valid checked-in translations");
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages,
+        });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+canvas.title: "Inspection plan"
+canvas.description: "Add the steps of a visit, then arrange the plan without changing the steps themselves."
+canvas.new_title: "Step title"
+canvas.new_detail: "What needs to happen?"
+canvas.add: "Add inspection step"
+canvas.invalid: "Enter both a title and a description."
+canvas.empty: "No inspection steps yet"
+canvas.empty_help: "Add the first step to start arranging the plan."
+canvas.next: "next"
+canvas.step_list: "Select and move a step without dragging"
+canvas.left: "Move left"
+canvas.right: "Move right"
+canvas.up: "Move up"
+canvas.down: "Move down"
+canvas.remove: "Remove selected step"
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+canvas.title: "Plan de inspección"
+canvas.description: "Añade los pasos de una visita y organiza el plan sin cambiar los pasos."
+canvas.new_title: "Título del paso"
+canvas.new_detail: "¿Qué debe hacerse?"
+canvas.add: "Añadir paso de inspección"
+canvas.invalid: "Introduce un título y una descripción."
+canvas.empty: "Aún no hay pasos de inspección"
+canvas.empty_help: "Añade el primer paso para empezar a organizar el plan."
+canvas.next: "siguiente"
+canvas.step_list: "Seleccionar y mover un paso sin arrastrarlo"
+canvas.left: "Mover a la izquierda"
+canvas.right: "Mover a la derecha"
+canvas.up: "Mover hacia arriba"
+canvas.down: "Mover hacia abajo"
+canvas.remove: "Eliminar el paso seleccionado"
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+mod state;
+mod card;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::InspectionCanvasState, _>::new(app::App::new())
+        .with_env(translations::create_env())
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Try an empty step first. Then add “Isolate equipment”, “Inspect filter” and “Review evidence”, giving each a description. Tap a node and drag it, then pan and zoom the canvas. The selected step's full text should remain readable outside its compact card.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Add relationships and a non-gesture editing path
+
+The connectors describe the sequence in which steps were added. Moving a card changes its geometry, not that sequence. Edge identity comes from its two endpoint IDs, so it remains attached when either endpoint moves.
+
+A canvas cannot be the only way to edit the plan. The labelled buttons below it use the same selected-step state as tapping a node. Movement and removal are ordinary reducers, so someone who cannot perform a precise drag can still arrange the plan.
+
+Replace only the screen; state, card and shells stay shared:
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use fission::op::{Fill, LineCap, LineJoin, Stroke};
+
+use crate::card::InspectionStepCard;
+use crate::state::{
+    InspectionCanvasState, EditInspectionCanvas, edit_inspection_canvas,
+    SelectInspectionStep, select_inspection_step,
+};
+
+fission_component! {
+    pub App<InspectionCanvasState> {
+        state {
+            title: String = String::new(),
+            detail: String = String::new(),
+            invalid: bool = false,
+        }
+    }
+    view(draft, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let edit = with_reducer!(cx.build, EditInspectionCanvas, edit_inspection_canvas);
+        let selected = state.selected_step.into_iter().collect::<std::collections::BTreeSet<_>>();
+        let nodes = state.steps.iter().map(|step| {
+            let mut node = InfiniteCanvasNode::new(
+                step.id,
+                step.bounds,
+                Widget::from(InspectionStepCard::new(
+                    step.title.clone(),
+                    step.detail.clone(),
+                    state.selected_step == Some(step.id),
+                )).id(WidgetId::explicit(&format!("{}.card", step.key))),
+            );
+            node.resizable = false;
+            node
+        }).collect::<Vec<_>>();
+        let edges = state.steps.windows(2).map(|pair| {
+            InfiniteCanvasEdge {
+                id: CanvasEdgeId::explicit(&format!("{}-to-{}", pair[0].key, pair[1].key)),
+                from: CanvasEdgeEndpoint::Node { node: pair[0].id, anchor: CanvasNodeAnchor::Right },
+                to: CanvasEdgeEndpoint::Node { node: pair[1].id, anchor: CanvasNodeAnchor::Left },
+                route: CanvasEdgeRoute::Straight,
+                stroke: Stroke {
+                    fill: Fill::Solid(tokens.colors.primary),
+                    width: 2.0,
+                    dash_array: None,
+                    dash_offset: 0.0,
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                    trim: None,
+                },
+                start_marker: None,
+                end_marker: None,
+                label: Some(CanvasEdgeLabel::new(Text::new(cx.tr("canvas.next")))),
+            }
+        }).collect::<Vec<_>>();
+    } =>
+    Container(SafeArea(child: Scroll(child:
+        Container(Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("canvas.title")).size(tokens.typography.heading1_size),
+            Text(cx.tr("canvas.description")),
+            TextInput(label: Some(cx.tr("canvas.new_title").into()), bind: draft.title,
+                required: true, semantics_identifier: "canvas.draft.title".to_string()),
+            TextInput(label: Some(cx.tr("canvas.new_detail").into()), bind: draft.detail,
+                required: true, semantics_identifier: "canvas.draft.detail".to_string()),
+            Button(
+                child: Text(cx.tr("canvas.add")),
+                key: "add-step",
+                on_press: reduce {
+                    if state.add_step(draft.title.clone(), draft.detail.clone()) {
+                        draft.title.clear();
+                        draft.detail.clear();
+                        draft.invalid = false;
+                    } else { draft.invalid = true; }
+                },
+            ).semantics_identifier("canvas.add-step"),
+            if draft.invalid { Text(cx.tr("canvas.invalid")).color(tokens.colors.error) },
+            Container(
+                if state.steps.is_empty() {
+                    EmptyState(title: cx.tr("canvas.empty"),
+                        description: Some(cx.tr("canvas.empty_help")))
+                } else {
+                    InfiniteCanvas(
+                        id: Some(WidgetId::explicit("inspection.plan")),
+                        nodes: nodes,
+                        edges: edges,
+                        selected_nodes: selected,
+                        selection_policy: CanvasSelectionPolicy::Single,
+                        grid: Some(CanvasGrid::lines(32.0, tokens.colors.border, 1.0)),
+                        min_scale: 0.25,
+                        max_scale: 3.0,
+                        actions: InfiniteCanvasActions {
+                            on_selection_change: Some(edit.clone()),
+                            on_node_move: Some(edit),
+                            ..Default::default()
+                        },
+                    )
+                }
+            ).height(360.0).border(tokens.colors.border, 1.0),
+            if let Some(step) = state.steps.iter().find(|step| Some(step.id) == state.selected_step) {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(step.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(step.detail.clone()),
+                ])
+            },
+            Text(cx.tr("canvas.step_list")).weight(tokens.typography.font_weight_semibold),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                for step in &state.steps {
+                    Button(
+                        child: Text(step.title.clone()),
+                        key: step.key.clone(),
+                        variant: if state.selected_step == Some(step.id) {
+                            ButtonVariant::Primary
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                        on_press: with_reducer!(
+                            cx.build, SelectInspectionStep(step.id), select_inspection_step
+                        ),
+                    ).id(WidgetId::explicit(&format!("{}.select", step.key)))
+                },
+            ]),
+            if state.selected_step.is_some() {
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(child: Text(cx.tr("canvas.left")), key: "move-left",
+                        on_press: reduce { state.move_selected(-32.0, 0.0); }),
+                    Button(child: Text(cx.tr("canvas.right")), key: "move-right",
+                        on_press: reduce { state.move_selected(32.0, 0.0); }),
+                    Button(child: Text(cx.tr("canvas.up")), key: "move-up",
+                        on_press: reduce { state.move_selected(0.0, -32.0); }),
+                    Button(child: Text(cx.tr("canvas.down")), key: "move-down",
+                        on_press: reduce { state.move_selected(0.0, 32.0); }),
+                    Button(child: Text(cx.tr("canvas.remove")), key: "remove-step",
+                        on_press: reduce { state.remove_selected(); }),
+                ])
+            },
+        ]))
+        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
+        .max_width(1040.0),
+    )))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Add three steps again. Select the second using its labelled button and move it with the direction controls. The connectors should still join the same steps. Remove the first step and check that the remaining titles, selection and IDs do not shift onto another record. Add a new step: it must receive a new identity, not inherit the removed node's identity.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Verify touch interaction on Android
+
+The browser is useful for the editor's state transitions, but it cannot establish how one-finger dragging and multi-touch zoom feel on a phone. Test the installed app on an emulator and a physical device:
+
+```sh
+cargo test
+fission doctor android --project-dir .
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
+fission test --target android --project-dir .
+fission build --target android --project-dir . --release
+```
+
+Check an empty plan, several overlapping nodes, the configured zoom limits, large text and rotation. Pan the viewport without selecting a different record, then move a node without unexpectedly panning the viewport. Repeat selection and movement using the ordinary buttons.
+
+The compact cards limit their text to two lines per field; the selected record's full text remains outside the canvas. This keeps a long description from painting over another node without discarding the description from the document.
+
+The tests check validation and stable IDs after removal. They do not prove touch, camera clipping, accessibility or visual layout; those need the rendered target.
+
+### Current references
+
+- [Interactive Canvas](/reference/widgets/infinite-canvas/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+
+<!-- /fission:step -->

@@ -11,7 +11,7 @@ cargo run -p animation-gallery
 ## Structure
 
 - `src/main.rs` starts the app only.
-- `src/app.rs` wires `DesktopApp`, including shell route handling.
+- `src/app.rs` defines the Compose root and wires `DesktopApp`, including shell route handling.
 - `src/chrome.rs` owns the brand rail, sidebar navigation, and workbench shell.
 - `src/pages/` contains overview, property lab, composition, policy, and diagnostics routes.
 - `src/widgets/` contains one module per widget page plus shared widget-page helpers.

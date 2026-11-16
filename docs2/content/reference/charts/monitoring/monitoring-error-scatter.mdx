@@ -1,0 +1,65 @@
+---
+title: Error scatter
+sidebar_label: Error scatter
+description: Fission Charts reference for Error scatter.
+---
+
+# Error scatter
+
+![Error scatter screenshot](/img/charts/monitoring-error-scatter.png)
+
+A scatter plot can help investigate whether service intervals with high traffic also had a high error rate. Each point represents an interval, preserving the paired measurements instead of joining unrelated samples into a trend. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use x for requests per second and y for failed requests as a percentage. An isolated point is a reason to inspect that interval, not sufficient evidence that traffic caused the failure. Split successful and breached intervals only when the classification has an explicit policy.
+
+## Data model
+
+`ScatterSeries::data` takes numeric `(x, y)` pairs. Partition the observations against the same error-rate limit used by the service, keeping every interval in exactly one collection. Keep interval IDs and timestamps in the domain model; positions in these display vectors are not durable record identities.
+
+## Authoring from a Fission component
+
+The component receives already-classified observations and draws two named series. The names and surrounding summary must convey their meaning even when the palette is not distinguishable.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, Legend, ScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceErrorScatter<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            comparison_series_label: String,
+            x_axis_label: String,
+            y_axis_label: String,
+            within_limit: Vec<(f32, f32)>,
+            above_limit: Vec<(f32, f32)>,
+        }
+    }
+    view(errors, _state, _cx) => Chart(
+        title: Some(errors.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&errors.x_axis_label).min(0.0)),
+        y_axis: Some(Axis::value().name(&errors.y_axis_label).min(0.0).max(100.0)),
+        legend: Some(Legend::top_right()),
+        series: vec![
+            ScatterSeries::new(&errors.series_label)
+                .data(errors.within_limit.clone())
+                .into(),
+            ScatterSeries::new(&errors.comparison_series_label)
+                .data(errors.above_limit.clone())
+                .into(),
+        ],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test classification exactly at the limit, empty groups and observations sharing coordinates. Validate finite, non-negative request rates and percentages within 0–100. Offer the breached intervals as a labelled list with their timestamps and values; overlapping markers cannot tell the reader how many intervals occupy one position.
+
+Tags: `monitoring`, `scatter`.
+
+[Monitoring family overview](./overview)

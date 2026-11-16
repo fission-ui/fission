@@ -1,0 +1,76 @@
+---
+title: FileUpload
+description: Render a browse button plus selected-file text for file picking flows.
+slug: /widgets/file-upload
+---
+# FileUpload
+
+`FileUpload` shows a browse button and the selected file name. It does not
+open the operating-system picker itself. Handle that through an effect, usually
+requested by a reducer after `on_browse` fires.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub AttachmentPicker<()> {
+        props {
+            filename: Option<String>,
+            error: Option<String>,
+            pick_file: ActionEnvelope,
+        }
+    }
+
+    view(picker, _state, cx) =>
+        FileUpload(
+            label: cx.tr("attachment.choose_file"),
+            selected_file: picker.filename.clone(),
+            error_text: picker.error.clone(),
+            on_browse: picker.pick_file.clone(),
+            browse_semantics_identifier: Some("attachment.file-picker".into()),
+        )
+}
+```
+
+The parent supplies its registered picker action and display state. A chosen
+filename is not the file's authority: retain the returned stream handle for
+subsequent reading or upload. Translate public error copy in the view, not by
+calling `cx.tr` from a reducer context.
+
+A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name and `DataStreamId` in state when the capability returns.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `label` | `String` | Text shown on the browse button. | Required. Use an explicit verb such as "Browse" or "Choose file". |
+| `selected_file` | `Option<String>` | Display text for the chosen file. | If `None`, the widget shows "No file selected". |
+| `error_text` | `Option<String>` | Validation or picker failure shown below the selection row. | Marks the semantic group invalid and exposes the same validation message to assistive technology. |
+| `on_browse` | `Option<ActionEnvelope>` | Action fired when the browse button is pressed. | Defaults to `None`. The reducer usually emits a file-picker capability from here. |
+| `browse_semantics_identifier` | `Option<String>` | Stable identifier for the generated browse button. | Recommended for LiveTest and accessibility audits when multiple pickers share a screen. |
+
+## How it fits into the state and effect loop
+
+The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file metadata and stream handle in `GlobalState`. The next conversion then passes a new `selected_file` string back into the widget.
+
+File contents are exposed as a `FissionDataStream`, not as a `Vec<u8>` in the reducer payload. Pass the `PickedFile::stream` handle to a job or service if the app needs to parse, upload, or preview the file.
+
+The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells may register their own provider; when no native picker is available, the capability reports an unsupported host error rather than fabricating bytes.
+
+This separation is why file picking remains deterministic inside the core runtime. The widget describes intent, while the host interaction happens explicitly outside the reducer.
+
+## Specific advice
+
+Show a meaningful filename or summary after selection so the user can confirm what happened. Also remember that this widget displays one string; if your flow supports multiple files, store and render a deliberate summary such as "3 files selected" or a separate attachments list next to it.
+
+## Production checklist
+
+- Exercise picker cancellation, unsupported capability, validation failure, and successful selection.
+- Confirm the selected stream remains available for the intended processing lifetime.
+- Check default English empty-selection copy for supported locales.
+
+## Related
+
+[`Dropzone`](/reference/widgets/dropzone), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), [How do I do file uploads in Fission?](/docs/guides/file-uploads/), and [`Resources and async`](/docs/guides/resources-and-async).

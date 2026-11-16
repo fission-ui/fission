@@ -1,0 +1,665 @@
+---
+layout: goal
+title: Model offline edits and sync conflicts in a Rust app
+description: Use Fission state and reducers to model pending field-note edits and conflict choices before connecting Store and sync effects.
+goal: Keep a field note visible while modelling queued edits and a newer server copy
+path: /blog/build-an-offline-app-in-rust/
+order: 15
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-offline-app
+outcomes:
+  - Queue an immutable snapshot of an editable inspection note
+  - Keep local change numbers separate from server revisions
+  - Review both copies before replacing either one
+  - Know what this in-memory model does and where to continue for durable storage and real sync
+---
+
+A technician queues an inspection note and then spots another problem. The queued copy and the editable draft are now different facts: changing one must not silently change the other. If another device has also updated the note, the app needs to preserve both copies until the technician chooses what to keep.
+
+This tutorial builds that state model, not a complete offline service. The queue contains an actual snapshot rather than a counter claiming that work is waiting, but it still lives only in memory. No database write or network request occurs. The [mobile field-notes tutorial](/blog/build-an-offline-first-notes-app-for-android-and-ios/) covers the durable Store-backed path; its server integration must also be supplied before claiming end-to-end sync.
+
+## Create the project
+
+```sh
+cargo install cargo-fission
+fission init harbour-offline
+cd harbour-offline
+cargo add serde_yaml
+fission add-target web --project-dir .
+```
+
+Keep the screen in `src/app.rs`, the model and transitions in `src/state.rs`, and the embedded language bundles behind `src/translations.rs`. The generated native launcher calls `run_desktop`; the Web target uses `run_web`. Replace `src/lib.rs` so both launch the model below rather than the starter counter.
+
+<!-- fission:step id="start-screen" -->
+## Separate the draft from the queued copy
+
+`LocalChange` owns its text. Queueing therefore clones the current draft into a snapshot that later typing cannot modify. Repeatedly queueing the same text does not manufacture more changes.
+
+There is another distinction worth making early. A local sequence number orders this device's edits. A server revision identifies the version those edits were based on. They come from different authorities and must not be compared as though the larger integer identifies the newer document. `base_revision` records the server version; `sequence` identifies the local change.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalChange {
+    pub sequence: u64,
+    pub base_revision: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub draft: String,
+    pub queued: Option<LocalChange>,
+    pub base_revision: u64,
+    pub local_sequence: u64,
+    pub status: &'static str,
+}
+impl GlobalState for OfflineState {}
+
+impl OfflineState {
+    pub fn queue_note(&mut self) {
+        if self.draft.trim().is_empty() {
+            self.status = "note.required";
+            return;
+        }
+        if self.queued.as_ref().is_some_and(|change| change.text == self.draft) {
+            self.status = "note.unchanged";
+            return;
+        }
+        self.local_sequence += 1;
+        self.queued = Some(LocalChange {
+            sequence: self.local_sequence,
+            base_revision: self.base_revision,
+            text: self.draft.clone(),
+        });
+        self.status = "note.queued";
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::OfflineState;
+
+fission_component! {
+    pub OfflineNotes<OfflineState> {}
+    view(_notes, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if state.status.is_empty() { "note.ready" } else { state.status };
+    } =>
+    Container(Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("note.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("note.summary")).color(tokens.colors.text_secondary),
+            TextInput(
+                label: Some(cx.tr("note.draft").into()),
+                bind: state.draft,
+                multiline: true,
+                min_lines: Some(3),
+                max_lines: Some(7),
+                semantics_identifier: Some("inspection-note.draft".into()),
+            ),
+            Button(
+                child: Text(cx.tr("note.queue")),
+                key: "queue-note",
+                on_press: reduce { state.queue_note(); },
+            ),
+            Text(cx.tr(status)),
+            if let Some(change) = &state.queued {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("note.snapshot")).weight(tokens.typography.font_weight_semibold),
+                    Text(change.text.clone()),
+                    Text(cx.tr("note.sequence").replace("{sequence}", &change.sequence.to_string())),
+                    Text(cx.tr("note.base").replace("{revision}", &change.base_revision.to_string())),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface),
+            },
+            Text(cx.tr("note.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(720.0)))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::OfflineState, _>::new(app::OfflineNotes)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::OfflineState, app::OfflineNotes> {
+    let app = MobileApp::<state::OfflineState, _>::new(app::OfflineNotes)
+        .with_env(translations::create_env())
+        .with_title("Inspection note model");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::OfflineState, _>::new(app::OfflineNotes)
+        .with_env(translations::create_env())
+        .with_title("Inspection note model")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod state;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::OfflineState, _>::new(app::OfflineNotes)
+        .with_env(translations::create_env())
+        .with_title("Inspection note model")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+note.title: "Inspection note revisions"
+note.summary: "Edit a note, then queue a snapshot. Later edits must not silently change the queued copy."
+note.draft: "Current draft"
+note.queue: "Queue this draft"
+note.ready: "No change has been queued."
+note.required: "Enter an inspection note before queueing it."
+note.unchanged: "This exact draft is already queued."
+note.queued: "A snapshot is queued in app memory."
+note.snapshot: "Queued copy"
+note.sequence: "Local change {sequence}"
+note.base: "Based on server revision {revision}"
+note.server: "Incoming server revision {revision}"
+note.review: "Another copy needs a decision; your draft is still here."
+note.choice: "Keep your draft as a new change, or replace it with this copy."
+note.keep: "Keep my draft"
+note.use_server: "Use incoming copy"
+note.kept: "Your draft is queued against the reviewed server revision."
+note.selected: "The incoming copy is current; the older queued change was removed."
+note.scope: "In-memory model only: no database write, network request or durable offline queue is implemented here."
+preview.receive: "Preview: receive another inspection copy"
+preview.remote_note: "Pressure rose after the second inspection; check the relief valve."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+note.title: "Revisiones de una nota de inspección"
+note.summary: "Edita una nota y pon una copia en cola. Las ediciones posteriores no deben cambiar la copia anterior."
+note.draft: "Borrador actual"
+note.queue: "Poner este borrador en cola"
+note.ready: "No se ha puesto ningún cambio en cola."
+note.required: "Escribe una nota antes de ponerla en cola."
+note.unchanged: "Este borrador ya está en cola."
+note.queued: "Hay una copia en cola en la memoria de la app."
+note.snapshot: "Copia en cola"
+note.sequence: "Cambio local {sequence}"
+note.base: "Basado en la revisión {revision} del servidor"
+note.server: "Revisión entrante {revision} del servidor"
+note.review: "Debes elegir entre las copias; se conserva tu borrador."
+note.choice: "Conserva el borrador como cambio nuevo o sustitúyelo por esta copia."
+note.keep: "Conservar mi borrador"
+note.use_server: "Usar la copia entrante"
+note.kept: "El borrador está en cola con la revisión revisada como base."
+note.selected: "La copia entrante es la actual; se ha quitado el cambio anterior."
+note.scope: "Modelo en memoria: no se implementan escrituras, solicitudes de red ni colas persistentes."
+preview.receive: "Vista previa: recibir otra copia"
+preview.remote_note: "La presión subió tras la segunda inspección; revisa la válvula de seguridad."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Type an inspection note and queue it. Edit the draft without queueing again: the queued copy must stay unchanged. Queue the same text twice and confirm that the local change number does not advance twice.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Review another copy before applying it
+
+A real sync completion would call `offer_remote` from its completion reducer. The documentation harness supplies a separate preview control so you can try that transition without a server. The control is not part of the production component and does not stand in for a successful network request.
+
+While a conflict is visible, keep the two copies stable. Keeping the local draft creates a new change based on the reviewed server revision; choosing the incoming copy clears the obsolete queued change. A later incoming copy at or below the accepted server revision is ignored.
+
+This model deliberately keeps one pending replacement per note, not an append-only history. That is appropriate here because a note is a replaceable document. A payment, stock movement or audit event cannot generally be collapsed this way; those operations need their own durable identities and acceptance rules.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalChange {
+    pub sequence: u64,
+    pub base_revision: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerCopy {
+    pub revision: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub draft: String,
+    pub remote: Option<ServerCopy>,
+    pub queued: Option<LocalChange>,
+    pub base_revision: u64,
+    pub local_sequence: u64,
+    pub status: &'static str,
+}
+impl GlobalState for OfflineState {}
+
+impl OfflineState {
+    pub fn queue_note(&mut self) {
+        if self.remote.is_some() { return; }
+        if self.draft.trim().is_empty() {
+            self.status = "note.required";
+            return;
+        }
+        if self.queued.as_ref().is_some_and(|change| change.text == self.draft) {
+            self.status = "note.unchanged";
+            return;
+        }
+        self.local_sequence += 1;
+        self.queued = Some(LocalChange {
+            sequence: self.local_sequence,
+            base_revision: self.base_revision,
+            text: self.draft.clone(),
+        });
+        self.status = "note.queued";
+    }
+}
+impl OfflineState {
+    pub fn offer_remote(&mut self, copy: ServerCopy) {
+        if copy.revision <= self.base_revision
+            || self.remote.as_ref().is_some_and(|current| current.revision >= copy.revision)
+        {
+            return;
+        }
+        self.remote = Some(copy);
+        self.status = "note.review";
+    }
+
+    pub fn keep_local(&mut self) {
+        if self.draft.trim().is_empty() {
+            self.status = "note.required";
+            return;
+        }
+        let Some(remote) = self.remote.take() else { return };
+        self.base_revision = remote.revision;
+        self.local_sequence += 1;
+        self.queued = Some(LocalChange {
+            sequence: self.local_sequence,
+            base_revision: self.base_revision,
+            text: self.draft.clone(),
+        });
+        self.status = "note.kept";
+    }
+
+    pub fn use_server(&mut self) {
+        let Some(remote) = self.remote.take() else { return };
+        self.draft = remote.text;
+        self.base_revision = remote.revision;
+        self.queued = None;
+        self.status = "note.selected";
+    }
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::OfflineState;
+
+fission_component! {
+    pub OfflineNotes<OfflineState> {}
+    view(_notes, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = if state.status.is_empty() { "note.ready" } else { state.status };
+    } =>
+    Container(Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("note.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("note.summary")).color(tokens.colors.text_secondary),
+            TextInput(
+                label: Some(cx.tr("note.draft").into()),
+                bind: state.draft,
+                read_only: state.remote.is_some(),
+                multiline: true,
+                min_lines: Some(3),
+                max_lines: Some(7),
+                semantics_identifier: Some("inspection-note.draft".into()),
+            ),
+            Button(
+                child: Text(cx.tr("note.queue")),
+                key: "queue-note",
+                disabled: state.remote.is_some(),
+                on_press: reduce { state.queue_note(); },
+            ),
+            Text(cx.tr(status)),
+            if let Some(change) = &state.queued {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("note.snapshot")).weight(tokens.typography.font_weight_semibold),
+                    Text(change.text.clone()),
+                    Text(cx.tr("note.sequence").replace("{sequence}", &change.sequence.to_string())),
+                    Text(cx.tr("note.base").replace("{revision}", &change.base_revision.to_string())),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface),
+            },
+            if let Some(remote) = &state.remote {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text(cx.tr("note.server").replace("{revision}", &remote.revision.to_string()))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(remote.text.clone()),
+                    Text(cx.tr("note.choice")),
+                    Wrap(spacing: tokens.spacing.s, children: [
+                        Button(
+                            child: Text(cx.tr("note.keep")),
+                            key: "keep-local",
+                            on_press: reduce { state.keep_local(); },
+                        ),
+                        Button(
+                            child: Text(cx.tr("note.use_server")),
+                            key: "use-server",
+                            variant: ButtonVariant::Outline,
+                            on_press: reduce { state.use_server(); },
+                        ),
+                    ]),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface),
+            },
+            Text(cx.tr("note.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(720.0)))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod state;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::OfflineState, _>::new(ConflictPreview)
+        .with_env(translations::create_env())
+        .with_title("Inspection note model")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+// This control belongs to the documentation harness, not the app or sync service.
+fission_component! {
+    pub ConflictPreview<state::OfflineState> {}
+    view(_preview, state, cx) =>
+        Column(children: [
+            Button(
+                child: Text(cx.tr("preview.receive")),
+                key: "preview-server-copy",
+                on_press: reduce {
+                    state.offer_remote(state::ServerCopy {
+                        revision: state.base_revision + 1,
+                        text: "Pressure rose after another inspection; check the relief valve.".into(),
+                    });
+                },
+            ),
+            app::OfflineNotes,
+        ])
+}
+
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Queue your draft, receive the example incoming copy, and read both before choosing. Keeping yours must preserve its text; choosing the incoming copy must remove the obsolete queued snapshot.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Test the ownership rules, then add persistence
+
+These tests exercise the part of the design that a screenshot cannot prove: a queued change owns its text, duplicate queueing does not create extra changes, conflict choices update the right base revision, and an old incoming revision cannot undo an accepted one.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalChange {
+    pub sequence: u64,
+    pub base_revision: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerCopy {
+    pub revision: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OfflineState {
+    pub draft: String,
+    pub remote: Option<ServerCopy>,
+    pub queued: Option<LocalChange>,
+    pub base_revision: u64,
+    pub local_sequence: u64,
+    pub status: &'static str,
+}
+impl GlobalState for OfflineState {}
+
+impl OfflineState {
+    pub fn queue_note(&mut self) {
+        if self.remote.is_some() { return; }
+        if self.draft.trim().is_empty() {
+            self.status = "note.required";
+            return;
+        }
+        if self.queued.as_ref().is_some_and(|change| change.text == self.draft) {
+            self.status = "note.unchanged";
+            return;
+        }
+        self.local_sequence += 1;
+        self.queued = Some(LocalChange {
+            sequence: self.local_sequence,
+            base_revision: self.base_revision,
+            text: self.draft.clone(),
+        });
+        self.status = "note.queued";
+    }
+}
+impl OfflineState {
+    pub fn offer_remote(&mut self, copy: ServerCopy) {
+        if copy.revision <= self.base_revision
+            || self.remote.as_ref().is_some_and(|current| current.revision >= copy.revision)
+        {
+            return;
+        }
+        self.remote = Some(copy);
+        self.status = "note.review";
+    }
+
+    pub fn keep_local(&mut self) {
+        if self.draft.trim().is_empty() {
+            self.status = "note.required";
+            return;
+        }
+        let Some(remote) = self.remote.take() else { return };
+        self.base_revision = remote.revision;
+        self.local_sequence += 1;
+        self.queued = Some(LocalChange {
+            sequence: self.local_sequence,
+            base_revision: self.base_revision,
+            text: self.draft.clone(),
+        });
+        self.status = "note.kept";
+    }
+
+    pub fn use_server(&mut self) {
+        let Some(remote) = self.remote.take() else { return };
+        self.draft = remote.text;
+        self.base_revision = remote.revision;
+        self.queued = None;
+        self.status = "note.selected";
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_keeps_a_snapshot_not_a_reference_to_the_editable_draft() {
+        let mut state = OfflineState::default();
+        state.draft = "Pressure stable.".into();
+        state.queue_note();
+        state.draft = "Pressure rising.".into();
+        assert_eq!(state.queued.as_ref().unwrap().text, "Pressure stable.");
+    }
+
+    #[test]
+    fn duplicate_queue_does_not_create_another_change() {
+        let mut state = OfflineState::default();
+        state.draft = "Pressure stable.".into();
+        state.queue_note();
+        state.queue_note();
+        assert_eq!(state.local_sequence, 1);
+        assert_eq!(state.queued.as_ref().unwrap().sequence, 1);
+    }
+
+    #[test]
+    fn keeping_local_rebases_the_change_on_the_reviewed_server_revision() {
+        let mut state = OfflineState::default();
+        state.draft = "My inspection.".into();
+        state.queue_note();
+        state.offer_remote(ServerCopy { revision: 7, text: "Other inspection.".into() });
+        state.keep_local();
+        let change = state.queued.as_ref().unwrap();
+        assert_eq!(change.base_revision, 7);
+        assert_eq!(change.text, "My inspection.");
+        assert!(state.remote.is_none());
+    }
+
+    #[test]
+    fn selecting_server_clears_the_obsolete_local_change() {
+        let mut state = OfflineState::default();
+        state.draft = "My inspection.".into();
+        state.queue_note();
+        state.offer_remote(ServerCopy { revision: 7, text: "Other inspection.".into() });
+        state.use_server();
+        assert_eq!(state.draft, "Other inspection.");
+        assert!(state.queued.is_none());
+        assert_eq!(state.base_revision, 7);
+        state.offer_remote(ServerCopy { revision: 6, text: "Late old copy".into() });
+        assert!(state.remote.is_none());
+    }
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Run all four tests. Repeat both conflict choices in the preview, then reload: losing this in-memory state is expected and must not be described as durable offline support.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Continue to the real offline workflow
+
+```sh
+cargo test
+fission doctor --project-dir .
+fission run --target web --project-dir .
+fission build --target web --project-dir .
+```
+
+Persistence changes when the app may claim success. Write the note and pending change atomically before saying “Saved on this device”, hydrate them once at startup, and only then request sync. Keep the pending change after a failed request and clear it only when the matching change has been accepted. A stale acknowledgement must not remove a newer queued edit.
+
+The current model establishes none of that storage or transport behaviour by itself. Continue with the [Store-backed mobile notes app](/blog/build-an-offline-first-notes-app-for-android-and-ios/), then connect the actual server contract rather than replacing its result with a delay or a fabricated success.
+
+## Related reference
+
+- [Storage and SQLite](/docs/guides/storage-and-sqlite/)
+- [State system](/reference/core/state-system/)
+- [Resources and async](/docs/guides/resources-and-async/)

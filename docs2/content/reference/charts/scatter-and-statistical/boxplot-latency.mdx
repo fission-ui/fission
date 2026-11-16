@@ -1,0 +1,58 @@
+---
+title: Latency boxplot
+sidebar_label: Latency boxplot
+description: Fission Charts reference for Latency boxplot.
+---
+
+# Latency boxplot
+
+![Latency boxplot screenshot](/img/charts/boxplot-latency.png)
+
+A median alone cannot show how widely response times vary. A boxplot can compare that spread across API endpoints whilst retaining a compact summary for each one. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use the same latency definition, reporting window and eligible-request policy in every endpoint group. The plot does not reveal how many samples produced each summary or whether a slow tail contains distinct incidents.
+
+## Data model
+
+`BoxplotSeries::data` expects `[min, Q1, median, Q3, max]` rows. Prepare finite ordered summaries with a documented quantile convention. The built-in raw helper uses floor-index order statistics and skips empty groups; it is not an interpolating statistics engine or automatic outlier detector.
+
+## Authoring from a Fission component
+
+Arrays enforce five supplied values. The parent calculates summaries and keeps endpoint labels aligned with them.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BoxplotSeries, Chart};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub EndpointLatencyDistributions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            group_labels: Vec<String>,
+            summaries: Vec<[f32; 5]>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.group_labels.iter().map(String::as_str).collect();
+        let rows = report.summaries.iter().map(|summary| summary.to_vec()).collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::category(labels)),
+        y_axis: Some(Axis::value().name(&report.axis_label)),
+        series: vec![BoxplotSeries::new(&report.series_label).data(rows).into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test one request, an empty endpoint group and strongly skewed latency. Preserve an explicit unavailable group rather than shifting later summaries under the wrong label. Provide sample counts and exact summaries outside the chart.
+
+Tags: `boxplot`, `latency`.
+
+[Scatter and statistical family overview](./overview)

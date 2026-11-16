@@ -1,0 +1,57 @@
+---
+title: Alert hotspot scatter
+sidebar_label: Alert hotspot scatter
+description: Fission Charts reference for Alert hotspot scatter.
+---
+
+# Alert hotspot scatter
+
+![Alert hotspot scatter screenshot](/img/charts/scatter-alert-hotspots.png)
+
+A hotspot view can show where flagged readings occur, but the flags must come from a real monitoring rule. Visual emphasis is not an alarm detector. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+This example locates temperature alerts within one facility's local coordinate system. A cluster of marked sensors can justify investigation without proving the cause or extent of the temperature problem.
+
+## Data model
+
+`EffectScatterSeries` accepts numeric `(x, y)` positions and draws layered emphasis rings. It does not provide a geographic map, calculate alert severity or guarantee a perpetual pulsing animation. Keep sensor IDs and alert evidence in the model.
+
+## Authoring from a Fission component
+
+The parent supplies positions of currently flagged sensors and localized axis labels.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, EffectScatterSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub FacilityTemperatureAlertPositions<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            axis_label: String,
+            axis_label_2: String,
+            observations: Vec<(f32, f32)>,
+        }
+    }
+    view(report, _state, _cx) => Chart(
+        title: Some(report.chart_title.clone()),
+        x_axis: Some(Axis::value().name(&report.axis_label)),
+        y_axis: Some(Axis::value().name(&report.axis_label_2)),
+        series: vec![EffectScatterSeries::new(&report.series_label)
+            .data(report.observations.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test cleared alerts, overlapping sensors and missing observations. Provide an accessible alert list with exact readings, thresholds and timestamps; do not rely on ring emphasis or motion to convey urgency.
+
+Tags: `scatter`, `alert`.
+
+[Statistical family overview](./overview)

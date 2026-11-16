@@ -4,36 +4,40 @@ use fission::charts::Chart;
 use fission::prelude::*;
 use fission::three_d::Scene3D;
 
-pub(crate) enum GalleryRenderable {
-    Chart(Chart),
-    Scene3d(Scene3D),
-}
-
-impl From<GalleryRenderable> for Widget {
-    fn from(renderable: GalleryRenderable) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-
-        match renderable {
-            GalleryRenderable::Chart(chart) => configure_chart(chart, view)
-                .height(GALLERY_CHART_HEIGHT)
-                .into(),
-            GalleryRenderable::Scene3d(scene) => scene.height(GALLERY_CHART_HEIGHT).into(),
+fission_component! {
+    pub(crate) GalleryChartRenderer<GalleryState> {
+        props {
+            chart: Chart,
         }
     }
+
+    view(renderable, _state, cx) =>
+        configure_chart(renderable.chart.clone(), cx.view).height(GALLERY_CHART_HEIGHT)
+}
+
+fission_component! {
+    pub(crate) GallerySceneRenderer<()> {
+        props {
+            scene: Scene3D,
+        }
+    }
+
+    view(renderable, _state, _cx) =>
+        renderable.scene.clone().height(GALLERY_CHART_HEIGHT)
 }
 
 pub(crate) trait GalleryBuildExt {
-    fn in_gallery(self) -> GalleryRenderable;
+    fn in_gallery(self) -> Widget;
 }
 
 impl GalleryBuildExt for Chart {
-    fn in_gallery(self) -> GalleryRenderable {
-        GalleryRenderable::Chart(self)
+    fn in_gallery(self) -> Widget {
+        GalleryChartRenderer::new(self).into()
     }
 }
 
 impl GalleryBuildExt for Scene3D {
-    fn in_gallery(self) -> GalleryRenderable {
-        GalleryRenderable::Scene3d(self)
+    fn in_gallery(self) -> Widget {
+        GallerySceneRenderer::new(self).into()
     }
 }

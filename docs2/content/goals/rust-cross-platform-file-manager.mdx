@@ -1,0 +1,641 @@
+---
+layout: goal
+title: Build a file browser UI in Rust
+description: Build a read-only Rust file browser that selects a real directory, lists its entries and preserves the previous view after a navigation error.
+goal: Browse a user-selected directory through the filesystem capability without guessing paths or changing files
+path: /blog/build-a-cross-platform-file-manager-in-rust/
+order: 14
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-cross-platform-file-manager
+outcomes:
+  - Render the folder path and its contents
+  - Navigate with stable file identities
+  - Distinguish empty, pending, cancelled and denied directory results
+---
+
+A file browser has to distinguish what the user asked to open from what the host actually allowed it to read. If a request for another folder fails, replacing the current view with an empty list loses useful context and misrepresents the result.
+
+We will build a read-only browser over a directory the user selects. It lists actual entries, opens child folders and displays the metadata the provider returned. It does not read file contents, rename entries, upload data or claim that a displayed folder name is a native path.
+
+## Create the project and enable filesystem access
+
+```sh
+cargo install cargo-fission
+fission init harbour-file-browser
+cd harbour-file-browser
+cargo add serde_yaml
+fission add-target web --project-dir .
+fission add-capability filesystem --project-dir .
+```
+
+The capability command updates the target configuration as well as Cargo features. Keep the generated native launcher, then replace the shared library and modules below. The normal app and documentation preview use real providers; neither installs a memory filesystem.
+
+```text
+harbour-file-browser/
+├── src/
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   ├── reducers.rs
+│   ├── translations.rs
+│   └── widgets/
+│       ├── mod.rs
+│       └── file_entry_row.rs
+├── i18n/
+│   ├── en-US.yaml
+│   └── es-ES.yaml
+└── platforms/
+```
+
+<!-- fission:step id="start-screen" -->
+## Start with a user-selected directory
+
+The picker returns an opaque directory handle. Its display name is useful to the reader, but is not an address to join with a guessed operating-system path. The root location therefore uses that handle, and each child uses the complete location returned by the listing provider.
+
+Request read access only. The app does not need a writable grant for this task, and it does not persist the grant across launches. Cancellation leaves the previous directory alone.
+
+The current trail, entries and selected record belong in shared state because the toolbar, list and details use them. `pending_trail` is the proposed destination; it does not become current until its listing succeeds.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Folder {
+    pub location: FileSystemLocation,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BrowserState {
+    pub trail: Vec<Folder>,
+    pub entries: Option<Vec<FileSystemEntry>>,
+    pub selected: Option<FileSystemEntry>,
+    pub busy: bool,
+    pub status: &'static str,
+    pub error: Option<String>,
+    pub pending_trail: Option<Vec<Folder>>,
+}
+impl GlobalState for BrowserState {}
+
+pub fn location_key(location: &FileSystemLocation) -> String {
+    match location {
+        FileSystemLocation::Path(path) => format!("path:{}", path.as_str()),
+        FileSystemLocation::Directory { directory, path } =>
+            format!("directory:{}:{}", directory.0, path.as_str()),
+    }
+}
+
+impl BrowserState {
+    pub fn complete_listing(&mut self, result: Result<Vec<FileSystemEntry>, String>) {
+        self.busy = false;
+        match result {
+            Ok(mut entries) => {
+                let Some(trail) = self.pending_trail.take() else { return };
+                entries.sort_by(|left, right| {
+                    let left_directory = left.kind == FileSystemEntryKind::Directory;
+                    let right_directory = right.kind == FileSystemEntryKind::Directory;
+                    right_directory.cmp(&left_directory).then_with(|| left.name.cmp(&right.name))
+                });
+                self.trail = trail;
+                self.entries = Some(entries);
+                self.selected = None;
+                self.error = None;
+                self.status = "files.status.listed";
+            }
+            Err(error) => {
+                self.pending_trail = None;
+                self.error = Some(error);
+                self.status = "files.status.failed";
+            }
+        }
+    }
+}
+```
+</TabItem>
+<TabItem label="src/reducers.rs">
+<!-- fission:file path="src/reducers.rs" -->
+```rust
+use fission::prelude::*;
+use crate::state::{BrowserState, Folder};
+
+pub fn choose_directory(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    if state.busy { return; }
+    state.busy = true;
+    state.error = None;
+    state.status = "files.status.choosing";
+    let ok = cx.effects.bind(DirectoryChosen, reduce_with!(directory_chosen));
+    let err = cx.effects.bind(PickerFailed, reduce_with!(picker_failed));
+    cx.effects.file_system()
+        .pick_directory(PickDirectoryRequest {
+            access: FileSystemAccessMode::Read,
+            persistence_key: None,
+        })
+        .on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(DirectoryChosen)]
+fn directory_chosen(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    state.busy = false;
+    let Some(result) = cx.input.capability_ok(PICK_DIRECTORY) else {
+        state.status = "files.status.failed";
+        state.error = Some("Directory completion had no picker result".into());
+        return;
+    };
+    let Some(directory) = result.directory else {
+        state.status = "files.status.cancelled";
+        return;
+    };
+    if directory.permission != FileSystemPermission::Granted {
+        state.status = "files.status.failed";
+        state.error = Some("Directory access was not granted".into());
+        return;
+    }
+    list_directory(state, cx, vec![Folder {
+        location: FileSystemLocation::directory(directory.id, ""),
+        name: directory.name,
+    }]);
+}
+
+#[fission_reducer(PickerFailed)]
+fn picker_failed(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    state.busy = false;
+    state.status = "files.status.failed";
+    state.error = cx.input.capability_error(PICK_DIRECTORY)
+        .map(|error| error.message)
+        .or_else(|| cx.input.capability_error_message(PICK_DIRECTORY).map(str::to_owned));
+}
+
+fn list_directory(
+    state: &mut BrowserState,
+    cx: &mut ReducerContext<BrowserState>,
+    trail: Vec<Folder>,
+) {
+    if state.busy { return; }
+    let Some(folder) = trail.last() else { return };
+    let location = folder.location.clone();
+    state.pending_trail = Some(trail);
+    state.busy = true;
+    state.error = None;
+    state.status = "files.status.loading";
+    let ok = cx.effects.bind(DirectoryListed, reduce_with!(directory_listed));
+    let err = cx.effects.bind(ListingFailed, reduce_with!(listing_failed));
+    cx.effects.file_system().list(ListDirectoryRequest { location })
+        .on_ok(ok).on_err(err);
+}
+
+#[fission_reducer(DirectoryListed)]
+fn directory_listed(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    let result = cx.input.capability_ok(LIST_DIRECTORY)
+        .map(|result| result.entries)
+        .ok_or_else(|| "Directory completion had no listing result".to_owned());
+    state.complete_listing(result);
+}
+
+#[fission_reducer(ListingFailed)]
+fn listing_failed(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    let error = cx.input.capability_error(LIST_DIRECTORY)
+        .map(|error| error.message)
+        .or_else(|| cx.input.capability_error_message(LIST_DIRECTORY).map(str::to_owned))
+        .unwrap_or_else(|| "Directory listing failed".into());
+    state.complete_listing(Err(error));
+}
+
+pub fn open_entry(
+    state: &mut BrowserState,
+    cx: &mut ReducerContext<BrowserState>,
+    location: FileSystemLocation,
+) {
+    if state.busy { return; }
+    let Some(entry) = state.entries.as_ref()
+        .and_then(|entries| entries.iter().find(|entry| entry.location == location)).cloned()
+    else { return };
+    if entry.kind == FileSystemEntryKind::Directory {
+        let mut trail = state.trail.clone();
+        trail.push(Folder { location: entry.location, name: entry.name });
+        list_directory(state, cx, trail);
+    } else {
+        state.selected = Some(entry);
+    }
+}
+
+pub fn go_up(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    if state.busy || state.trail.len() < 2 { return; }
+    let trail = state.trail[..state.trail.len() - 1].to_vec();
+    list_directory(state, cx, trail);
+}
+
+pub fn refresh(state: &mut BrowserState, cx: &mut ReducerContext<BrowserState>) {
+    list_directory(state, cx, state.trail.clone());
+}
+```
+</TabItem>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+use crate::reducers::{choose_directory, go_up, refresh};
+use crate::state::{location_key, BrowserState};
+use crate::widgets::FileEntryRow;
+
+fission_component! {
+    pub FileBrowser<BrowserState> {}
+    view(_browser, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let path = state.trail.iter().map(|folder| folder.name.as_str()).collect::<Vec<_>>().join(" / ");
+        let status = if state.status.is_empty() { "files.status.ready" } else { state.status };
+    } =>
+    Container(SafeArea(child: Scroll(child: Container(
+        Column(gap: tokens.spacing.m, children: [
+            Text(cx.tr("files.title")).size(tokens.typography.heading2_size),
+            Text(cx.tr("files.summary")).color(tokens.colors.text_secondary),
+            Wrap(spacing: tokens.spacing.s, children: [
+                Button(child: Text(cx.tr("files.choose")), key: "choose-directory",
+                    disabled: state.busy, on_press: reduce { choose_directory(state, cx); }),
+                Button(child: Text(cx.tr("files.up")), key: "parent-directory",
+                    disabled: state.busy || state.trail.len() < 2,
+                    on_press: reduce { go_up(state, cx); }),
+                Button(child: Text(cx.tr("files.refresh")), key: "refresh-directory",
+                    disabled: state.busy || state.trail.is_empty(),
+                    on_press: reduce { refresh(state, cx); }),
+            ]),
+            Text(path).weight(tokens.typography.font_weight_semibold),
+            if state.busy { Spinner(motion: Some(SpinnerMotion::Default), label: Some(cx.tr(status))) },
+            Text(cx.tr(status)),
+            if let Some(error) = &state.error { Code(text: error.clone()) },
+            if let Some(entries) = &state.entries {
+                if entries.is_empty() && !state.busy {
+                    EmptyState(
+                        title: cx.tr("files.empty.title"),
+                        description: Some(cx.tr("files.empty.detail")),
+                    )
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        for entry in entries {
+                            FileEntryRow(entry.clone(), key: location_key(&entry.location))
+                        },
+                    ])
+                }
+            },
+            if let Some(entry) = &state.selected {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text(entry.name.clone()).weight(tokens.typography.font_weight_semibold),
+                    if let Some(bytes) = entry.byte_len {
+                        Text(cx.tr("files.bytes").replace("{bytes}", &bytes.to_string()))
+                    } else {
+                        Text(cx.tr("files.size_unknown"))
+                    },
+                    Text(cx.tr("files.no_read")),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface),
+            },
+            Text(cx.tr("files.scope")).color(tokens.colors.text_secondary),
+        ])
+    ).padding_all(tokens.spacing.l)
+     .width_length(Length::percent(100.0))
+     .max_width(900.0))))
+    .height_length(Length::vh(100.0))
+}
+```
+</TabItem>
+<TabItem label="src/widgets/mod.rs">
+<!-- fission:file path="src/widgets/mod.rs" -->
+```rust
+mod file_entry_row;
+pub use file_entry_row::FileEntryRow;
+```
+</TabItem>
+<TabItem label="src/widgets/file_entry_row.rs">
+<!-- fission:file path="src/widgets/file_entry_row.rs" -->
+```rust
+use fission::prelude::*;
+use crate::{reducers::open_entry, state::BrowserState};
+
+fission_component! {
+    pub FileEntryRow<BrowserState> { props { entry: FileSystemEntry } }
+    view(row, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let kind = match row.entry.kind {
+            FileSystemEntryKind::Directory => "files.kind.directory",
+            FileSystemEntryKind::File => "files.kind.file",
+            FileSystemEntryKind::Other => "files.kind.other",
+        };
+    } =>
+    Button(
+        child: Column(gap: tokens.spacing.xs, children: [
+            Text(row.entry.name.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(cx.tr(kind)).color(tokens.colors.text_secondary),
+        ]),
+        disabled: state.busy,
+        key: "open-entry",
+        on_press: reduce { open_entry(state, cx, row.entry.location.clone()); },
+    )
+}
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod state;
+mod reducers;
+mod widgets;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<state::BrowserState, _>::new(app::FileBrowser)
+        .with_env(translations::create_env())
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<state::BrowserState, app::FileBrowser> {
+    let app = MobileApp::<state::BrowserState, _>::new(app::FileBrowser)
+        .with_env(translations::create_env())
+        .with_title("Harbour Files");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(48761);
+    app
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> { mobile_app().run() }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::BrowserState, _>::new(app::FileBrowser)
+        .with_env(translations::create_env())
+        .with_title("Harbour Files")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use std::collections::HashMap;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::*;
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    for (locale, source) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        let messages: HashMap<String, String> =
+            serde_yaml::from_str(source).expect("checked-in setup translations");
+        env.i18n.add_bundle(TranslationBundle { locale: Locale::from(locale), messages });
+    }
+    env
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod state;
+mod reducers;
+mod widgets;
+mod app;
+mod translations;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<state::BrowserState, _>::new(app::FileBrowser)
+        .with_env(translations::create_env())
+        .with_title("Harbour Files")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+files.title: "Harbour Files"
+files.summary: "Choose a folder to inspect its actual entries. This browser does not edit or read file contents."
+files.choose: "Choose folder"
+files.up: "Parent folder"
+files.refresh: "Refresh folder"
+files.kind.directory: "Folder"
+files.kind.file: "File"
+files.kind.other: "Other entry"
+files.status.ready: "No directory has been selected."
+files.status.choosing: "Waiting for the directory picker…"
+files.status.cancelled: "Selection cancelled; the previous folder was kept."
+files.status.loading: "Reading directory entries…"
+files.status.listed: "Directory entries loaded."
+files.status.failed: "The folder could not be read. Any earlier listing remains visible."
+files.empty.title: "This folder is empty"
+files.empty.detail: "Choose another folder or return to its parent."
+files.bytes: "{bytes} bytes reported by the host"
+files.size_unknown: "The host did not report a file size."
+files.no_read: "These are listing details; no file contents have been opened."
+files.scope: "Read-only browsing. Directory grants are kept for this run only; no files are changed or uploaded."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+files.title: "Archivos Harbour"
+files.summary: "Elige una carpeta para ver sus entradas reales. Este explorador no edita ni lee el contenido de los archivos."
+files.choose: "Elegir carpeta"
+files.up: "Carpeta superior"
+files.refresh: "Actualizar carpeta"
+files.kind.directory: "Carpeta"
+files.kind.file: "Archivo"
+files.kind.other: "Otra entrada"
+files.status.ready: "No se ha elegido ninguna carpeta."
+files.status.choosing: "Esperando al selector de carpetas…"
+files.status.cancelled: "Selección cancelada; se conserva la carpeta anterior."
+files.status.loading: "Leyendo las entradas de la carpeta…"
+files.status.listed: "Entradas cargadas."
+files.status.failed: "No se ha podido leer la carpeta. Se conserva la lista anterior, si existe."
+files.empty.title: "Esta carpeta está vacía"
+files.empty.detail: "Elige otra carpeta o vuelve a la superior."
+files.bytes: "{bytes} bytes según el dispositivo"
+files.size_unknown: "El dispositivo no ha indicado el tamaño."
+files.no_read: "Son datos de la lista; no se ha abierto el contenido del archivo."
+files.scope: "Exploración de solo lectura. Los permisos duran esta ejecución; no se cambia ni se sube ningún archivo."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Choose a small test directory whose contents you recognise. Compare the displayed entries with it, select a file and check its reported size, then dismiss the next picker. The previous folder must remain visible after cancellation.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Keep navigation tied to the listing that succeeded
+
+Opening a folder appends its provider-returned location to the proposed trail. Going up removes one trail element rather than constructing a parent with `..`. If listing fails, `complete_listing` discards the proposed trail and keeps the previous folder and entries.
+
+Only one request is allowed at a time. Both the controls and reducer helpers enforce that choice, so an older listing cannot arrive after a newer navigation and replace it. This is simpler than a generation counter for this serial workflow; if you later allow concurrent navigation, correlate completions explicitly.
+
+Each row is a named component. Its key includes the directory grant and path, not the row position, so a reordered listing does not turn a click on one entry into an action for another. The handler also checks the current entries before acting on the captured location.
+
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Open a child directory, go up and refresh. Check that the breadcrumb changes only after the listing completes. Select a file and confirm the screen reports listing metadata without pretending to have opened its bytes.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Separate an empty folder from a failed request
+
+An unselected directory has `entries: None`. A successful empty listing has `Some(Vec::new())`. Failure keeps the previous result and an explicit error. Those representations prevent the empty-state message from being used as a substitute for permission denial or an unavailable provider.
+
+<Tabs>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Folder {
+    pub location: FileSystemLocation,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BrowserState {
+    pub trail: Vec<Folder>,
+    pub entries: Option<Vec<FileSystemEntry>>,
+    pub selected: Option<FileSystemEntry>,
+    pub busy: bool,
+    pub status: &'static str,
+    pub error: Option<String>,
+    pub pending_trail: Option<Vec<Folder>>,
+}
+impl GlobalState for BrowserState {}
+
+pub fn location_key(location: &FileSystemLocation) -> String {
+    match location {
+        FileSystemLocation::Path(path) => format!("path:{}", path.as_str()),
+        FileSystemLocation::Directory { directory, path } =>
+            format!("directory:{}:{}", directory.0, path.as_str()),
+    }
+}
+
+impl BrowserState {
+    pub fn complete_listing(&mut self, result: Result<Vec<FileSystemEntry>, String>) {
+        self.busy = false;
+        match result {
+            Ok(mut entries) => {
+                let Some(trail) = self.pending_trail.take() else { return };
+                entries.sort_by(|left, right| {
+                    let left_directory = left.kind == FileSystemEntryKind::Directory;
+                    let right_directory = right.kind == FileSystemEntryKind::Directory;
+                    right_directory.cmp(&left_directory).then_with(|| left.name.cmp(&right.name))
+                });
+                self.trail = trail;
+                self.entries = Some(entries);
+                self.selected = None;
+                self.error = None;
+                self.status = "files.status.listed";
+            }
+            Err(error) => {
+                self.pending_trail = None;
+                self.error = Some(error);
+                self.status = "files.status.failed";
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(name: &str) -> Folder {
+        Folder {
+            name: name.into(),
+            location: FileSystemLocation::directory(DirectoryHandleId(7), name),
+        }
+    }
+
+    #[test]
+    fn failed_navigation_keeps_the_previous_directory_and_entries() {
+        let current = vec![folder("current")];
+        let mut state = BrowserState {
+            trail: current.clone(),
+            entries: Some(Vec::new()),
+            pending_trail: Some(vec![folder("denied")]),
+            busy: true,
+            ..Default::default()
+        };
+        state.complete_listing(Err("permission_denied".into()));
+        assert_eq!(state.trail, current);
+        assert_eq!(state.entries, Some(Vec::new()));
+        assert!(state.error.is_some());
+        assert!(!state.busy);
+    }
+
+    #[test]
+    fn a_successful_empty_listing_is_not_an_unloaded_directory() {
+        let mut state = BrowserState::default();
+        assert!(state.entries.is_none());
+        state.pending_trail = Some(vec![folder("empty")]);
+        state.complete_listing(Ok(Vec::new()));
+        assert_eq!(state.entries, Some(Vec::new()));
+        assert_eq!(state.trail[0].name, "empty");
+    }
+
+    #[test]
+    fn identities_include_the_directory_grant_not_only_the_filename() {
+        let first = FileSystemLocation::directory(DirectoryHandleId(7), "notes.txt");
+        let second = FileSystemLocation::directory(DirectoryHandleId(8), "notes.txt");
+        assert_ne!(location_key(&first), location_key(&second));
+        assert_eq!(location_key(&first), location_key(&first.clone()));
+    }
+}
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- fission:checkpoint -->
+Run all three tests. In the real app, choose an empty folder and then try a denied or unavailable location where your host permits it. Only the successful empty listing should say that the folder is empty.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run the actual provider
+
+```sh
+cargo test
+fission doctor --project-dir .
+fission run --target web --project-dir .
+fission build --target web --project-dir .
+```
+
+Browser directory picking depends on browser support, a secure context and user activation. A missing or denied provider must leave the interface usable; do not replace it with fake success to make a preview look complete. For Android and iOS, follow their setup and device tutorials before checking the same directory workflow.
+
+This example lists a directory in one request, so use a modest directory when learning the flow. It does not implement paging or recursive discovery. Native directory handles also do not create a framework security sandbox; the active host and operating system still define the actual access policy.
+
+## Related reference
+
+- [Filesystem capability](/reference/capabilities/file-system/)
+- [Platform capabilities](/reference/core/platform-capabilities/)
+- [Commands, services and jobs](/reference/core/commands-services-jobs/)

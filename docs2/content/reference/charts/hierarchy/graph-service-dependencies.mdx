@@ -1,0 +1,107 @@
+---
+title: Service dependencies
+sidebar_label: Service dependencies
+description: Fission Charts reference for Service dependencies.
+---
+
+# Service dependencies
+
+![Service dependencies screenshot](/img/charts/graph-service-dependencies.png)
+
+A service dependency graph gives a failing request its downstream context. Checkout can depend on payments and inventory even when those services do not depend on each other. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+The source of each edge depends on its target in this example. That convention belongs to the application and should be visible in the report. Node size and layout distance do not establish the strength of a dependency.
+
+## Data model
+
+GraphSeries contains identified nodes and endpoint references. GraphEdge stores source and target only, not a latency or traffic value. Keep equal node values unless a named measure is intentionally mapped to marker size.
+
+## Rust API
+
+| Setting | Type | Meaning |
+| --- | --- | --- |
+| `GraphSeries::nodes` | `Vec<GraphNode>` | Supplies stable IDs and readable labels. |
+| `GraphSeries::edges` | `Vec<GraphEdge>` | Connects source and target IDs. |
+| `Chart::series` | `Vec<Series>` | Presents the relationship series without Cartesian axes. |
+
+## Example
+
+```rust
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+let routes = GraphSeries::new("Dependencies")
+    .nodes(vec![
+        GraphNode {
+            id: "checkout".into(),
+            name: "Checkout".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "payments".into(),
+            name: "Payments".into(),
+            value: 1.0,
+        },
+        GraphNode {
+            id: "inventory".into(),
+            name: "Inventory".into(),
+            value: 1.0,
+        },
+    ])
+    .edges(vec![
+        GraphEdge {
+            source: "checkout".into(),
+            target: "payments".into(),
+        },
+        GraphEdge {
+            source: "checkout".into(),
+            target: "inventory".into(),
+        },
+    ]);
+
+let chart = Chart::new()
+    .title("Dependencies of the checkout service")
+    .series(vec![routes.into()]);
+```
+
+## Authoring from a Fission component
+
+Prepare the records before building the chart, then pass them into a presentation component. Loading and failure states belong to the parent workflow rather than an implicit request made during a build.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, GraphNode, GraphSeries};
+use fission::charts::series::graph::GraphEdge;
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ServiceDependenciesChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            nodes: Vec<GraphNode>,
+            edges: Vec<GraphEdge>,
+        }
+    }
+    view(graph, _state, _cx) =>
+        Chart(
+            title: Some(graph.chart_title.clone()),
+            series: vec![GraphSeries::new(&graph.series_label)
+                .nodes(graph.nodes.clone())
+                .edges(graph.edges.clone())
+                .into()],
+        )
+}
+```
+
+## Testing and accessibility
+
+Check shared dependencies, unresolved IDs and service renames. If the graph comes from telemetry, specify the observation window so an idle dependency is not mistaken for a removed one.
+
+Provide a readable connection list as an alternative to tracing lines. If a selection opens details, dispatch it through a reducer and identify the record by its current stable ID.
+
+Tags: `graph`, `dependencies`.
+
+[Hierarchy family overview](./overview)

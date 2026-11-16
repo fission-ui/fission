@@ -1,0 +1,60 @@
+---
+title: Mark area component
+sidebar_label: Mark area component
+description: Show a numeric operating range with MarkArea rather than screen-relative decoration.
+---
+
+# Mark area component
+
+![Mark area component screenshot](/img/charts/component-mark-area.png)
+
+A numeric operating range should move with the value scale. For a temperature report, the intended range might be expressed in degrees, not in a percentage of the plot's height.
+
+`MarkArea` stores that y range. It does not evaluate whether a process is safe, and its name is not currently painted as a range label, so keep the explanation in surrounding text.
+
+```rust
+use fission::prelude::*;
+use fission::core::op::Color;
+use fission::charts::{Axis, Chart, LineSeries, MarkArea, Series};
+
+fission_component! {
+    pub TemperatureOperatingRange<()> {
+        props {
+            title: String,
+            temperature_label: String,
+            range_label: String,
+            explanation: TextContent,
+            intervals: Vec<String>,
+            temperatures: Vec<f32>,
+            range_min: f32,
+            range_max: f32,
+            axis_min: f32,
+            axis_max: f32,
+            range_colour: Color,
+        }
+    }
+    view(temperature, _state, _cx) {
+        let labels = temperature.intervals.iter().map(String::as_str).collect();
+    } => Column(children: [
+        Text(temperature.explanation.clone()),
+        Chart(
+            title: Some(temperature.title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()
+                .min(temperature.axis_min).max(temperature.axis_max)),
+            series: vec![Series::Line(
+                LineSeries::new(&temperature.temperature_label).data(temperature.temperatures.clone()),
+            )],
+            mark_areas: vec![MarkArea::y_range(
+                temperature.range_label.clone(), temperature.range_min, temperature.range_max,
+            ).color(temperature.range_colour)],
+        ),
+    ])
+}
+```
+
+Supply translated labels and a theme-derived translucent colour. Validate finite ordered bounds and choose axis limits covering the observations and the intended range; annotations do not automatically expand the model's numeric domain.
+
+Test values below, inside and above the range, and show exact readings and range limits outside the colour band. A report's operating policy remains in application logic. The gallery screenshot is not evidence of safety monitoring or alerts.
+
+[Components and interaction family overview](./overview)

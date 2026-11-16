@@ -35,7 +35,8 @@ fission server artifacts --project-dir examples/pokemon-card-store
 Useful files:
 
 - `src/server.rs` wires the server routes, session-private render policy, worker, and island.
-- `src/app.rs` builds the page from Fission widgets and registers the reducers used by jobs and signed actions.
+- `src/app.rs` owns shared store state and exports the routed page components.
+- `src/components/store_home_page.rs` and `store_card_page.rs` use Compose to build the two server-rendered routes and register the reducers used by jobs and signed actions.
 - `src/cart.rs` contains the demo cart service used to retain basket state by session.
 - `src/components/` contains the reusable page sections.
 - `src/data.rs` defines the store data and a sample job spec for catalog loading.

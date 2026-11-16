@@ -1,33 +1,6 @@
 use crate::app::StoreState;
 use fission::prelude::*;
-
-pub struct FeaturePill {
-    pub label: &'static str,
-    pub accent: Color,
-}
-
-impl From<FeaturePill> for Widget {
-    fn from(pill: FeaturePill) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
-        let typography = &tokens.typography;
-
-        Container::new(
-            Text::new(pill.label)
-                .size(typography.font_size_xs)
-                .line_height(typography.font_size_xs * typography.line_height_snug)
-                .weight(typography.font_weight_semibold)
-                .color(tokens.colors.text_secondary),
-        )
-        .padding([
-            tokens.spacing.s,
-            tokens.spacing.s,
-            tokens.spacing.xs,
-            tokens.spacing.xs,
-        ])
-        .border(pill.accent.with_alpha(160), 1.0)
-        .border_radius(tokens.radii.full)
-        .bg(pill.accent.with_alpha(34))
-        .into()
-    }
+fission_component! { pub FeaturePill<StoreState> { label: &'static str, accent: Color } |pill, _state, cx| { let t=&cx.view.env().theme.tokens; } =>
+    Container(Text(pill.label).size(t.typography.font_size_xs).line_height(t.typography.font_size_xs*t.typography.line_height_snug).weight(t.typography.font_weight_semibold).color(t.colors.text_secondary))
+        .padding([t.spacing.s,t.spacing.s,t.spacing.xs,t.spacing.xs]).border(pill.accent.with_alpha(160),1.0).border_radius(t.radii.full).bg(pill.accent.with_alpha(34))
 }

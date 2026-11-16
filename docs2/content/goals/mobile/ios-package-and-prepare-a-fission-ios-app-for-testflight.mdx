@@ -1,0 +1,408 @@
+---
+layout: goal
+title: Package and prepare a Fission iOS app for TestFlight
+description: Separate Simulator checks, signed IPA packaging and App Store Connect processing before distributing a Fission build through TestFlight.
+goal: Produce and verify a signed IPA, keep signing material outside source control and check version and App Store Connect inputs.
+path: /blog/package-and-prepare-a-fission-ios-app-for-testflight/
+order: 108
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-package-and-prepare-a-fission-ios-app-for-testflight
+outcomes:
+  - Keep identity, signing and device review distinct
+  - Package a signed iOS artifact with private credentials outside source control
+  - Verify upload processing and installation through TestFlight
+---
+
+A successful Simulator build is not a TestFlight build. The Simulator runs a
+different target, and TestFlight distributes an App Store Connect upload after
+Apple has processed it. Keep those checkpoints separate so a local success does
+not conceal the signing or provider step that remains.
+
+The small Compose checklist below records a person's review. Its checkboxes do
+not inspect a certificate, package an IPA or contact Apple. Use the commands
+and artifact checks afterwards for those operations.
+
+## Create the project and add the target
+
+Create a shared Rust app and add the iOS target. Fission generates the native host; keep the app behaviour in Rust.
+
+```sh
+cargo install cargo-fission
+fission init ios-package-and-prepare-a-fission-ios-app-for-testflight
+cd ios-package-and-prepare-a-fission-ios-app-for-testflight
+fission add-target ios --project-dir .
+cargo add serde_yaml
+```
+
+## Files created by Fission
+
+Fission creates this starter tree. Shared Rust code stays in `src/`; the generated host under `platforms/ios/` handles iOS launch and packaging.
+
+```text
+ios-package-and-prepare-a-fission-ios-app-for-testflight/
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # shared Fission screen
+└── platforms/
+    └── ios/                  # generated iOS host
+```
+
+Keep app behaviour in shared Rust. Add a feature module only when it creates a useful boundary, and keep iOS APIs behind the generated host.
+
+<!-- fission:step id="start-screen" -->
+## Create the app screen
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TestFlightReleaseReadiness<()> {
+        state {
+            identity_checked: bool = false,
+            signing_checked: bool = false,
+            device_checked: bool = false,
+        }
+    }
+    view(release, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let reviewed = [release.identity_checked, release.signing_checked, release.device_checked]
+            .iter()
+            .filter(|checked| **checked)
+            .count();
+        let status = if reviewed == 3 {
+            cx.tr("release.status.complete")
+        } else {
+            cx.tr("release.status.incomplete")
+        };
+    } =>
+    SemanticsRegion(
+        identifier: Some("ios-testflight-release-readiness".to_string()),
+        label: Some(cx.tr("release.screen.label")),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(cx.tr("release.app.name"))
+                        .weight(tokens.typography.font_weight_bold),
+                    Text(cx.tr("release.app.version"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Badge(text: cx.tr("release.preview.badge")),
+                Divider(),
+                Text(cx.tr("release.title"))
+                    .size(tokens.typography.heading2_size),
+                Text(cx.tr("release.summary"))
+                    .color(tokens.colors.text_secondary),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.identity.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.identity.detail")),
+                        Checkbox(
+                            checked: release.identity_checked,
+                            label: Some(cx.tr("release.identity.check")),
+                            semantics_identifier: Some("testflight.identity-check".to_string()),
+                            on_toggle: reduce { release.identity_checked = !release.identity_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.signing.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.signing.detail")),
+                        Checkbox(
+                            checked: release.signing_checked,
+                            label: Some(cx.tr("release.signing.check")),
+                            semantics_identifier: Some("testflight.signing-check".to_string()),
+                            on_toggle: reduce { release.signing_checked = !release.signing_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(cx.tr("release.device.title"))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text(cx.tr("release.device.detail")),
+                        Checkbox(
+                            checked: release.device_checked,
+                            label: Some(cx.tr("release.device.check")),
+                            semantics_identifier: Some("testflight.device-check".to_string()),
+                            on_toggle: reduce { release.device_checked = !release.device_checked; },
+                        ),
+                    ])
+                )
+                .padding_all(tokens.spacing.m)
+                .bg(tokens.colors.background)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+                Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                    Badge(text: status),
+                    Text(format!("{reviewed} / 3"))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(cx.tr("release.preview.note"))
+                    .color(tokens.colors.text_secondary),
+            ])
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+
+```
+</TabItem>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+mod app;
+mod translations;
+use fission::prelude::*;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+}
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(translations::create_env()).run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/translations.rs">
+<!-- fission:file path="src/translations.rs" -->
+```rust
+use fission::prelude::*;
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+pub fn create_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
+}
+
+
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+fn load_bundle(locale: &str, source: &str) -> TranslationBundle {
+    TranslationBundle {
+        locale: Locale::from(locale),
+        messages: serde_yaml::from_str(source).expect("valid tutorial translations"),
+    }
+}
+
+fn preview_env() -> Env {
+    let mut env = Env::default();
+    env.locale = Locale::from("en-US");
+    env.i18n
+        .add_bundle(load_bundle("en-US", include_str!("../i18n/en-US.yaml")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml")));
+    env
+}
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::TestFlightReleaseReadiness)
+        .with_env(preview_env())
+        .with_title("Northstar Journal")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+```
+</TabItem>
+<TabItem label="i18n/en-US.yaml">
+<!-- fission:file path="i18n/en-US.yaml" -->
+```yaml
+release.screen.label: "TestFlight release readiness checklist"
+release.app.name: "Northstar Journal"
+release.app.version: "iOS release · 1.4.0 (42)"
+release.preview.badge: "Readiness review"
+release.title: "Before you send a build to testers"
+release.summary: "Check the bundle identity, signing profile and a clean device launch before upload."
+release.identity.title: "Bundle identity"
+release.identity.detail: "com.northstar.journal · version 1.4.0 · build 42"
+release.identity.check: "I checked the bundle ID and version"
+release.signing.title: "Signing"
+release.signing.detail: "Distribution certificate and App Store provisioning profile"
+release.signing.check: "I checked the signing inputs"
+release.device.title: "TestFlight smoke test"
+release.device.detail: "Install the processed build through TestFlight and verify a clean launch."
+release.device.check: "I checked the device launch"
+release.status.complete: "All release checks reviewed"
+release.status.incomplete: "Release checks still need review"
+release.preview.note: "Browser preview only: these checks are local and do not sign, package or upload an app."
+```
+</TabItem>
+<TabItem label="i18n/es-ES.yaml">
+<!-- fission:file path="i18n/es-ES.yaml" -->
+```yaml
+release.screen.label: "Lista de verificación para TestFlight"
+release.app.name: "Diario Northstar"
+release.app.version: "Versión de iOS · 1.4.0 (42)"
+release.preview.badge: "Revisión de preparación"
+release.title: "Antes de enviar una versión a los testers"
+release.summary: "Revisa el identificador del paquete, el perfil de firma y el inicio en un dispositivo antes de subir la app."
+release.identity.title: "Identidad del paquete"
+release.identity.detail: "com.northstar.journal · versión 1.4.0 · compilación 42"
+release.identity.check: "He revisado el ID del paquete y la versión"
+release.signing.title: "Firma"
+release.signing.detail: "Certificado de distribución y perfil de aprovisionamiento de App Store"
+release.signing.check: "He revisado los datos de firma"
+release.device.title: "Prueba rápida de TestFlight"
+release.device.detail: "Instala la versión procesada mediante TestFlight y comprueba que arranca."
+release.device.check: "He revisado el inicio en el dispositivo"
+release.status.complete: "Todas las comprobaciones están revisadas"
+release.status.incomplete: "Quedan comprobaciones por revisar"
+release.preview.note: "Solo vista previa web: las comprobaciones son locales y no firman, empaquetan ni suben una app."
+```
+</TabItem>
+</Tabs>
+<!-- fission:preview -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Package and prepare a Fission iOS app for TestFlight
+
+Set a stable bundle ID and an explicit marketing version and build number.
+The bundle ID must match the registered application, and each uploaded build
+needs a new build number. Keep the signing certificate in Keychain and the
+provisioning profile outside the repository. App Store Connect API credentials
+are separate from application signing credentials.
+
+```toml
+[package.ios]
+bundle_id = "com.example.northstar-journal"
+marketing_version = "1.4.0"
+build_number = "42"
+team_id = "YOUR_TEAM_ID"
+provisioning_profile = "/private/signing/Journal.mobileprovision"
+```
+
+Use the selected distribution profile and identity, not placeholder credentials:
+
+```sh
+fission readiness package --target ios --format ipa --release --project-dir .
+fission signing status --target ios --project-dir .
+fission package --target ios --format ipa --release --project-dir . --json
+```
+
+Read the emitted artifact manifest and inspect its IPA, source revision and
+signing inputs. Do not substitute a Simulator package or an older file with the
+same name. The [iOS packaging guide](/docs/build-and-package/ios-packages/)
+explains the supported signing setup.
+
+An App Store Connect distribution build is uploaded for TestFlight or App Store
+distribution. Direct installation on registered devices uses a development or
+Ad Hoc build instead; these are different signing paths. See
+[Apple's distribution methods](https://help.apple.com/xcode/mac/current/en.lproj/dev31de635e5.html).
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+The compiled preview changes browser-local state only; it does not perform this task on the iOS Simulator or an iPhone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Inspect the iOS release artifact
+
+Create the App Store Connect app record before uploading. Publish the exact
+manifest produced above, first as a dry run:
+
+```sh
+fission publish --provider app-store --artifact path/to/artifact-manifest.json --dry-run
+```
+
+Review the destination, application identity, version and credentials before
+using the same command with `--yes`. Upload acceptance is not processing
+completion. Wait until the build appears in App Store Connect, resolve any
+processing or export-compliance requirements, then add it to the intended
+TestFlight group. External testing can require beta review. Apple's
+[upload guide](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/)
+and [TestFlight overview](https://developer.apple.com/testflight/) describe
+these separate stages.
+
+Install through TestFlight on an actual iPhone. Check the displayed version,
+first launch, retained data across an upgrade, and the workflows changed in this
+release. A checklist tick or successful CLI upload does not prove any of those.
+
+### Run, test and build
+
+```sh
+cargo test
+fission doctor ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
+```
+
+`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
+
+
+### Simulator and device commands
+
+Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+
+### Current references
+
+These references explain the API contract behind the example and the target-specific behavior to verify:
+
+- [Fission package command and release options](/reference/cli/overview/)
+- [Fission project configuration](/reference/config/fission-toml/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

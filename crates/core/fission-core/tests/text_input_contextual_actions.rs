@@ -196,6 +196,22 @@ fn field_contract_lowers_validation_and_autofill_group() {
 }
 
 #[test]
+fn untouched_empty_required_field_is_semantically_unvalidated() {
+    let ir = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .semantics_identifier("required-empty")
+            .required(true),
+    ));
+    let (_, semantics) = text_semantics(&ir, "required-empty");
+
+    assert!(semantics.required);
+    assert_eq!(
+        semantics.validation_state,
+        fission_ir::semantics::TextFieldValidationState::Unvalidated
+    );
+}
+
+#[test]
 fn validation_pattern_uses_the_same_field_contract_on_canvas_targets() {
     let invalid = internal::lower_widget_to_ir(&Widget::from(
         TextInput::default()

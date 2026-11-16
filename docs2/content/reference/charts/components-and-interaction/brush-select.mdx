@@ -1,0 +1,69 @@
+---
+title: Brush selection
+sidebar_label: Brush selection
+description: Handle a completed rectangular chart brush in a Compose reducer.
+---
+
+# Brush selection
+
+![Brush selection screenshot](/img/charts/brush-select.png)
+
+A brush selects observations by a region of the plot. For order investigation, the two coordinates might be basket value and item count. The chart owns the pointer gesture; the application decides what to do with the selected observations.
+
+This component retains only a count for its summary. It does not pretend that an array index is a durable order ID.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{
+    Axis, Chart, ChartBrush, ChartBrushSelection, ChartInteraction,
+    ScatterSeries, Series,
+};
+
+fission_component! {
+    pub BrushInspector<()> {
+        props {
+            chart_id: WidgetId,
+            title: String,
+            orders_label: String,
+            value_axis_label: String,
+            item_axis_label: String,
+            summary_pattern: String,
+            samples: Vec<(f32, f32)>,
+            brush: ChartBrush,
+        }
+        state { selected_count: usize = 0 }
+    }
+    view(inspector, _state, cx) => Column(children: [
+        Chart(
+            id: Some(inspector.chart_id),
+            title: Some(inspector.title.clone()),
+            x_axis: Some(Axis::value().name(inspector.value_axis_label.clone())),
+            y_axis: Some(Axis::value().name(inspector.item_axis_label.clone())),
+            series: vec![Series::Scatter(
+                ScatterSeries::new(&inspector.orders_label).data(inspector.samples.clone()),
+            )],
+            interaction: ChartInteraction::new().brush(inspector.brush.clone()),
+            on_brush: reduce {
+                if let Some((_source, selection)) =
+                    ChartBrushSelection::from_action_input(&cx.input)
+                {
+                    inspector.selected_count = selection.items.len();
+                }
+            },
+        ),
+        Text(inspector.summary_pattern.replace(
+            "{count}", &inspector.selected_count.to_string(),
+        )),
+    ])
+}
+```
+
+Put this component in `widgets/brush_inspector.rs`. The parent supplies finite numeric samples, translated labels and a translated summary pattern containing `{count}`. Use `ChartBrush::rect()` for a rectangular brush.
+
+## Preview is not a selection result
+
+`preview_rect(x, y, width, height)` uses fractions of the plot. It supplies an initial visual region; the reducer above runs when an actual drag ends. A click or very small region clears the brush.
+
+Test completed drags, clearing and no matching points with LiveTest. Keep equivalent list or numeric-filter controls for users who cannot drag. To act on orders rather than count points, resolve hits against the corresponding data snapshot and its durable IDs, especially after filtering or zooming. The gallery screenshot is a fixture, not an interaction test.
+
+[Components and interaction family overview](./overview)

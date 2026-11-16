@@ -1,0 +1,19 @@
+{
+  "brand": "Tu sitio web",
+  "nav.home": "Inicio",
+  "nav.label": "Navegación del sitio",
+  "nav.about": "Acerca de",
+  "home.eyebrow": "Un lugar para comenzar",
+  "home.title": "Dale espacio a tu próxima idea.",
+  "home.body": "Este es un sitio web inicial. Sustituye esta introducción por una descripción clara de tu proyecto y de las personas a las que ayuda.",
+  "home.link": "Explora el sitio inicial",
+  "home.note": "Dos páginas y un sistema de diseño compartido. Creado con componentes de Rust y Fission.",
+  "about.eyebrow": "Acerca de este sitio inicial",
+  "about.title": "Cuenta tu historia con tus propias palabras.",
+  "about.body": "Utiliza esta página para explicar tu trabajo, tu enfoque y dónde encontrar más información. Estas palabras son ejemplos, no afirmaciones comerciales.",
+  "about.link": "Volver al inicio",
+  "about.note": "No hay cuentas, formularios de contacto, pagos ni servicios de servidor conectados. Añade información real cuando esté lista.",
+  "footer.attribution": "Creado con Fission",
+  "footer.note": "Un sitio inicial preparado para tu contenido.",
+  "not_found": "Página no encontrada. Utiliza la navegación para volver al inicio."
+}

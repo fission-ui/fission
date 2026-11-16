@@ -17,6 +17,8 @@ pub struct ServerRuntimeConfig {
     pub default_route_mode: Option<WebRouteMode>,
     /// Optional cap on reducer/resource render passes per request.
     pub render_pass_limit: Option<usize>,
+    /// Optional `[web].font_delivery` override for packaged-font delivery.
+    pub font_delivery: Option<fission_shell_site::WebFontDelivery>,
     /// Page and resource cache configuration.
     pub cache: ServerCacheConfig,
     /// HTTP origin and proxy-trust configuration.
@@ -35,6 +37,7 @@ impl Default for ServerRuntimeConfig {
             default_locale: "en".to_string(),
             default_route_mode: None,
             render_pass_limit: None,
+            font_delivery: None,
             cache: ServerCacheConfig::default(),
             http: ServerHttpConfig::default(),
             sessions: ServerSessionConfig::default(),
@@ -228,6 +231,12 @@ pub enum ServerIslandPreload {
 #[derive(Debug, Deserialize, Default)]
 struct FissionToml {
     server: Option<ServerToml>,
+    web: Option<WebToml>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct WebToml {
+    font_delivery: Option<fission_shell_site::WebFontDelivery>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -317,9 +326,8 @@ impl ServerRuntimeConfig {
     }
 
     fn from_toml(root: FissionToml) -> Result<Self> {
-        let Some(server) = root.server else {
-            return Ok(Self::default());
-        };
+        let font_delivery = root.web.and_then(|web| web.font_delivery);
+        let server = root.server.unwrap_or_default();
         let mut cache = ServerCacheConfig::default();
         if let Some(cache_toml) = server.cache {
             cache = ServerCacheConfig::from_toml(cache_toml)?;
@@ -332,6 +340,7 @@ impl ServerRuntimeConfig {
                 .map(|mode| parse_route_mode(mode, &cache))
                 .transpose()?,
             render_pass_limit: server.render_pass_limit,
+            font_delivery,
             cache,
             http: server
                 .http
@@ -616,6 +625,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
+            web: None,
         })
         .unwrap();
 
@@ -630,6 +640,22 @@ mod tests {
         };
         assert_eq!(policy.ttl, Duration::from_secs(300));
         assert_eq!(policy.stale_while_revalidate, Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn parses_shared_web_font_delivery_without_server_configuration() {
+        let config = ServerRuntimeConfig::from_toml(FissionToml {
+            server: None,
+            web: Some(WebToml {
+                font_delivery: Some(fission_shell_site::WebFontDelivery::External),
+            }),
+        })
+        .unwrap();
+
+        assert_eq!(
+            config.font_delivery,
+            Some(fission_shell_site::WebFontDelivery::External)
+        );
     }
 
     #[test]
@@ -690,6 +716,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
+            web: None,
         })
         .unwrap();
 

@@ -1,0 +1,37 @@
+---
+title: Resource load heatmap
+sidebar_label: Resource load heatmap
+description: Compare resource utilisation in consistent units and windows.
+---
+
+# Resource load heatmap
+
+![Resource load heatmap screenshot](/img/charts/heatmap-resource-load.png)
+
+A resource heatmap can identify sustained pressure across services, provided every cell describes the same resource and interval. Mixing CPU percentage with memory bytes would produce a colour field without a meaningful scale.
+
+Use the `MetricMatrix` component from [availability matrices](./heatmap-availability), in `widgets/metric_matrix.rs`, with one resource type per report:
+
+```rust
+use crate::widgets::metric_matrix::MetricCell;
+
+pub fn resource_use_cell(
+    column: usize,
+    row: usize,
+    used: f32,
+    capacity: f32,
+) -> Option<MetricCell> {
+    if !used.is_finite() || used < 0.0 || !capacity.is_finite() || capacity <= 0.0 {
+        return None;
+    }
+    Some(MetricCell { column, row, value: 100.0 * used / capacity })
+}
+```
+
+Keep usage and capacity in the same units. A CPU report needs an explicit choice of host capacity or allocated quota; memory needs an explicit capacity definition. Keep overload above 100% rather than silently clamping it, and choose colour bounds that explain that range.
+
+Translate service/window captions and identify whether each value is a peak, mean or end-of-window measurement. Missing telemetry leaves a cell absent, not idle. Retain exact measurements and capacity for inspection.
+
+Test zero capacity, overload, missing probes and reordered service rows. Aggregation belongs in the data layer, not inside widget conversion. The gallery fixture is separate and does not establish operational thresholds.
+
+[Heatmap and calendar family overview](./overview)

@@ -1,0 +1,57 @@
+---
+title: Source mix pie
+sidebar_label: Source mix pie
+description: Fission Charts reference for Source mix pie.
+---
+
+# Source mix pie
+
+![Source mix pie screenshot](/img/charts/pie-source-mix.png)
+
+An acquisition source mix depends on an attribution rule. A new account may encounter several channels, but a pie requires one counted contribution to one category. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Here each new account is assigned its recorded first acquisition source. Keep direct and unknown sources distinct where the tracking model distinguishes them. This is not evidence that the source caused the signup.
+
+## Data model
+
+Supply one non-negative count per exclusive source category for the same signup cohort. `PieSeries` calculates shares from the supplied total; it does not implement attribution or restore untracked accounts.
+
+## Authoring from a Fission component
+
+The parent owns attribution and aggregation. This component presents a flat pie with no unnecessary inner radius.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, PieSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub NewAccountSourceShare<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            accounts_by_first_source: Vec<(String, f32)>,
+        }
+    }
+    view(report, _state, _cx) {
+        let values = report.accounts_by_first_source.iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
+    } => Chart(
+        title: Some(report.chart_title.clone()),
+        series: vec![PieSeries::new(&report.series_label)
+            .data(values)
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test missing attribution and accounts with several recorded touchpoints. Explain the attribution rule and report period outside the chart, and retain exact counts for readers who cannot distinguish segments.
+
+Tags: `pie`, `source`.
+
+[Radial family overview](./overview)

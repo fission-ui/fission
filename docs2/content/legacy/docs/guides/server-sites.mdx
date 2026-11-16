@@ -1,0 +1,152 @@
+---
+title: Server-rendered sites
+description: Build dynamic, cacheable, server-rendered web experiences with Fission widgets, jobs, services, actions, workers, and islands.
+---
+
+# Server-rendered sites
+
+Use the server shell when a page needs request-time data or server-side actions but should still use Fission’s widget model. That includes stores, dashboards, catalogs, account pages, portals, and documentation with dynamic sections. Static HTML is enough for some routes; others need session state, revalidation, or a server action.
+
+The reference project is `examples/pokemon-card-store`. It builds the storefront from Fission widgets, keeps the cart in a session-private route, runs a server job before responding, and uses a worker and a focused WASM island for browser-side enhancements. You can also package it as a Docker image. Revalidated routes use the same shell, but a page that emits signed action forms must be private or request-rendered unless that interaction lives in an island.
+
+## 1. Enable the SSR target
+
+A server project declares the `ssr` target and sets `[server].entry` to the Rust function that creates the app.
+
+```toml
+targets = ["ssr"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "rs.fission.examples.pokemon_card_store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+# Required when this fission.toml sits beside a virtual workspace Cargo.toml.
+package = "pokemon-card-store"
+default_route_mode = "server_private"
+render_pass_limit = 4
+```
+
+Fission uses this entry function for `fission server check`, `fission server serve`, `fission server artifacts`, and Docker packaging.
+
+## 2. Build the server app
+
+Build the server app in ordinary Rust. The following registration excerpt
+uses the app-owned page, job, and browser entrypoints from
+`examples/pokemon-card-store/src/server.rs`; it is not a second complete store
+implementation. The route's page tree itself should use Compose.
+
+```rust
+use fission::server::{
+    FissionServerApp, ProgressiveWorker, ServerJobRegistry, ServerPrivatePolicy,
+    WasmIsland, WebRouteMode,
+};
+pub fn pokemon_card_store_server() -> FissionServerApp {
+    FissionServerApp::new("Pokemon Card Store")
+        .jobs(ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
+            Ok(catalog_response())
+        }))
+        .route_widget::<StoreState, _>(
+            "/",
+            "Pokemon Card Store",
+            Some("A Fission server-rendered storefront for collectible cards.".to_string()),
+            WebRouteMode::ServerPrivate(ServerPrivatePolicy::default()),
+            StoreHomePage,
+        )
+        .worker(
+            "/",
+            ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+                .entry("pokemon_card_store::workers::catalog_filters_boot")
+                .root_node_id("catalog-grid"),
+        )
+        .island(
+            "/",
+            WasmIsland::new("cart-drawer", "/assets/islands/cart-drawer.wasm", "cart-drawer")
+                .entry("pokemon_card_store::islands::cart_drawer_boot"),
+        )
+}
+```
+
+The route widget remains the page’s source of truth. Jobs prepare data before HTML is returned. Route mode says whether a page is public, revalidated, rendered per request, or private to a session. Workers and islands add browser-side behaviour without turning the whole site into one large browser app.
+
+Server routes use the widget router’s `:param` syntax. For `/cards/:slug`, the
+extracted value is available as `ServerRenderContext::route_params`. The
+initial state loader selects the product identity before building the widget
+tree. Let a registered job fetch its data rather than blocking this loader on
+a remote request:
+
+```rust
+.route_widget_with_state::<StoreState, _, _>(
+    "/cards/:slug",
+    "Card detail",
+    None,
+    WebRouteMode::ServerPrivate(ServerPrivatePolicy::default()),
+    CardDetailPage,
+    |ctx| {
+        let slug = ctx.route_params["slug"].clone();
+        Ok(StoreState::for_card(ctx.session.id(), slug))
+    },
+)
+```
+
+Exact routes take precedence over dynamic ones. You can register `/cards/new` as its own route alongside `/cards/:slug`.
+
+## 3. Use a normal CLI entrypoint
+
+The binary delegates to the server shell’s CLI runner.
+
+```rust
+use fission::server::run_from_cli;
+use pokemon_card_store::pokemon_card_store_server;
+
+fn main() -> anyhow::Result<()> {
+    run_from_cli(pokemon_card_store_server())
+}
+```
+
+That entrypoint supports `check`, `routes`, `serve`, `build`, and `artifacts`. Fission’s top-level CLI calls these subcommands for you.
+
+## 4. Check, serve, and generate browser artifacts
+
+Render all declared routes:
+
+```sh
+fission server check --project-dir examples/pokemon-card-store
+```
+
+Serve locally:
+
+```sh
+fission server serve --project-dir examples/pokemon-card-store --host 127.0.0.1 --port 8124
+```
+
+Generate and compile worker and island browser artifacts:
+
+```sh
+fission server artifacts --project-dir examples/pokemon-card-store
+```
+
+Run these checks before packaging. A route can fail because a widget cannot render on the server, a job is missing, a worker entry is invalid, or an island cannot produce a browser artifact. `check` renders routes and builds browser artifacts. Use `artifacts` when you only need to regenerate worker or island WASM output.
+
+## 5. Package the server as a Docker image
+
+Server apps usually run as processes. Fission’s Docker package format creates a build context, compiles the app in a Rust builder image, and runs the binary in a runtime image.
+
+```toml
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+```
+
+```sh
+fission package \
+  --project-dir examples/pokemon-card-store \
+  --target ssr \
+  --format docker-image \
+  --release
+```
+
+The image runs the app with `serve --host 0.0.0.0 --port $PORT`. The artifact manifest records the Dockerfile, image metadata, generated context, tags, and validation checks.
+
+For the security model, session settings, action-origin checks, and HTTP adapter hooks, continue to [Server security](/docs/guides/server-site-security/).

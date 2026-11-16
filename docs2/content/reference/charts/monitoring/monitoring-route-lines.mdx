@@ -1,0 +1,53 @@
+---
+title: Operational route lines
+sidebar_label: Operational route lines
+description: Fission Charts reference for Operational route lines.
+---
+
+# Operational route lines
+
+![Operational route lines screenshot](/img/charts/monitoring-route-lines.png)
+
+A route view represents connections between known locations. This is a different data model from a time-series line: each route has its own start and end rather than inheriting a connection to the next sample. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+Use `LinesSeries` for independent links, such as delivery movements between depot positions on a floor plan. This component uses positions in a shared local coordinate system. It does not load map geometry or interpret coordinates as a geographic projection.
+
+## Data model
+
+Each `LineSegment` contains `from`, `to` and a numeric `value`. The renderer uses the value to vary visual intensity and width relative to the other links. Use a common measured quantity, or equal values when only connectivity matters. The `effect` option adds a visual marker; it is not evidence of live movement.
+
+## Authoring from a Fission component
+
+The parent prepares route segments and preserves the source route IDs separately. The chart only renders the prepared connections.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Chart, LineSegment, LinesSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub DepotRouteLinks<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            routes: Vec<LineSegment>,
+        }
+    }
+    view(network, _state, _cx) => Chart(
+        title: Some(network.chart_title.clone()),
+        series: vec![LinesSeries::new(&network.series_label)
+            .data(network.routes.clone())
+            .into()],
+    )
+}
+```
+
+## Testing and accessibility
+
+Test coincident endpoints, disconnected routes and a single route with no comparison range. Keep coordinate units and orientation visible, and list the endpoints as accessible text. If displaying actual movements, distinguish observed events from configured routes and use genuine timestamps rather than decorative motion.
+
+Tags: `monitoring`, `lines`.
+
+[Monitoring family overview](./overview)

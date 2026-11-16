@@ -1,0 +1,62 @@
+---
+title: Zoomed line window
+sidebar_label: Zoomed line window
+description: Fission Charts reference for Zoomed line window.
+---
+
+# Zoomed line window
+
+![Zoomed line window screenshot](/img/charts/line-zoomed-window.png)
+
+A zoom window lets a reader inspect part of a long completion-time history without losing the full supplied series. This is useful when a short slowdown is hard to read at the scale of the entire report. The screenshot is from Fission's chart gallery.
+
+## What the chart is for
+
+DataZoom changes the visible portion of ordered samples. It does not retrieve older jobs, increase telemetry resolution or recompute completion-time statistics. Those operations remain explicit parts of the application's data workflow.
+
+## Data model
+
+Supply regular reporting labels and completion-time values with the same ordering. The range bounds are percentages of the series, not timestamps. Prepare the reporting statistic outside the chart and retain source records for exact drill-down.
+
+## Authoring from a Fission component
+
+The component receives the reporting values and labels. Fetch, aggregate and validate those inputs before constructing the chart.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, DataZoom, LineSeries};
+
+// The parent resolves display labels from its translation bundles.
+fission_component! {
+    pub ZoomedLineWindowChart<()> {
+        props {
+            chart_title: String,
+            series_label: String,
+            labels: Vec<String>,
+            completion_seconds: Vec<f32>,
+        }
+    }
+    view(report, _state, _cx) {
+        let labels = report.labels.iter().map(String::as_str).collect();
+    } =>
+        Chart(
+            title: Some(report.chart_title.clone()),
+            x_axis: Some(Axis::category(labels)),
+            y_axis: Some(Axis::value()),
+            data_zoom: Some(DataZoom::new().start_percent(30.0).end_percent(70.0)),
+            series: vec![
+                LineSeries::new(&report.series_label)
+                    .data(report.completion_seconds.clone())
+                    .into(),
+            ],
+        )
+}
+```
+
+## Testing and accessibility
+
+Test the first, middle and full windows, and confirm labels still identify the correct samples. Check an empty series and offer a readable range-control alternative when dragging is not available.
+
+Tags: `line`, `dataZoom`.
+
+[Line family overview](./overview)
