@@ -603,6 +603,8 @@ fission_component! {
 
 The shell installs the design system and translation bundles, then runs `ChatApp`. Desktop, Web, Android and iOS share the same state and components. The target-specific functions only configure their host.
 
+For Web, `.mount("#fission-web-mount")` tells the shell where to put the app. The CLI's generated page and this tutorial's preview both provide that element, so the app stays inside the space its host gives it rather than being appended below the page. This is a Web host detail; the native launchers do not need it.
+
 <Tabs>
 <TabItem label="src/lib.rs">
 <!-- fission:file path="src/lib.rs" -->
@@ -664,6 +666,7 @@ pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
     let run = || -> anyhow::Result<()> {
         WebApp::<ChatState, _>::new(ChatApp)
+            .mount("#fission-web-mount")
             .with_title("WhatsApp · Rust UI demo")
             .with_env(i18n::create_env()?)
             .with_design_system::<ChatDesignSystem>(DesignMode::Light)

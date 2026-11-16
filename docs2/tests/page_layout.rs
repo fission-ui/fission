@@ -19,6 +19,28 @@ fn goal_pages_keep_their_heading_scale_and_responsive_regions() -> Result<()> {
         let browser = LiveTestClient::launch_browser(options)?;
         for width in [1536, 390] {
             browser.simulate_resize(width, 1024)?;
+            if path == "/" {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                loop {
+                    let preview = browser.browser_evaluate_json(r#"(() => {
+                        const frame = document.querySelector('[data-fission-semantics="home-hero-preview"] iframe');
+                        const canvas = frame?.contentDocument?.querySelector('canvas');
+                        const rect = canvas?.getBoundingClientRect();
+                        return {
+                            mounted: canvas?.parentElement?.id === 'fission-web-mount',
+                            visible: !!rect && rect.width > 100 && rect.height > 100 && rect.top >= 0 && rect.bottom <= frame.clientHeight + 1
+                        };
+                    })()"#)?;
+                    if preview["mounted"] == true && preview["visible"] == true {
+                        break;
+                    }
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "homepage app is not visible in its iframe: {preview}"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
             let layout = browser.browser_evaluate_json(
                 r#"(() => {
                     const heading = document.querySelector('h1 .fission-site-text-run');
