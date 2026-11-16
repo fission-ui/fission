@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::{json, Value};
 #[cfg(not(target_arch = "wasm32"))]
+use std::cell::Cell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashSet;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
@@ -20,6 +22,8 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::{Command, Stdio};
+#[cfg(not(target_arch = "wasm32"))]
+use std::rc::Rc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
@@ -677,34 +681,12 @@ impl BrowserController {
         timeout_ms: u64,
         ignore_repeating_motion: bool,
     ) -> Result<TestResponse> {
-        let started = Instant::now();
-        let timeout = Duration::from_millis(timeout_ms);
-        loop {
-            match self.send_bridge_command(TestCommand::WaitForIdle {
-                timeout_ms: 0,
-                ignore_repeating_motion,
-            })? {
-                TestResponse::MotionStatus {
-                    finite,
-                    repeating,
-                    ripples,
-                } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
-                    return Ok(TestResponse::Ok {});
-                }
-                TestResponse::Error { message } => {
-                    return Ok(TestResponse::Error { message });
-                }
-                _ => {}
-            }
-            if started.elapsed() >= timeout {
-                return Ok(TestResponse::Error {
-                    message: format!(
-                        "timed out after {timeout_ms}ms waiting for browser motion to become idle"
-                    ),
-                });
-            }
-            std::thread::sleep(Duration::from_millis(8));
-        }
+        wait_for_idle_with(
+            timeout_ms,
+            ignore_repeating_motion,
+            |command| self.send_bridge_command(command),
+            std::thread::sleep,
+        )
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
@@ -714,6 +696,10 @@ impl BrowserController {
         );
         let retry_after_navigation = bridge_command_is_safe_to_retry(&command);
         let deadline = Instant::now() + Duration::from_secs(30);
+        // Keep startup/readiness checks, the submit call, and every poll under
+        // the same bridge budget. Without this outer scope, a Runtime.evaluate
+        // in wait_for_live_test_bridge falls back to the shorter 15s default.
+        let _operation_deadline = self.client.operation_deadline.scoped(deadline);
         loop {
             if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
                 self.wait_for_live_test_bridge(deadline)?;
@@ -732,9 +718,61 @@ impl BrowserController {
                     self.bridge_ready_navigation_count =
                         Some(self.client.main_frame_navigation_count);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.hold_browser_for_diagnostics(&error);
+                    return Err(error);
+                }
             }
         }
+    }
+
+    /// Optionally keep a failed diagnostic browser alive long enough to collect late events.
+    /// This is opt-in and does not change the bridge operation's deadline or its result.
+    fn hold_browser_for_diagnostics(&mut self, error: &anyhow::Error) {
+        let hold_ms = diagnostic_hold_after_error_ms(
+            std::env::var("FISSION_WEB_LIVE_HOLD_OPEN_AFTER_ERROR_MS")
+                .ok()
+                .as_deref(),
+        );
+        if hold_ms == 0 {
+            return;
+        }
+
+        eprintln!(
+            "[fission-web-live-diagnostic] holding browser for {hold_ms}ms after error: {error:#}"
+        );
+        let deadline = Instant::now() + Duration::from_millis(hold_ms);
+        while Instant::now() < deadline {
+            if let Err(drain_error) = self.client.drain_events(Duration::from_millis(100)) {
+                eprintln!(
+                    "[fission-web-live-diagnostic] browser event drain stopped: {drain_error:#}"
+                );
+                break;
+            }
+        }
+        if !self.client.web_test_trace.is_empty() {
+            eprintln!(
+                "[fission-web-live-diagnostic] stages observed during hold: {}",
+                self.client
+                    .web_test_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            );
+        }
+        if !self.client.webgpu_queue_trace.is_empty() {
+            eprintln!(
+                "[fission-web-live-diagnostic] WebGPU queue stages observed during hold: {}",
+                self.client
+                    .webgpu_queue_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            );
+        }
+        eprintln!("[fission-web-live-diagnostic] browser observation window ended");
     }
 
     fn send_bridge_command_once(
@@ -742,6 +780,7 @@ impl BrowserController {
         command: TestCommand,
         deadline: Instant,
     ) -> Result<TestResponse> {
+        let _operation_deadline = self.client.operation_deadline.scoped(deadline);
         let command_json = serde_json::to_string(&command)?;
         let submit = format!(
             "globalThis.__FISSION_TEST__.submit({})",
@@ -790,18 +829,26 @@ impl BrowserController {
     }
 
     fn wait_for_live_test_bridge(&mut self, deadline: Instant) -> Result<()> {
+        let mut last_probe_error = None;
         loop {
             self.client.drain_events(Duration::from_millis(5))?;
             self.fail_on_browser_errors()?;
-            match read_runtime_status(&mut self.client) {
+            let probe_deadline = (Instant::now() + Duration::from_secs(5)).min(deadline);
+            let status = {
+                let _probe_deadline = self.client.operation_deadline.scoped(probe_deadline);
+                read_runtime_status(&mut self.client)
+            };
+            match status {
                 Ok(status) if browser_is_ready(&status, self.options.mode, true) => return Ok(()),
                 Ok(_) => {}
-                Err(error) if is_transient_execution_context_error(&error) => {}
+                Err(error) if is_transient_bridge_readiness_error(&error) => {
+                    last_probe_error = Some(format!("{error:#}"));
+                }
                 Err(error) => return Err(error),
             }
             if Instant::now() >= deadline {
                 return Err(anyhow!(
-                    "timed out waiting for the Fission Web test bridge to become ready"
+                    "timed out waiting for the Fission Web test bridge to become ready; last transient probe error: {last_probe_error:?}"
                 ));
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -862,15 +909,10 @@ impl BrowserController {
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
-        let previous = self.client.operation_deadline;
-        if previous.is_none() {
-            self.client.operation_deadline = Some(
-                Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
-            );
-        }
-        let result = self.capture_verified_viewport();
-        self.client.operation_deadline = previous;
-        result
+        let _operation_deadline = self.client.operation_deadline.scoped(
+            Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
+        );
+        self.capture_verified_viewport()
     }
 
     fn capture_verified_viewport(&mut self) -> Result<Vec<u8>> {
@@ -1133,6 +1175,13 @@ fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
     .any(|phrase| message.contains(phrase))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn is_transient_bridge_readiness_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    is_transient_execution_context_error(error)
+        || message.contains("cdp command timed out: runtime.evaluate")
+}
+
 fn is_transient_bridge_context_error(error: &anyhow::Error) -> bool {
     let message = format!("{error:#}").to_ascii_lowercase();
     is_transient_execution_context_error(error)
@@ -1255,6 +1304,14 @@ struct ChromeSession {
 #[cfg(not(target_arch = "wasm32"))]
 impl ChromeSession {
     fn launch(chrome: &PathBuf, cdp_port: u16, options: &BrowserTestOptions) -> Result<Self> {
+        let webgpu_profile =
+            match std::env::var_os("FISSION_CHROME_WEBGPU_PROFILE") {
+                Some(value) => Some(value.into_string().map_err(|_| {
+                    anyhow!("FISSION_CHROME_WEBGPU_PROFILE must contain valid UTF-8")
+                })?),
+                None => None,
+            };
+        let webgpu_profile_args = chrome_webgpu_profile_args(webgpu_profile.as_deref())?;
         let profile_dir = std::env::temp_dir().join(format!(
             "fission-cdp-{}-{}",
             std::process::id(),
@@ -1271,6 +1328,7 @@ impl ChromeSession {
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
+            .args(webgpu_profile_args)
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
             .arg(format!("--remote-debugging-port={cdp_port}"))
@@ -1298,6 +1356,25 @@ impl ChromeSession {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn chrome_webgpu_profile_args(profile: Option<&str>) -> Result<&'static [&'static str]> {
+    match profile {
+        None | Some("default") => Ok(&[]),
+        // Chromium's default headless Linux ANGLE path can invalidate the native
+        // WebGPU instance when a canvas-backed surface is read back. This
+        // software Vulkan profile avoids that canvas/shared-image path.
+        Some("swiftshader-vulkan") => Ok(&[
+            "--use-angle=swiftshader",
+            "--enable-unsafe-swiftshader",
+            "--use-vulkan=swiftshader",
+            "--enable-features=Vulkan",
+        ]),
+        Some(other) => Err(anyhow!(
+            "unsupported FISSION_CHROME_WEBGPU_PROFILE '{other}'; supported values are 'default' and 'swiftshader-vulkan'"
+        )),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for ChromeSession {
     fn drop(&mut self) {
         self.kill();
@@ -1320,14 +1397,52 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
-    operation_deadline: Option<Instant>,
+    operation_deadline: CdpOperationDeadline,
     review_events: Vec<Value>,
     web_test_trace: VecDeque<String>,
     web_text_input_trace: VecDeque<String>,
+    webgpu_queue_trace: VecDeque<String>,
     report_only: bool,
     network_requests: HashSet<String>,
     network_last_activity: Instant,
     main_frame_navigation_count: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Default)]
+struct CdpOperationDeadline(Rc<Cell<Option<Instant>>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl CdpOperationDeadline {
+    fn current(&self) -> Instant {
+        self.0
+            .get()
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15))
+    }
+
+    fn scoped(&self, deadline: Instant) -> CdpOperationDeadlineGuard {
+        let previous = self.0.get();
+        self.0.set(Some(
+            previous.map_or(deadline, |previous| previous.min(deadline)),
+        ));
+        CdpOperationDeadlineGuard {
+            deadline: self.clone(),
+            previous,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct CdpOperationDeadlineGuard {
+    deadline: CdpOperationDeadline,
+    previous: Option<Instant>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for CdpOperationDeadlineGuard {
+    fn drop(&mut self) {
+        self.deadline.0.set(self.previous);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1343,10 +1458,11 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
-            operation_deadline: None,
+            operation_deadline: CdpOperationDeadline::default(),
             review_events: Vec::new(),
             web_test_trace: VecDeque::new(),
             web_text_input_trace: VecDeque::new(),
+            webgpu_queue_trace: VecDeque::new(),
             report_only: false,
             network_requests: HashSet::new(),
             network_last_activity: Instant::now(),
@@ -1355,9 +1471,7 @@ impl CdpClient {
     }
 
     fn send(&mut self, method: &str, params: Value) -> Result<Value> {
-        let deadline = self
-            .operation_deadline
-            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15));
+        let deadline = self.operation_deadline.current();
         self.set_socket_budget(deadline)?;
         let id = self.next_id;
         self.next_id += 1;
@@ -1512,6 +1626,12 @@ impl CdpClient {
                     }
                     self.web_text_input_trace.push_back(trace.to_owned());
                 }
+                if stage.is_some_and(is_webgpu_queue_trace_stage) {
+                    if self.webgpu_queue_trace.len() == 2048 {
+                        self.webgpu_queue_trace.pop_front();
+                    }
+                    self.webgpu_queue_trace.push_back(trace.to_owned());
+                }
                 if self.web_test_trace.len() == 64 {
                     self.web_test_trace.pop_front();
                 }
@@ -1588,12 +1708,70 @@ impl CdpClient {
     }
 }
 
+fn wait_for_idle_with(
+    timeout_ms: u64,
+    ignore_repeating_motion: bool,
+    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<TestResponse> {
+    let started = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms);
+    loop {
+        // The Web shell's WaitForIdle command only reads motion counts. Pump
+        // first so queued effects and finite motion get a chance to advance.
+        match send(TestCommand::Pump {})? {
+            TestResponse::Ok {} => {}
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            response => {
+                return Ok(TestResponse::Error {
+                    message: format!("unexpected response from browser pump: {response:?}"),
+                });
+            }
+        }
+        match send(TestCommand::WaitForIdle {
+            timeout_ms: 0,
+            ignore_repeating_motion,
+        })? {
+            TestResponse::MotionStatus {
+                finite,
+                repeating,
+                ripples,
+            } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
+                return Ok(TestResponse::Ok {});
+            }
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            _ => {}
+        }
+        if started.elapsed() >= timeout {
+            return Ok(TestResponse::Error {
+                message: format!(
+                    "timed out after {timeout_ms}ms waiting for browser motion to become idle"
+                ),
+            });
+        }
+        sleep(Duration::from_millis(8));
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn is_web_text_input_trace_stage(stage: u32) -> bool {
     // 410–435 cover bridge submit/query/poll stages; 450–470 and 473–476 cover
     // FillText, redraw scheduling, callback exit, and sender cleanup. Keep the
     // ranges separate because both are observed in the same CDP event stream.
     (410..=435).contains(&stage) || (450..=470).contains(&stage) || (473..=476).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_webgpu_queue_trace_stage(stage: u32) -> bool {
+    (552..=559).contains(&stage) || (560..=572).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn diagnostic_hold_after_error_ms(value: Option<&str>) -> u64 {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .min(60_000)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1622,6 +1800,38 @@ mod tests {
     use crate::{Bounds, SemanticNode};
 
     #[test]
+    fn bridge_poll_scope_uses_bridge_deadline_and_restores_after_error() {
+        let started = Instant::now();
+        let bridge_deadline = started + Duration::from_secs(30);
+        let operation_deadline = CdpOperationDeadline::default();
+
+        let default_deadline = operation_deadline.current();
+        assert!(default_deadline > started + Duration::from_secs(14));
+        assert!(default_deadline < started + Duration::from_secs(16));
+
+        let poll_result: Result<()> = (|| {
+            let _bridge_scope = operation_deadline.scoped(bridge_deadline);
+            assert_eq!(operation_deadline.current(), bridge_deadline);
+
+            let reattach_probe_deadline = started + Duration::from_secs(5);
+            {
+                let _probe_scope = operation_deadline.scoped(reattach_probe_deadline);
+                assert_eq!(operation_deadline.current(), reattach_probe_deadline);
+            }
+            assert_eq!(operation_deadline.current(), bridge_deadline);
+
+            let _later_nested_scope = operation_deadline.scoped(started + Duration::from_secs(60));
+            assert_eq!(operation_deadline.current(), bridge_deadline);
+            Err(anyhow!("simulated Runtime.evaluate poll failure"))
+        })();
+
+        assert!(poll_result.is_err());
+        let restored_deadline = operation_deadline.current();
+        assert!(restored_deadline > started + Duration::from_secs(14));
+        assert!(restored_deadline < started + Duration::from_secs(16));
+    }
+
+    #[test]
     fn web_text_input_trace_keeps_bridge_and_fill_stages_disjoint() {
         assert!(is_web_text_input_trace_stage(410));
         assert!(is_web_text_input_trace_stage(435));
@@ -1637,12 +1847,111 @@ mod tests {
     }
 
     #[test]
+    fn webgpu_queue_trace_covers_pending_age_and_submission_markers() {
+        assert!(is_webgpu_queue_trace_stage(552));
+        assert!(is_webgpu_queue_trace_stage(558));
+        assert!(is_webgpu_queue_trace_stage(559));
+        assert!(is_webgpu_queue_trace_stage(560));
+        assert!(is_webgpu_queue_trace_stage(571));
+        assert!(is_webgpu_queue_trace_stage(572));
+        assert!(!is_webgpu_queue_trace_stage(551));
+        assert!(!is_webgpu_queue_trace_stage(573));
+    }
+
+    #[test]
+    fn diagnostic_browser_hold_is_opt_in_and_bounded() {
+        assert_eq!(diagnostic_hold_after_error_ms(None), 0);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("")), 0);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("invalid")), 0);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("0")), 0);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("15000")), 15_000);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("60000")), 60_000);
+        assert_eq!(diagnostic_hold_after_error_ms(Some("60001")), 60_000);
+    }
+
+    #[test]
     fn reduced_motion_is_an_explicit_browser_option() {
         let standard = BrowserTestOptions::new("http://127.0.0.1/");
         assert!(!standard.prefers_reduced_motion);
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_pumps_before_reading_motion_status() {
+        let mut finite_motion = 1;
+        let mut commands = Vec::new();
+        let response = wait_for_idle_with(
+            1_000,
+            true,
+            |command| match command {
+                TestCommand::Pump {} => {
+                    commands.push("pump");
+                    finite_motion = 0;
+                    Ok(TestResponse::Ok {})
+                }
+                TestCommand::WaitForIdle {
+                    timeout_ms,
+                    ignore_repeating_motion,
+                } => {
+                    commands.push("status");
+                    assert_eq!(timeout_ms, 0);
+                    assert!(ignore_repeating_motion);
+                    Ok(TestResponse::MotionStatus {
+                        finite: finite_motion,
+                        repeating: 1,
+                        ripples: 0,
+                    })
+                }
+                _ => panic!("unexpected browser test command: {command:?}"),
+            },
+            |_| {},
+        )
+        .expect("wait for idle protocol should succeed");
+
+        assert!(matches!(response, TestResponse::Ok {}));
+        assert_eq!(commands, ["pump", "status"]);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_rejects_unexpected_pump_response() {
+        let response = wait_for_idle_with(
+            1_000,
+            true,
+            |_| {
+                Ok(TestResponse::MotionStatus {
+                    finite: 0,
+                    repeating: 0,
+                    ripples: 0,
+                })
+            },
+            |_| {},
+        )
+        .expect("protocol response should decode");
+
+        assert!(matches!(
+            response,
+            TestResponse::Error { message } if message.contains("unexpected response from browser pump")
+        ));
+    }
+
+    #[test]
+    fn chrome_webgpu_profile_selects_swiftshader_vulkan_only_when_requested() {
+        assert!(chrome_webgpu_profile_args(None).unwrap().is_empty());
+        assert!(chrome_webgpu_profile_args(Some("default"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            chrome_webgpu_profile_args(Some("swiftshader-vulkan")).unwrap(),
+            [
+                "--use-angle=swiftshader",
+                "--enable-unsafe-swiftshader",
+                "--use-vulkan=swiftshader",
+                "--enable-features=Vulkan",
+            ]
+        );
+        assert!(chrome_webgpu_profile_args(Some("unknown")).is_err());
     }
 
     #[test]
@@ -1835,6 +2144,19 @@ mod tests {
                 "unexpectedly treated permanent error as transient: {message}"
             );
         }
+    }
+
+    #[test]
+    fn runtime_evaluate_timeout_is_transient_during_bridge_reattachment() {
+        assert!(is_transient_bridge_readiness_error(&anyhow!(
+            "CDP command timed out: Runtime.evaluate"
+        )));
+        assert!(is_transient_bridge_readiness_error(&anyhow!(
+            "Execution context was destroyed, most likely because of a navigation."
+        )));
+        assert!(!is_transient_bridge_readiness_error(&anyhow!(
+            "Runtime.evaluate: target closed"
+        )));
     }
 
     #[test]

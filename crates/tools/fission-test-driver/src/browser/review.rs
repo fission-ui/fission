@@ -68,7 +68,7 @@ pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<Brows
     // The parent worker already enforces the same bounded case deadline. Keep
     // slow Chromium start-up and navigation inside that budget instead of
     // imposing a smaller, unrelated per-command cap.
-    client.operation_deadline = Some(deadline);
+    let _operation_deadline = client.operation_deadline.scoped(deadline);
     client.report_only = true;
     for domain in [
         "Page.enable",

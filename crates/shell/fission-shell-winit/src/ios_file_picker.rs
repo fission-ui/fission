@@ -2,9 +2,10 @@ use block::ConcreteBlock;
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileWriteSource, FissionDataStreamError,
     FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
-    PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES,
-    PICK_SAVE_FILE, WRITE_PICKED_FILE,
+    PickSaveFileRequest, PickSaveFileResult, PickedFile, ReleaseWritableFileRequest,
+    SaveFileDestination, WritableFileHandle, WritableFileHandleId, WritePickedFileRequest,
+    WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE, RELEASE_WRITABLE_FILE,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -183,6 +184,15 @@ pub(crate) fn register_ios_file_picker_capabilities(async_registry: &mut AsyncRe
             let _ = std::fs::remove_file(&staged.0);
             result?;
             Ok(WritePickedFileResult { byte_len: staged.1 })
+        },
+    );
+
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move {
+            let file = writable_files().lock().unwrap().remove(&request.file.id);
+            drop(file);
+            Ok(())
         },
     );
 }

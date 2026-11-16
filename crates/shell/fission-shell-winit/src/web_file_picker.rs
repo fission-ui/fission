@@ -3,10 +3,11 @@ use fission_core::{
     Bytes, FileSystemError, FileSystemPermission, FileWriteSource, FissionDataStreamError,
     FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritableFilePermissionRequest, WritableFilePermissionResult,
-    WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES,
-    PICK_SAVE_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
+    ReleaseWritableFileRequest, RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
+    WritableFileHandle, WritableFileHandleId, WritableFilePermissionRequest,
+    WritableFilePermissionResult, WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE,
+    PICK_OPEN_FILES, PICK_SAVE_FILE, RELEASE_WRITABLE_FILE, RESTORE_SAVE_FILE,
+    WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -54,6 +55,7 @@ extern "C" {
     fn fissionClosePickedFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionAbortPickedFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
+    fn fissionReleaseWritableFile(file_id: u32);
 }
 
 pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
@@ -170,6 +172,14 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
                     Err(error)
                 }
             }
+        },
+    );
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move {
+            let id = save_file_id(request.file.id)?;
+            fissionReleaseWritableFile(id);
+            Ok(())
         },
     );
     async_registry.register_operation_capability(

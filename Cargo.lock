@@ -1658,6 +1658,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cast"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
 name = "cc"
 version = "1.2.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3123,6 +3129,7 @@ dependencies = [
 [[package]]
 name = "fission-glifo"
 version = "0.3.0-fission.1"
+source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-vello-common",
@@ -3239,6 +3246,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-sys",
  "web-time",
  "wgpu",
@@ -3298,11 +3306,14 @@ dependencies = [
  "fission-render",
  "fission-store",
  "fission-store-sqlite",
+ "futures-channel",
+ "futures-util",
  "raw-window-handle",
  "serde",
  "serde_json",
  "tokio",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -3463,6 +3474,7 @@ dependencies = [
  "fontique",
  "futures-channel",
  "futures-core",
+ "futures-util",
  "glam 0.29.3",
  "gstreamer",
  "gstreamer-video",
@@ -3516,6 +3528,7 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-sys",
 ]
 
@@ -3578,6 +3591,7 @@ dependencies = [
 [[package]]
 name = "fission-vello-common"
 version = "0.2.0-fission.1"
+source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3592,6 +3606,7 @@ dependencies = [
 [[package]]
 name = "fission-vello-cpu"
 version = "0.2.0-fission.1"
+source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-glifo",
@@ -3604,6 +3619,7 @@ dependencies = [
 [[package]]
 name = "fission-vello-gpu"
 version = "0.2.0-fission.2"
+source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-glifo",
@@ -3618,6 +3634,7 @@ dependencies = [
 [[package]]
 name = "fission-vello-gpu-shaders"
 version = "0.2.0-fission.1"
+source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "naga",
  "wesl",
@@ -5975,6 +5992,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minicov"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3aa3aa12b448ac225b3102217d1ac5cc717908f02722926524b0599c933c7a0"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6264,6 +6291,15 @@ name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
+dependencies = [
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "num"
@@ -6725,6 +6761,12 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "openssl-probe"
@@ -10221,6 +10263,45 @@ checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.76"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0d555ca874445df8d314f94f5c948a4e74e5418f332c89f660a3d8310a96f4"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.76"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94eb68555b95bcea5e8cf4abe280b529049479fa995bfc23734af96a6aedc120"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.126"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31d56021e873866c968588ed85ccdf56db5c426e44afdb4618c39895104b920"
 
 [[package]]
 name = "wayland-backend"

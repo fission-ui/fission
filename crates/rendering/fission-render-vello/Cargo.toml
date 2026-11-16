@@ -19,8 +19,8 @@ fission-render = { path = "../fission-render", version = "0.16.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.16.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.16.0" }
 anyhow = "1.0"
-vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu" }
-vello_gpu = { package = "fission-vello-gpu", version = "0.2.0-fission.2", path = "../../../third_party/vello/vello_gpu" }
+vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", git = "https://github.com/worka-ai/vello", rev = "be43d4273b57cf80055ec25db448a00431f3627e" }
+vello_gpu = { package = "fission-vello-gpu", version = "0.2.0-fission.2", git = "https://github.com/worka-ai/vello", rev = "be43d4273b57cf80055ec25db448a00431f3627e" }
 wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
 parley = "0.11.1"
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.16.0" }
@@ -36,4 +36,7 @@ uuid = { version = "1", features = ["js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-time = "1.1"
-web-sys = { version = "0.3", features = ["console", "CanvasRenderingContext2d", "Document", "Headers", "HtmlCanvasElement", "ImageData", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { version = "0.3", features = ["console", "CanvasRenderingContext2d", "ContextAttributes2d", "Document", "Headers", "HtmlCanvasElement", "ImageData", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

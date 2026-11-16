@@ -8,15 +8,27 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::trace_web_test_stage;
 use lazy_static::lazy_static;
 use vello_cpu::peniko::ImageAlphaType;
 use vello_cpu::{PixelMetadata, Pixmap};
 use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
+use web_sys::{CanvasRenderingContext2d, ContextAttributes2d, HtmlCanvasElement};
+use web_time::Instant;
 
 pub(crate) const RASTER_PADDING: f32 = 1.0;
 const MAX_CANVAS_DIMENSION: f32 = 16_384.0;
 const MAX_CACHED_RUNS: usize = 128;
+
+fn readback_context(canvas: &HtmlCanvasElement) -> Option<CanvasRenderingContext2d> {
+    let options = ContextAttributes2d::new();
+    options.set_will_read_frequently(true);
+    canvas
+        .get_context_with_context_options("2d", options.as_ref())
+        .ok()??
+        .dyn_into::<CanvasRenderingContext2d>()
+        .ok()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct CacheKey {
@@ -52,6 +64,7 @@ pub(crate) fn rasterize(
     family: &str,
     weight: u16,
     italic: bool,
+    trace_stages: bool,
 ) -> Option<Arc<Pixmap>> {
     if text.is_empty()
         || !font_size.is_finite()
@@ -72,6 +85,13 @@ pub(crate) fn rasterize(
     let logical_height = ascent + descent + RASTER_PADDING * 2.0;
     let pixel_width = pixel_dimension(logical_width, scale)?;
     let pixel_height = pixel_dimension(logical_height, scale)?;
+    let raster_started = trace_stages.then(Instant::now);
+    if trace_stages {
+        trace_web_test_stage(
+            398,
+            (u32::from(pixel_width) << 16) | u32::from(pixel_height),
+        );
+    }
     let key = CacheKey {
         text: text.to_owned(),
         font_size: font_size.to_bits(),
@@ -86,6 +106,9 @@ pub(crate) fn rasterize(
     };
 
     if let Some(image) = RASTER_CACHE.lock().ok()?.get(&key).cloned() {
+        if let Some(started) = raster_started {
+            trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+        }
         return Some(image);
     }
 
@@ -101,6 +124,7 @@ pub(crate) fn rasterize(
         family,
         weight,
         italic,
+        raster_started.as_ref(),
     )?;
     let image = Arc::new(image);
 
@@ -111,12 +135,21 @@ pub(crate) fn rasterize(
         }
     }
     cache.insert(key, Arc::clone(&image));
+    if let Some(started) = raster_started {
+        trace_web_test_stage(397, started.elapsed().as_millis() as u32);
+    }
     Some(image)
 }
 
 fn pixel_dimension(logical: f32, scale: f32) -> Option<u16> {
     let pixels = (logical * scale).ceil();
     (pixels.is_finite() && pixels > 0.0 && pixels <= MAX_CANVAS_DIMENSION).then_some(pixels as u16)
+}
+
+fn trace_raster_stage(stage: u32, started: Option<&Instant>) {
+    if let Some(started) = started {
+        trace_web_test_stage(stage, started.elapsed().as_millis() as u32);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -132,6 +165,7 @@ fn rasterize_uncached(
     family: &str,
     weight: u16,
     italic: bool,
+    trace_started: Option<&Instant>,
 ) -> Option<Pixmap> {
     let document = web_sys::window()?.document()?;
     let canvas = document
@@ -141,11 +175,15 @@ fn rasterize_uncached(
         .ok()?;
     canvas.set_width(u32::from(pixel_width));
     canvas.set_height(u32::from(pixel_height));
-    let context = canvas
-        .get_context("2d")
-        .ok()??
-        .dyn_into::<CanvasRenderingContext2d>()
-        .ok()?;
+    // This image is immediately read back into CPU memory for Vello. Ask the
+    // browser for a readback-friendly backing store instead of allowing a GPU
+    // canvas that can make getImageData block for seconds in software WebGPU.
+    let context = readback_context(&canvas)?;
+
+    // 497 marks Canvas creation and context acquisition; 498 marks text
+    // configuration; 499 marks fillText; 500 marks pixel readback. These
+    // checkpoints are emitted only for an opt-in Web LiveTest renderer trace.
+    trace_raster_stage(497, trace_started);
 
     context.scale(f64::from(scale), f64::from(scale)).ok()?;
     context.set_text_baseline("alphabetic");
@@ -164,6 +202,7 @@ fn rasterize_uncached(
         color[2],
         f32::from(color[3]) / 255.0,
     ));
+    trace_raster_stage(498, trace_started);
     context
         .fill_text_with_max_width(
             text,
@@ -172,12 +211,14 @@ fn rasterize_uncached(
             f64::from(width),
         )
         .ok()?;
+    trace_raster_stage(499, trace_started);
 
     let rgba = context
         .get_image_data(0.0, 0.0, f64::from(pixel_width), f64::from(pixel_height))
         .ok()?
         .data()
         .0;
+    trace_raster_stage(500, trace_started);
     Some(Pixmap::from_parts(
         rgba,
         pixel_width,
@@ -216,4 +257,46 @@ fn css_font_families(families: &str) -> String {
         parsed.push("sans-serif".to_owned());
     }
     parsed.join(", ")
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use super::readback_context;
+    use js_sys::{Function, Reflect};
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+    use web_sys::HtmlCanvasElement;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn browser_text_context_requests_readback_optimized_storage() {
+        let canvas = web_sys::window()
+            .expect("browser window")
+            .document()
+            .expect("browser document")
+            .create_element("canvas")
+            .expect("create canvas")
+            .dyn_into::<HtmlCanvasElement>()
+            .expect("canvas element");
+        let context = readback_context(&canvas).expect("2D context");
+        let get_context_attributes = Reflect::get(
+            context.as_ref(),
+            &wasm_bindgen::JsValue::from_str("getContextAttributes"),
+        )
+        .expect("getContextAttributes property")
+        .dyn_into::<Function>()
+        .expect("getContextAttributes function");
+        let attributes = get_context_attributes
+            .call0(context.as_ref())
+            .expect("context attributes");
+        let will_read_frequently = Reflect::get(
+            &attributes,
+            &wasm_bindgen::JsValue::from_str("willReadFrequently"),
+        )
+        .expect("willReadFrequently attribute")
+        .as_bool();
+
+        assert_eq!(will_read_frequently, Some(true));
+    }
 }

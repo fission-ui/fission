@@ -10,14 +10,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteRequest)]
-    fn sqlite_request(request: JsValue) -> Result<js_sys::Promise, JsValue>;
+const SQLITE_REQUEST_BRIDGE: &str = "__fissionSqliteRequest";
+const SQLITE_CLOSE_DATABASE_BRIDGE: &str = "__fissionSqliteCloseDatabase";
 
-    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteCloseDatabase)]
-    fn sqlite_close_database(database_name: JsValue) -> Result<bool, JsValue>;
-}
+// Resolve the host functions dynamically: wasm-bindgen's extern descriptors
+// collide when an app links this crate from two distinct Git sources.
 
 /// Browser provider. The generated Web bootstrap installs its worker bridge
 /// before starting the Fission application.
@@ -54,17 +51,17 @@ impl WebSqliteStore {
     /// transaction, including when another tab owns the actual SQLite worker.
     /// If this context owns the worker, closing it also releases its writer
     /// lock. A later request reopens the same OPFS database. Call this after
-    /// pending operations complete.
+    /// pending operations complete. This explicit operation requires the
+    /// `__fissionSqliteCloseDatabase` host bridge; ordinary requests only
+    /// require `__fissionSqliteRequest`.
     pub fn close(&self) -> Result<(), SqlError> {
-        ensure_sqlite_bridge().map_err(sql_error)?;
         let database_name = self
             .database_name
             .as_deref()
             .map(JsValue::from_str)
             .unwrap_or(JsValue::UNDEFINED);
-        sqlite_close_database(database_name)
+        call_sqlite_bridge(SQLITE_CLOSE_DATABASE_BRIDGE, &database_name)
             .map(|_| ())
-            .map_err(js_error)
             .map_err(sql_error)
     }
 
@@ -601,7 +598,6 @@ fn start_request<Q: Serialize>(
     operation: &str,
     request: Q,
 ) -> Result<js_sys::Promise, WebSqliteError> {
-    ensure_sqlite_bridge()?;
     #[derive(Serialize)]
     struct Request<'a, Q> {
         #[serde(rename = "databaseName", skip_serializing_if = "Option::is_none")]
@@ -616,7 +612,14 @@ fn start_request<Q: Serialize>(
         request,
     })
     .map_err(|error| WebSqliteError::new("serialization", error.to_string()))?;
-    sqlite_request(value).map_err(js_error)
+    call_sqlite_bridge(SQLITE_REQUEST_BRIDGE, &value)?
+        .dyn_into::<js_sys::Promise>()
+        .map_err(|_| {
+            WebSqliteError::new(
+                "invalid_bridge",
+                "Fission Web SQLite request bridge did not return a Promise",
+            )
+        })
 }
 
 async fn await_response<R: DeserializeOwned>(
@@ -627,25 +630,24 @@ async fn await_response<R: DeserializeOwned>(
         .map_err(|error| WebSqliteError::new("serialization", error.to_string()))
 }
 
-fn ensure_sqlite_bridge() -> Result<(), WebSqliteError> {
-    let bridge = js_sys::Reflect::get(
-        &js_sys::global(),
-        &JsValue::from_str("__fissionSqliteRequest"),
-    )
-    .map_err(js_error)?;
-    let close = js_sys::Reflect::get(
-        &js_sys::global(),
-        &JsValue::from_str("__fissionSqliteCloseDatabase"),
-    )
-    .map_err(js_error)?;
-    if bridge.is_function() && close.is_function() {
-        Ok(())
-    } else {
-        Err(WebSqliteError::new(
-            "unavailable",
-            crate::MISSING_WEB_SQLITE_BRIDGE_ERROR,
-        ))
-    }
+fn sqlite_bridge_function(name: &str) -> Result<js_sys::Function, WebSqliteError> {
+    let value =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str(name)).map_err(js_error)?;
+    value.dyn_into::<js_sys::Function>().map_err(|_| {
+        let message = match name {
+            SQLITE_CLOSE_DATABASE_BRIDGE => {
+                "Fission Web SQLite close bridge is missing. Rebuild the browser host with the current Fission storage capability."
+            }
+            _ => crate::MISSING_WEB_SQLITE_BRIDGE_ERROR,
+        };
+        WebSqliteError::new("unavailable", message)
+    })
+}
+
+fn call_sqlite_bridge(name: &str, argument: &JsValue) -> Result<JsValue, WebSqliteError> {
+    sqlite_bridge_function(name)?
+        .call1(&js_sys::global(), argument)
+        .map_err(js_error)
 }
 
 fn js_error(value: JsValue) -> WebSqliteError {
@@ -810,5 +812,52 @@ impl SqlStoreProvider for WebSqliteStore {
                 .await
                 .map_err(sql_error)
         })
+    }
+}
+
+#[cfg(test)]
+mod bridge_contract_tests {
+    use super::{
+        await_response, start_request, WebSqliteStore, SQLITE_CLOSE_DATABASE_BRIDGE,
+        SQLITE_REQUEST_BRIDGE,
+    };
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test]
+    async fn request_and_close_bridges_are_required_only_for_their_operations() {
+        let global = js_sys::global();
+        let request_key = JsValue::from_str(SQLITE_REQUEST_BRIDGE);
+        let close_key = JsValue::from_str(SQLITE_CLOSE_DATABASE_BRIDGE);
+
+        let request_bridge = js_sys::Function::new_no_args("return Promise.resolve({ ok: true });");
+        let request_bridge_value: JsValue = request_bridge.into();
+        js_sys::Reflect::set(&global, &request_key, &request_bridge_value)
+            .expect("install request bridge");
+        js_sys::Reflect::delete_property(&global, &close_key)
+            .expect("remove optional close bridge");
+
+        let response: serde_json::Value = await_response(
+            start_request(None, "bridge_contract_test", serde_json::json!({}))
+                .expect("request bridge is sufficient for ordinary requests"),
+        )
+        .await
+        .expect("resolve request response");
+        assert_eq!(response, serde_json::json!({ "ok": true }));
+
+        js_sys::Reflect::delete_property(&global, &request_key)
+            .expect("remove request bridge before close test");
+        let close_bridge = js_sys::Function::new_no_args("return true;");
+        let close_bridge_value: JsValue = close_bridge.into();
+        js_sys::Reflect::set(&global, &close_key, &close_bridge_value)
+            .expect("install close bridge");
+        WebSqliteStore::new()
+            .close()
+            .expect("explicit close requires only the close bridge");
+
+        js_sys::Reflect::delete_property(&global, &request_key)
+            .expect("remove request bridge after test");
+        js_sys::Reflect::delete_property(&global, &close_key)
+            .expect("remove close bridge after test");
     }
 }

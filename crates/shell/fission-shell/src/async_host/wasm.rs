@@ -1,7 +1,10 @@
 use fission_core::{
     ActionEnvelope, CapabilityCtx, CapabilityType, DataStreamRegistry, InlineJob, JobCtx, JobRef,
-    JobSpec, OperationCapability, ResourceExecutionContext, ServiceSpec, ServiceType,
+    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
+    ServiceType,
 };
+use futures_channel::mpsc as async_mpsc;
+use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{mpsc, Arc};
@@ -100,9 +103,22 @@ pub enum ServiceControlMessage {
 }
 
 #[derive(Clone)]
+pub struct ServiceControlSender {
+    inner: async_mpsc::UnboundedSender<ServiceControlMessage>,
+}
+
+impl ServiceControlSender {
+    pub fn send(&self, message: ServiceControlMessage) -> Result<(), ServiceControlMessage> {
+        self.inner
+            .unbounded_send(message)
+            .map_err(|error| error.into_inner())
+    }
+}
+
+#[derive(Clone)]
 pub struct RunningServiceHandle {
     pub instance_id: u64,
-    pub control_tx: mpsc::Sender<ServiceControlMessage>,
+    pub control_tx: ServiceControlSender,
 }
 
 #[derive(Clone)]
@@ -132,6 +148,7 @@ struct ServiceLaunch {
     service_name: String,
     slot_key: String,
     instance_id: u64,
+    config: Vec<u8>,
     resource: Option<ResourceExecutionContext>,
     tx: mpsc::Sender<AsyncMessage>,
     wake: WakeFn,
@@ -284,32 +301,203 @@ impl AsyncRegistry {
         );
     }
 
-    pub fn register_service<S, F, Fut>(&mut self, service: ServiceType<S>, _starter: F)
+    pub fn register_service<S, F, Fut>(&mut self, service: ServiceType<S>, starter: F)
     where
         S: ServiceSpec + 'static,
         F: Fn(S::Config, fission_core::ServiceCtx<S>) -> Fut + Send + Sync + 'static,
-        Fut:
-            Future<Output = Result<Box<dyn fission_core::ServiceRunner<S>>, S::StartErr>> + 'static,
+        Fut: Future<Output = Result<Box<dyn ServiceRunner<S>>, S::StartErr>> + 'static,
     {
+        let starter = Arc::new(starter);
+        let data_streams = self.data_streams.clone();
         self.services.insert(
             service.name.to_string(),
             Arc::new(move |launch: ServiceLaunch| {
-                let (control_tx, _control_rx) = mpsc::channel();
-                let _ = launch.tx.send(AsyncMessage::ServiceStartFailed {
-                    service_name: launch.service_name,
-                    slot_key: launch.slot_key,
-                    instance_id: launch.instance_id,
-                    payload: None,
-                    message: Some(
-                        "fission-shell services are not supported on wasm32-unknown-unknown yet"
-                            .into(),
-                    ),
-                    resource: launch.resource,
+                let (control_tx, mut control_rx) = async_mpsc::unbounded();
+                let starter = starter.clone();
+                let data_streams = data_streams.clone();
+                let service_name = launch.service_name.clone();
+                let slot_key = launch.slot_key.clone();
+                let instance_id = launch.instance_id;
+                let resource = launch.resource.clone();
+                let tx = launch.tx.clone();
+                let wake = launch.wake.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let config = match serde_json::from_slice::<S::Config>(&launch.config) {
+                        Ok(config) => config,
+                        Err(error) => {
+                            let _ = tx.send(AsyncMessage::ServiceStartFailed {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload: None,
+                                message: Some(error.to_string()),
+                                resource,
+                            });
+                            wake();
+                            return;
+                        }
+                    };
+
+                    let tx_for_emit = tx.clone();
+                    let wake_for_emit = wake.clone();
+                    let service_name_for_emit = service_name.clone();
+                    let slot_key_for_emit = slot_key.clone();
+                    let resource_for_emit = resource.clone();
+                    let emit = Arc::new(move |payload: Vec<u8>| {
+                        let tx = tx_for_emit.clone();
+                        let wake = wake_for_emit.clone();
+                        let service_name = service_name_for_emit.clone();
+                        let slot_key = slot_key_for_emit.clone();
+                        let resource = resource_for_emit.clone();
+                        Box::pin(async move {
+                            tx.send(AsyncMessage::ServiceEvent {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload,
+                                resource,
+                            })
+                            .map_err(|error| error.to_string())?;
+                            wake();
+                            Ok(())
+                        }) as fission_core::BoxFuture<Result<(), String>>
+                    });
+                    let ctx = ServiceCtx::<S>::new_runtime(
+                        service_name.clone(),
+                        slot_key.clone(),
+                        instance_id,
+                        data_streams,
+                        emit,
+                    );
+
+                    let mut runner = match starter(config, ctx.clone()).await {
+                        Ok(runner) => {
+                            let _ = tx.send(AsyncMessage::ServiceStarted {
+                                service_name: service_name.clone(),
+                                slot_key: slot_key.clone(),
+                                instance_id,
+                                resource: resource.clone(),
+                            });
+                            wake();
+                            runner
+                        }
+                        Err(error) => {
+                            let (payload, message) = serde_json::to_vec(&error)
+                                .ok()
+                                .map(|payload| (Some(payload), None))
+                                .unwrap_or_else(|| {
+                                    (
+                                        None,
+                                        Some("service start error serialization failed".into()),
+                                    )
+                                });
+                            let _ = tx.send(AsyncMessage::ServiceStartFailed {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload,
+                                message,
+                                resource,
+                            });
+                            wake();
+                            return;
+                        }
+                    };
+
+                    while let Some(message) = control_rx.next().await {
+                        match message {
+                            ServiceControlMessage::Command {
+                                req_id,
+                                payload,
+                                on_ok,
+                                on_err,
+                            } => {
+                                let command = match serde_json::from_slice::<S::Command>(&payload) {
+                                    Ok(command) => command,
+                                    Err(error) => {
+                                        let _ = tx.send(AsyncMessage::ServiceCommandErr {
+                                            service_name: service_name.clone(),
+                                            slot_key: slot_key.clone(),
+                                            instance_id,
+                                            req_id,
+                                            payload: None,
+                                            on_err,
+                                            message: Some(error.to_string()),
+                                            resource: resource.clone(),
+                                        });
+                                        wake();
+                                        continue;
+                                    }
+                                };
+
+                                match runner.on_command(command, ctx.clone()).await {
+                                    Ok(result) => {
+                                        let payload = serde_json::to_vec(&result).ok();
+                                        let _ = tx.send(AsyncMessage::ServiceCommandOk {
+                                            service_name: service_name.clone(),
+                                            slot_key: slot_key.clone(),
+                                            instance_id,
+                                            req_id,
+                                            payload,
+                                            on_ok,
+                                            resource: resource.clone(),
+                                        });
+                                    }
+                                    Err(error) => {
+                                        let (payload, message) = serde_json::to_vec(&error)
+                                            .ok()
+                                            .map(|payload| (Some(payload), None))
+                                            .unwrap_or_else(|| {
+                                                (
+                                                    None,
+                                                    Some(
+                                                        "service command error serialization failed"
+                                                            .into(),
+                                                    ),
+                                                )
+                                            });
+                                        let _ = tx.send(AsyncMessage::ServiceCommandErr {
+                                            service_name: service_name.clone(),
+                                            slot_key: slot_key.clone(),
+                                            instance_id,
+                                            req_id,
+                                            payload,
+                                            on_err,
+                                            message,
+                                            resource: resource.clone(),
+                                        });
+                                    }
+                                }
+                                wake();
+                            }
+                            ServiceControlMessage::Stop => {
+                                runner.on_stop(ctx.clone()).await;
+                                let _ = tx.send(AsyncMessage::ServiceStopped {
+                                    service_name: service_name.clone(),
+                                    slot_key: slot_key.clone(),
+                                    instance_id,
+                                    resource: resource.clone(),
+                                });
+                                wake();
+                                return;
+                            }
+                        }
+                    }
+
+                    runner.on_stop(ctx).await;
+                    let _ = tx.send(AsyncMessage::ServiceStopped {
+                        service_name,
+                        slot_key,
+                        instance_id,
+                        resource,
+                    });
+                    wake();
                 });
-                (launch.wake)();
+
                 RunningServiceHandle {
                     instance_id: launch.instance_id,
-                    control_tx,
+                    control_tx: ServiceControlSender { inner: control_tx },
                 }
             }),
         );
@@ -409,7 +597,7 @@ impl AsyncRegistry {
         service_name: &str,
         slot_key: &str,
         instance_id: u64,
-        _config: Vec<u8>,
+        config: Vec<u8>,
         resource: Option<ResourceExecutionContext>,
         tx: &mpsc::Sender<AsyncMessage>,
         wake: WakeFn,
@@ -419,6 +607,7 @@ impl AsyncRegistry {
             service_name: service_name.to_string(),
             slot_key: slot_key.to_string(),
             instance_id,
+            config,
             resource,
             tx: tx.clone(),
             wake,
@@ -453,4 +642,153 @@ fn send_capability_err(
         resource: launch.resource,
     });
     (launch.wake)();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AsyncMessage, AsyncRegistry, ServiceControlMessage, ServiceSpec, ServiceType, WakeFn,
+    };
+    use fission_core::{BoxFuture, ServiceCtx, ServiceRunner, ServiceSlot};
+    use futures_util::StreamExt;
+    use serde::{Deserialize, Serialize};
+    use std::sync::{mpsc, Arc};
+    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    struct EchoService;
+
+    #[derive(Serialize, Deserialize)]
+    struct EchoConfig;
+
+    #[derive(Serialize, Deserialize)]
+    enum EchoCommand {
+        Echo(String),
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    enum EchoEvent {
+        Ready,
+        Echoed(String),
+    }
+
+    impl ServiceSpec for EchoService {
+        type Config = EchoConfig;
+        type Command = EchoCommand;
+        type CommandOk = String;
+        type CommandErr = String;
+        type Event = EchoEvent;
+        type StartErr = String;
+        const NAME: &'static str = "wasm-echo-service";
+    }
+
+    const ECHO_SERVICE: ServiceType<EchoService> = ServiceType::new("wasm-echo-service");
+
+    struct EchoRunner;
+
+    impl ServiceRunner<EchoService> for EchoRunner {
+        fn on_command(
+            &mut self,
+            command: EchoCommand,
+            ctx: ServiceCtx<EchoService>,
+        ) -> BoxFuture<Result<String, String>> {
+            Box::pin(async move {
+                let EchoCommand::Echo(value) = command;
+                ctx.emit(EchoEvent::Echoed(value.clone()))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok(value)
+            })
+        }
+
+        fn on_stop(self: Box<Self>, _ctx: ServiceCtx<EchoService>) -> BoxFuture<()> {
+            Box::pin(async {})
+        }
+    }
+
+    async fn next_message(
+        messages: &mpsc::Receiver<AsyncMessage>,
+        wake_rx: &mut futures_channel::mpsc::UnboundedReceiver<()>,
+    ) -> AsyncMessage {
+        loop {
+            let _ = wake_rx.next().await;
+            match messages.try_recv() {
+                Ok(message) => return message,
+                Err(mpsc::TryRecvError::Empty) => continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    panic!("service message channel disconnected")
+                }
+            }
+        }
+    }
+
+    #[wasm_bindgen_test]
+    async fn wasm_services_start_emit_handle_commands_and_stop() {
+        let mut registry = AsyncRegistry::new();
+        registry.register_service(
+            ECHO_SERVICE,
+            |_config: EchoConfig, ctx: ServiceCtx<EchoService>| async move {
+                ctx.emit(EchoEvent::Ready)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok::<_, String>(Box::new(EchoRunner) as Box<dyn ServiceRunner<EchoService>>)
+            },
+        );
+
+        let (message_tx, message_rx) = mpsc::channel();
+        let (wake_tx, mut wake_rx) = futures_channel::mpsc::unbounded();
+        let wake: WakeFn = Arc::new(move || {
+            let _ = wake_tx.unbounded_send(());
+        });
+        let handle = registry
+            .spawn_service(
+                ECHO_SERVICE.name,
+                ServiceSlot::singleton(ECHO_SERVICE).slot_key(),
+                7,
+                serde_json::to_vec(&EchoConfig).unwrap(),
+                None,
+                &message_tx,
+                wake,
+            )
+            .expect("registered wasm service");
+
+        let first = next_message(&message_rx, &mut wake_rx).await;
+        let second = next_message(&message_rx, &mut wake_rx).await;
+        assert!(
+            matches!(first, AsyncMessage::ServiceStarted { instance_id: 7, .. })
+                || matches!(second, AsyncMessage::ServiceStarted { instance_id: 7, .. })
+        );
+        assert!(
+            matches!(first, AsyncMessage::ServiceEvent { payload, .. } if serde_json::from_slice::<EchoEvent>(&payload).ok() == Some(EchoEvent::Ready))
+                || matches!(second, AsyncMessage::ServiceEvent { payload, .. } if serde_json::from_slice::<EchoEvent>(&payload).ok() == Some(EchoEvent::Ready))
+        );
+
+        assert!(handle
+            .control_tx
+            .send(ServiceControlMessage::Command {
+                req_id: 9,
+                payload: serde_json::to_vec(&EchoCommand::Echo("hello".into())).unwrap(),
+                on_ok: None,
+                on_err: None,
+            })
+            .is_ok());
+
+        let first = next_message(&message_rx, &mut wake_rx).await;
+        let second = next_message(&message_rx, &mut wake_rx).await;
+        assert!(
+            matches!(&first, AsyncMessage::ServiceCommandOk { req_id: 9, payload: Some(payload), .. } if serde_json::from_slice::<String>(payload).ok().as_deref() == Some("hello"))
+                || matches!(&second, AsyncMessage::ServiceCommandOk { req_id: 9, payload: Some(payload), .. } if serde_json::from_slice::<String>(payload).ok().as_deref() == Some("hello"))
+        );
+        assert!(
+            matches!(first, AsyncMessage::ServiceEvent { payload, .. } if serde_json::from_slice::<EchoEvent>(&payload).ok() == Some(EchoEvent::Echoed("hello".into())))
+                || matches!(second, AsyncMessage::ServiceEvent { payload, .. } if serde_json::from_slice::<EchoEvent>(&payload).ok() == Some(EchoEvent::Echoed("hello".into())))
+        );
+
+        assert!(handle.control_tx.send(ServiceControlMessage::Stop).is_ok());
+        assert!(matches!(
+            next_message(&message_rx, &mut wake_rx).await,
+            AsyncMessage::ServiceStopped { instance_id: 7, .. }
+        ));
+    }
 }

@@ -42,6 +42,9 @@ anyhow = "1"
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.16.0" }
 futures-lite = "2"
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [[example]]
 name = "web_transaction_cancellation"
 crate-type = ["cdylib"]

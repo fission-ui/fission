@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use fission_core::{
     collect_data_stream, single_chunk_data_stream, AppEffect, BoxFuture, CapabilityCtx,
     CapabilityType, DataStreamId, InlineJob, JobCtx, JobRef, JobSpec, OperationCapability,

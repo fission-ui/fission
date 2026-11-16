@@ -339,6 +339,20 @@ where
         self
     }
 
+    /// Registers an app reducer for committed logical viewport-size changes.
+    ///
+    /// The handler runs before the next widget build and can reconcile
+    /// selection-dependent state using the new size.
+    pub fn with_viewport_resize_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ViewportResized>,
+    ) -> Self {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register::<fission_core::ViewportResized, _>(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
     /// Registers one reducer in the shell's persistent action registry.
     pub fn register_reducer(
         &mut self,
@@ -371,6 +385,12 @@ where
         let width = width.max(1);
         let height = height.max(1);
         let viewport = LayoutSize::new(f32::from(width), f32::from(height));
+        let previous_viewport = self
+            .last_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.viewport_size);
+        self.runtime
+            .dispatch_viewport_resize_if_changed(previous_viewport, viewport)?;
         self.env.viewport_size = viewport;
         self.env.measurer = Some(self.measurer.clone());
         if let Some(sync_env) = &self.sync_env {

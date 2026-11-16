@@ -208,6 +208,80 @@ fn omitted_container_uses_nearest_matching_scroll_ancestor() {
 }
 
 #[test]
+fn both_axis_request_scrolls_each_nearest_matching_orthogonal_container() {
+    let root = WidgetId::from_u128(10);
+    let vertical_scroll = WidgetId::from_u128(11);
+    let horizontal_scroll = WidgetId::from_u128(12);
+    let target = WidgetId::from_u128(13);
+    let mut ir = CoreIR::new();
+    ir.add_node(target, box_op(), vec![]);
+    ir.add_node(
+        horizontal_scroll,
+        scroll_op(FlexDirection::Row),
+        vec![target],
+    );
+    ir.add_node(
+        vertical_scroll,
+        scroll_op(FlexDirection::Column),
+        vec![horizontal_scroll],
+    );
+    ir.add_node(root, box_op(), vec![vertical_scroll]);
+    ir.set_root(root);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    for (id, rect, content_size) in [
+        (
+            root,
+            LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+            LayoutSize::new(100.0, 100.0),
+        ),
+        (
+            vertical_scroll,
+            LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+            LayoutSize::new(100.0, 500.0),
+        ),
+        (
+            horizontal_scroll,
+            LayoutRect::new(0.0, 240.0, 100.0, 100.0),
+            LayoutSize::new(400.0, 100.0),
+        ),
+        (
+            target,
+            LayoutRect::new(350.0, 260.0, 40.0, 40.0),
+            LayoutSize::new(40.0, 40.0),
+        ),
+    ] {
+        layout
+            .nodes
+            .insert(id, LayoutNodeGeometry { rect, content_size });
+    }
+
+    let mut runtime = Runtime::default();
+    runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+        container: None,
+        target,
+        axis: ScrollAxis::Both,
+        alignment: ScrollAlignment::Nearest,
+        padding: [8.0; 4],
+        behavior: ScrollBehavior::Instant,
+        if_needed: true,
+    });
+
+    runtime.post_layout_hook(&ir, &layout);
+
+    assert_eq!(
+        runtime.runtime_state.scroll.get_offset(vertical_scroll),
+        208.0,
+        "the outer vertical scroll must reveal the target even when the nearest horizontal scroll is already aligned"
+    );
+    assert_eq!(
+        runtime.runtime_state.scroll.get_offset(horizontal_scroll),
+        298.0,
+        "the nearest horizontal scroll must reveal the target along its axis too"
+    );
+}
+
+#[test]
 fn omitted_container_resolves_through_the_selected_responsive_branch() {
     let root = WidgetId::explicit("responsive-root");
     let compact_branch = WidgetId::explicit("compact-branch");

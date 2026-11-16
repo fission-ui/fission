@@ -797,17 +797,10 @@ impl GestureController {
         trigger: ActionTrigger,
         point: LayoutPoint,
     ) -> bool {
-        let Some(action_entry) = annotation
+        let action_entry = annotation
             .actions
             .iter()
-            .find(|entry| entry.trigger == trigger)
-        else {
-            return false;
-        };
-        let Some(payload) = &action_entry.payload_data else {
-            return false;
-        };
-
+            .find(|entry| entry.trigger == trigger);
         let input = crate::input::scoped_action_input(
             ctx.ir,
             node_id,
@@ -818,15 +811,36 @@ impl GestureController {
                 delta_y: 0.0,
             },
         );
-        ctx.dispatched_actions.push((
-            node_id,
-            ActionEnvelope {
-                id: ActionId::from_u128(action_entry.action_id),
-                payload: payload.clone(),
-            },
-            input,
-        ));
-        true
+        let mut handled = false;
+        if let Some(action_entry) = action_entry {
+            ctx.dispatched_actions.push((
+                node_id,
+                ActionEnvelope {
+                    id: ActionId::from_u128(action_entry.action_id),
+                    payload: action_entry.payload_data.clone().unwrap_or_default(),
+                },
+                input.clone(),
+            ));
+            handled = true;
+        }
+
+        let navigation_already_bound = annotation.actions.iter().any(|entry| {
+            entry.trigger == ActionTrigger::Default
+                && ActionId::from_u128(entry.action_id) == crate::NavigationRequested::static_id()
+        });
+        if trigger == ActionTrigger::Default && !navigation_already_bound {
+            if let Some(hyperlink) = annotation.hyperlink.clone() {
+                ctx.dispatched_actions.push((
+                    node_id,
+                    crate::NavigationRequested::new(crate::NavigationCommand::Open(hyperlink))
+                        .into(),
+                    input,
+                ));
+                handled = true;
+            }
+        }
+
+        handled
     }
 
     fn find_drag_payload(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<Vec<u8>> {

@@ -6,6 +6,7 @@ import {
   fissionClosePickedFileWriter,
   fissionOpenPickedFileWriter,
   fissionPickSaveFile,
+  fissionReleaseWritableFile,
   fissionWritePickedFileChunk,
 } from "../src/web_file_picker.mjs";
 
@@ -62,6 +63,10 @@ test("a picked Web save destination remains usable after writes and failures", a
     await fissionClosePickedFileWriter(recoveredWriter);
     assert.equal(savedText, "saved after retry");
 
+    fissionReleaseWritableFile(selected.id);
+    await assert.rejects(fissionOpenPickedFileWriter(selected.id), { name: "invalid_handle" });
+    assert.doesNotThrow(() => fissionReleaseWritableFile(selected.id));
+
     globalThis.showSaveFilePicker = async () => {
       throw new DOMException("user cancelled", "AbortError");
     };
@@ -73,6 +78,176 @@ test("a picked Web save destination remains usable after writes and failures", a
     } else {
       globalThis.showSaveFilePicker = originalPicker;
     }
+  }
+});
+
+test("a browser without the save picker downloads a streamed file synchronously on close", async () => {
+  const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const createObjectUrl = URL.createObjectURL;
+  const revokeObjectUrl = URL.revokeObjectURL;
+  const blobs = new Map();
+  const downloads = [];
+  let nextUrl = 1;
+  let userActivation = true;
+  const body = {
+    children: [],
+    appendChild(anchor) {
+      this.children.push(anchor);
+      return anchor;
+    },
+  };
+
+  try {
+    delete globalThis.showSaveFilePicker;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        body,
+        createElement(tagName) {
+          assert.equal(tagName, "a");
+          return {
+            style: {},
+            click() {
+              downloads.push({
+                active: userActivation,
+                name: this.download,
+                blob: blobs.get(this.href),
+              });
+            },
+            remove() {
+              const index = body.children.indexOf(this);
+              if (index >= 0) body.children.splice(index, 1);
+            },
+          };
+        },
+      },
+    });
+    URL.createObjectURL = (blob) => {
+      const url = `blob:fission-test-${nextUrl++}`;
+      blobs.set(url, blob);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => blobs.delete(url);
+
+    const selected = await fissionPickSaveFile(
+      "report.pdf",
+      JSON.stringify([["PDF", { "application/pdf": [".pdf"] }]]),
+    );
+    assert.equal(selected.name, "report.pdf");
+    assert.equal(selected.permission, "unknown");
+
+    const writer = await fissionOpenPickedFileWriter(selected.id);
+    await fissionWritePickedFileChunk(writer, new Uint8Array([0x25, 0x50]));
+    await fissionWritePickedFileChunk(writer, new Uint8Array([0x44, 0x46, 0x2d]));
+    const closing = fissionClosePickedFileWriter(writer);
+    assert.equal(downloads.length, 1, "close should click the anchor before returning its promise");
+    assert.equal(downloads[0].active, true, "the synchronous anchor click should retain activation");
+    userActivation = false;
+    await closing;
+
+    assert.equal(downloads[0].name, "report.pdf");
+    assert.equal(downloads[0].blob.type, "application/pdf");
+    assert.deepEqual(
+      new Uint8Array(await downloads[0].blob.arrayBuffer()),
+      new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]),
+    );
+    assert.equal(body.children.length, 0, "temporary anchors should be removed immediately");
+  } finally {
+    URL.createObjectURL = createObjectUrl;
+    URL.revokeObjectURL = revokeObjectUrl;
+    if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+    else delete globalThis.document;
+    if (pickerDescriptor) Object.defineProperty(globalThis, "showSaveFilePicker", pickerDescriptor);
+    else delete globalThis.showSaveFilePicker;
+  }
+});
+
+test("aborting a browser download writer drops buffered chunks without downloading", async () => {
+  const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let clicks = 0;
+
+  try {
+    delete globalThis.showSaveFilePicker;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        body: {
+          appendChild(anchor) { return anchor; },
+        },
+        createElement() {
+          return {
+            style: {},
+            click() { clicks += 1; },
+            remove() {},
+          };
+        },
+      },
+    });
+
+    const selected = await fissionPickSaveFile("cancelled.txt", "[]");
+    const writer = await fissionOpenPickedFileWriter(selected.id);
+    await fissionWritePickedFileChunk(writer, new TextEncoder().encode("do not save"));
+    await fissionAbortPickedFileWriter(writer);
+    assert.equal(clicks, 0);
+    await assert.rejects(fissionClosePickedFileWriter(writer), { name: "InvalidStateError" });
+    assert.equal(clicks, 0, "an aborted writer must never start a download");
+  } finally {
+    if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+    else delete globalThis.document;
+    if (pickerDescriptor) Object.defineProperty(globalThis, "showSaveFilePicker", pickerDescriptor);
+    else delete globalThis.showSaveFilePicker;
+  }
+});
+
+test("the browser download fallback rejects output above its memory cap", async () => {
+  const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+
+  try {
+    delete globalThis.showSaveFilePicker;
+    const selected = await fissionPickSaveFile("large.bin", "[]");
+    const writer = await fissionOpenPickedFileWriter(selected.id);
+    await assert.rejects(
+      fissionWritePickedFileChunk(writer, { byteLength: 128 * 1024 * 1024 + 1 }),
+      {
+        name: "QuotaExceededError",
+        message: "browser download fallback buffers files in memory and is limited to 128 MiB",
+      },
+    );
+    await fissionAbortPickedFileWriter(writer);
+  } finally {
+    if (pickerDescriptor) Object.defineProperty(globalThis, "showSaveFilePicker", pickerDescriptor);
+    else delete globalThis.showSaveFilePicker;
+  }
+});
+
+test("browser download setup failures reject close with a useful host error", async () => {
+  const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const createObjectUrl = URL.createObjectURL;
+
+  try {
+    delete globalThis.showSaveFilePicker;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: { body: { appendChild() {} }, createElement: () => ({ style: {}, remove() {} }) },
+    });
+    URL.createObjectURL = undefined;
+
+    const selected = await fissionPickSaveFile("unavailable.txt", "[]");
+    const writer = await fissionOpenPickedFileWriter(selected.id);
+    await fissionWritePickedFileChunk(writer, new TextEncoder().encode("data"));
+    await assert.rejects(fissionClosePickedFileWriter(writer), {
+      name: "NotSupportedError",
+      message: "browser Blob downloads are unavailable",
+    });
+  } finally {
+    URL.createObjectURL = createObjectUrl;
+    if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+    else delete globalThis.document;
+    if (pickerDescriptor) Object.defineProperty(globalThis, "showSaveFilePicker", pickerDescriptor);
+    else delete globalThis.showSaveFilePicker;
   }
 });
 
@@ -187,7 +362,14 @@ test("a Web save handle restores from IndexedDB with its current permission", as
     await restoredSession.fissionClosePickedFileWriter(writer);
     assert.equal(savedText, "saved");
 
+    restoredSession.fissionReleaseWritableFile(restored.id);
+    await assert.rejects(restoredSession.fissionOpenPickedFileWriter(restored.id), { name: "invalid_handle" });
+    const restoredAgain = await restoredSession.fissionRestoreSaveFile("monthly-report");
+    assert.equal(restoredAgain.name, "report.txt");
+
     await restoredSession.fissionForgetSaveFile("monthly-report");
+    restoredSession.fissionReleaseWritableFile(restoredAgain.id);
+    firstSession.fissionReleaseWritableFile(selected.id);
     const afterForget = await restoredSession.fissionRestoreSaveFile("monthly-report");
     assert.equal(afterForget, null);
     assert.equal(records.has(databaseKey(["fission.save-file", "monthly-report"])), false);

@@ -2,9 +2,9 @@ use crate::android_capabilities::{app_class, AndroidHostContext};
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FissionDataStreamError, FissionDataStreamErrorKind,
     PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult, PickSaveFileRequest,
-    PickSaveFileResult, PickedFile, SaveFileDestination, WritableFileHandle, WritableFileHandleId,
-    WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES, PICK_SAVE_FILE,
-    WRITE_PICKED_FILE,
+    PickSaveFileResult, PickedFile, ReleaseWritableFileRequest, SaveFileDestination,
+    WritableFileHandle, WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult,
+    PICK_OPEN_FILES, PICK_SAVE_FILE, RELEASE_WRITABLE_FILE, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -310,6 +310,14 @@ pub(crate) fn register_android_file_picker_capabilities(
                 .await?;
                 Ok(WritePickedFileResult { byte_len })
             }
+        },
+    );
+
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move {
+            saved_documents().lock().unwrap().remove(&request.file.id);
+            Ok(())
         },
     );
 }
