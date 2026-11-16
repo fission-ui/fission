@@ -1,0 +1,13 @@
+{
+  "window.title": "Barra de título personalizada",
+  "window.note": "Nota",
+  "window.minimize": "Minimizar",
+  "window.maximize": "Maximizar",
+  "window.restore": "Restaurar",
+  "window.close": "Cerrar",
+  "window.instructions": "Arrastra el área del título para mover la ventana. Haz doble clic para maximizarla o restaurarla.",
+  "window.maximized": "Ventana maximizada",
+  "window.restored": "Ventana restaurada",
+  "window.increment": "Incrementar",
+  "window.error": "No se pudo completar la operación de la ventana."
+}

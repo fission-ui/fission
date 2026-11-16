@@ -92,6 +92,9 @@ impl WindowTitle {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowEnv {
     pub title: WindowTitle,
+    /// Observed native maximization state, or `None` on other targets.
+    #[serde(default)]
+    pub maximized: Option<bool>,
 }
 
 /// Browser-compatible route location supplied by the host shell.

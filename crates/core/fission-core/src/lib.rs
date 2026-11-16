@@ -87,6 +87,7 @@ pub mod text_control;
 pub mod text_editing;
 pub mod time;
 pub mod ui;
+mod window_control;
 
 pub mod view;
 
@@ -444,6 +445,9 @@ pub mod public {
         TextEditCommand, TextEditDirection, TextEditPhase, TextEditPipeline, TextEditResult,
         TextEditSource, TextEditingValue, TextPosition, TextRange, TextSelection, TextValuePhase,
     };
+    pub use crate::window_control::{
+        WindowCommand, WindowControlCapability, WindowControlError, WINDOW_CONTROL,
+    };
     pub use bytes::Bytes;
     #[cfg(feature = "store")]
     pub use fission_store::*;
@@ -675,6 +679,9 @@ pub use text_editing::{
     CompleteTextInputFormatter, SharedTextInputFormatter, TextAffinity, TextEditBoundary,
     TextEditCommand, TextEditDirection, TextEditPhase, TextEditPipeline, TextEditResult,
     TextEditSource, TextEditingValue, TextPosition, TextRange, TextSelection, TextValuePhase,
+};
+pub use window_control::{
+    WindowCommand, WindowControlCapability, WindowControlError, WINDOW_CONTROL,
 };
 
 pub use build::{BuildCtxHandle, ViewHandle};

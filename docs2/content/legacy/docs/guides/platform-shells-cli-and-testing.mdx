@@ -58,6 +58,51 @@ DesktopApp::<AppState, _>::new(App)
 The desktop window manager receives this as an initial-state request and may
 apply platform policy when deciding how the window is presented.
 
+## Custom desktop title bars
+
+Desktop apps can hide the native title bar at startup:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_title("Project overview")
+    .with_decorations(false)
+    .run()
+```
+
+Compose the title area from ordinary Fission widgets and wrap its draggable
+content in `WindowDragRegion::new(child)`. Buttons, editable or selectable text,
+scrolling controls, and other interactive descendants retain their input. The
+shell starts the native move operation directly on the primary-button press,
+which preserves the compositor's input serial on Wayland. Double-clicking the
+noninteractive drag surface toggles maximization.
+
+Request window operations from a reducer through the built-in capability:
+
+```rust
+cx.effects
+    .capability(WINDOW_CONTROL, WindowCommand::Minimize)
+    .dispatch();
+```
+
+`WindowCommand` also provides `Maximize`, `Restore` (leave maximization), and
+`Close`. Close follows the app's normal tray/exit policy. These requests run on
+the owned native event loop. Completion acknowledges submission; window-manager
+policy can affect the result. Read `view.env().window.maximized` for the observed
+state when choosing a Maximize/Restore label. Other targets report `None`.
+
+Native desktop shells provide this capability automatically. Web and Mobile
+report `WindowControlError::Unsupported`; other shells need their own capability
+registration. Attach an `.on_err(...)` reducer when the app needs to display a
+failure. `WindowDragRegion` renders its child normally on other targets.
+
+Undecorated Linux and Windows windows use a five-logical-pixel native resize
+border when the window is resizable and unmaximized. Keep custom controls inside
+that border. The bundled macOS backend does not support this resize operation.
+
+See the [complete example](https://github.com/fission-ui/fission/tree/main/examples/custom-title-bar)
+for state, reducers, translated labels, keyboard-accessible buttons, and a text
+field embedded in the title bar. Native decorations remain enabled by default.
+
 ## Desktop tray switcher policy
 
 Desktop tray apps should behave like tray apps by default. When you configure `DesktopApp::with_tray(...)`, Fission now defaults `TrayConfig::app_switcher_policy` to `TrayAppSwitcherPolicy::Hidden`. That is a breaking default: on macOS the app uses an accessory activation policy, on Windows the window asks winit to skip the taskbar, and on Linux the behavior is best-effort because window managers do not expose one portable switcher contract through winit.
