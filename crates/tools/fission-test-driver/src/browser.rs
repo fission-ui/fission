@@ -684,21 +684,29 @@ impl BrowserController {
         wait_for_idle_with(
             timeout_ms,
             ignore_repeating_motion,
-            |command| self.send_bridge_command(command),
+            |command, deadline| self.send_bridge_command_until(command, deadline),
             std::thread::sleep,
         )
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        self.send_bridge_command_until(command, Instant::now() + Duration::from_secs(30))
+    }
+
+    fn send_bridge_command_until(
+        &mut self,
+        command: TestCommand,
+        deadline: Instant,
+    ) -> Result<TestResponse> {
         anyhow::ensure!(
             self.options.mode == BrowserSmokeMode::FissionCanvas,
             "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
         );
         let retry_after_navigation = bridge_command_is_safe_to_retry(&command);
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = deadline.min(Instant::now() + Duration::from_secs(30));
         // Keep startup/readiness checks, the submit call, and every poll under
-        // the same bridge budget. Without this outer scope, a Runtime.evaluate
-        // in wait_for_live_test_bridge falls back to the shorter 15s default.
+        // the same bridge budget. An enclosing wait operation can pass an
+        // earlier absolute deadline so one bridge poll cannot outlive it.
         let _operation_deadline = self.client.operation_deadline.scoped(deadline);
         loop {
             if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
@@ -824,7 +832,9 @@ impl BrowserController {
                     "timed out waiting for Fission browser test request {request_id}"
                 ));
             }
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(
+                Duration::from_millis(5).min(deadline.saturating_duration_since(Instant::now())),
+            );
         }
     }
 
@@ -851,7 +861,9 @@ impl BrowserController {
                     "timed out waiting for the Fission Web test bridge to become ready; last transient probe error: {last_probe_error:?}"
                 ));
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(
+                Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),
+            );
         }
     }
 
@@ -864,7 +876,9 @@ impl BrowserController {
                     "Fission browser test bridge was lost without a main-frame navigation"
                 ));
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(
+                Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),
+            );
         }
         Ok(())
     }
@@ -1536,8 +1550,9 @@ impl CdpClient {
     }
 
     fn drain_events(&mut self, budget: Duration) -> Result<()> {
-        let deadline = Instant::now() + budget;
+        let deadline = (Instant::now() + budget).min(self.operation_deadline.current());
         while Instant::now() < deadline {
+            self.set_socket_budget(deadline)?;
             match self.socket.read() {
                 Ok(Message::Text(text)) => {
                     let value: Value = serde_json::from_str(&text)?;
@@ -1711,15 +1726,33 @@ impl CdpClient {
 fn wait_for_idle_with(
     timeout_ms: u64,
     ignore_repeating_motion: bool,
-    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+    mut send: impl FnMut(TestCommand, Instant) -> Result<TestResponse>,
     mut sleep: impl FnMut(Duration),
 ) -> Result<TestResponse> {
     let started = Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
+    let deadline = started + timeout;
+    let timed_out = || TestResponse::Error {
+        message: format!(
+            "timed out after {timeout_ms}ms waiting for browser motion to become idle"
+        ),
+    };
     loop {
+        if Instant::now() >= deadline {
+            return Ok(timed_out());
+        }
+
         // The Web shell's WaitForIdle command only reads motion counts. Pump
         // first so queued effects and finite motion get a chance to advance.
-        match send(TestCommand::Pump {})? {
+        let pump = match send(TestCommand::Pump {}, deadline) {
+            Ok(response) => response,
+            Err(_) if Instant::now() >= deadline => return Ok(timed_out()),
+            Err(error) => return Err(error),
+        };
+        if Instant::now() >= deadline {
+            return Ok(timed_out());
+        }
+        match pump {
             TestResponse::Ok {} => {}
             TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
             response => {
@@ -1728,10 +1761,21 @@ fn wait_for_idle_with(
                 });
             }
         }
-        match send(TestCommand::WaitForIdle {
-            timeout_ms: 0,
-            ignore_repeating_motion,
-        })? {
+        let motion = match send(
+            TestCommand::WaitForIdle {
+                timeout_ms: 0,
+                ignore_repeating_motion,
+            },
+            deadline,
+        ) {
+            Ok(response) => response,
+            Err(_) if Instant::now() >= deadline => return Ok(timed_out()),
+            Err(error) => return Err(error),
+        };
+        if Instant::now() >= deadline {
+            return Ok(timed_out());
+        }
+        match motion {
             TestResponse::MotionStatus {
                 finite,
                 repeating,
@@ -1742,14 +1786,11 @@ fn wait_for_idle_with(
             TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
             _ => {}
         }
-        if started.elapsed() >= timeout {
-            return Ok(TestResponse::Error {
-                message: format!(
-                    "timed out after {timeout_ms}ms waiting for browser motion to become idle"
-                ),
-            });
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(timed_out());
         }
-        sleep(Duration::from_millis(8));
+        sleep(Duration::from_millis(8).min(remaining));
     }
 }
 
@@ -1882,29 +1923,37 @@ mod tests {
     fn browser_wait_for_idle_pumps_before_reading_motion_status() {
         let mut finite_motion = 1;
         let mut commands = Vec::new();
+        let mut operation_deadline = None;
         let response = wait_for_idle_with(
             1_000,
             true,
-            |command| match command {
-                TestCommand::Pump {} => {
-                    commands.push("pump");
-                    finite_motion = 0;
-                    Ok(TestResponse::Ok {})
+            |command, deadline| {
+                if let Some(first_deadline) = operation_deadline {
+                    assert_eq!(deadline, first_deadline);
+                } else {
+                    operation_deadline = Some(deadline);
                 }
-                TestCommand::WaitForIdle {
-                    timeout_ms,
-                    ignore_repeating_motion,
-                } => {
-                    commands.push("status");
-                    assert_eq!(timeout_ms, 0);
-                    assert!(ignore_repeating_motion);
-                    Ok(TestResponse::MotionStatus {
-                        finite: finite_motion,
-                        repeating: 1,
-                        ripples: 0,
-                    })
+                match command {
+                    TestCommand::Pump {} => {
+                        commands.push("pump");
+                        finite_motion = 0;
+                        Ok(TestResponse::Ok {})
+                    }
+                    TestCommand::WaitForIdle {
+                        timeout_ms,
+                        ignore_repeating_motion,
+                    } => {
+                        commands.push("status");
+                        assert_eq!(timeout_ms, 0);
+                        assert!(ignore_repeating_motion);
+                        Ok(TestResponse::MotionStatus {
+                            finite: finite_motion,
+                            repeating: 1,
+                            ripples: 0,
+                        })
+                    }
+                    _ => panic!("unexpected browser test command: {command:?}"),
                 }
-                _ => panic!("unexpected browser test command: {command:?}"),
             },
             |_| {},
         )
@@ -1915,11 +1964,32 @@ mod tests {
     }
 
     #[test]
+    fn browser_wait_for_idle_bounds_a_slow_bridge_call_by_its_deadline() {
+        let response = wait_for_idle_with(
+            10,
+            true,
+            |_command, deadline| {
+                assert!(deadline > Instant::now());
+                std::thread::sleep(Duration::from_millis(30));
+                Ok(TestResponse::Ok {})
+            },
+            |_| {},
+        )
+        .expect("an expired caller deadline should be a protocol timeout");
+
+        assert!(matches!(
+            response,
+            TestResponse::Error { message }
+                if message == "timed out after 10ms waiting for browser motion to become idle"
+        ));
+    }
+
+    #[test]
     fn browser_wait_for_idle_rejects_unexpected_pump_response() {
         let response = wait_for_idle_with(
             1_000,
             true,
-            |_| {
+            |_, _| {
                 Ok(TestResponse::MotionStatus {
                     finite: 0,
                     repeating: 0,
