@@ -1732,35 +1732,41 @@ fn wait_for_idle_with(
     let started = Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
     let deadline = started + timeout;
-    let timed_out = || TestResponse::Error {
-        message: format!(
-            "timed out after {timeout_ms}ms waiting for browser motion to become idle"
-        ),
-    };
+    let mut pumped = false;
+    let mut last_motion_status = None;
     loop {
         if Instant::now() >= deadline {
-            return Ok(timed_out());
+            return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
         }
 
-        // The Web shell's WaitForIdle command only reads motion counts. Pump
-        // first so queued effects and finite motion get a chance to advance.
-        let pump = match send(TestCommand::Pump {}, deadline) {
-            Ok(response) => response,
-            Err(_) if Instant::now() >= deadline => return Ok(timed_out()),
-            Err(error) => return Err(error),
-        };
-        if Instant::now() >= deadline {
-            return Ok(timed_out());
-        }
-        match pump {
-            TestResponse::Ok {} => {}
-            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
-            response => {
-                return Ok(TestResponse::Error {
-                    message: format!("unexpected response from browser pump: {response:?}"),
-                });
+        // Pump once to flush queued work and ensure the current frame is
+        // rendered. The Web shell's motion clock schedules later frames; a
+        // Pump can itself wait for a full render, which is expensive under
+        // software GPU rendering and unnecessary for each status poll.
+        if !pumped {
+            let pump = match send(TestCommand::Pump {}, deadline) {
+                Ok(response) => response,
+                Err(_) if Instant::now() >= deadline => {
+                    return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
+                }
+                Err(error) => return Err(error),
+            };
+            if Instant::now() >= deadline {
+                return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
+            }
+            match pump {
+                TestResponse::Ok {} => pumped = true,
+                TestResponse::Error { message } => {
+                    return Ok(TestResponse::Error { message });
+                }
+                response => {
+                    return Ok(TestResponse::Error {
+                        message: format!("unexpected response from browser pump: {response:?}"),
+                    });
+                }
             }
         }
+
         let motion = match send(
             TestCommand::WaitForIdle {
                 timeout_ms: 0,
@@ -1769,29 +1775,48 @@ fn wait_for_idle_with(
             deadline,
         ) {
             Ok(response) => response,
-            Err(_) if Instant::now() >= deadline => return Ok(timed_out()),
+            Err(_) if Instant::now() >= deadline => {
+                return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
+            }
             Err(error) => return Err(error),
         };
         if Instant::now() >= deadline {
-            return Ok(timed_out());
+            return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
         }
         match motion {
             TestResponse::MotionStatus {
                 finite,
                 repeating,
                 ripples,
-            } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
-                return Ok(TestResponse::Ok {});
+            } => {
+                last_motion_status = Some((finite, repeating, ripples));
+                if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) {
+                    return Ok(TestResponse::Ok {});
+                }
             }
             TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
             _ => {}
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Ok(timed_out());
+            return Ok(browser_motion_idle_timeout(timeout_ms, last_motion_status));
         }
         sleep(Duration::from_millis(8).min(remaining));
     }
+}
+
+fn browser_motion_idle_timeout(
+    timeout_ms: u64,
+    last_motion_status: Option<(usize, usize, usize)>,
+) -> TestResponse {
+    let mut message =
+        format!("timed out after {timeout_ms}ms waiting for browser motion to become idle");
+    if let Some((finite, repeating, ripples)) = last_motion_status {
+        message.push_str(&format!(
+            "; last motion status: finite={finite}, repeating={repeating}, ripples={ripples}"
+        ));
+    }
+    TestResponse::Error { message }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1961,6 +1986,62 @@ mod tests {
 
         assert!(matches!(response, TestResponse::Ok {}));
         assert_eq!(commands, ["pump", "status"]);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_pumps_once_while_motion_finishes() {
+        let mut pumps = 0;
+        let mut status_polls = 0;
+        let response = wait_for_idle_with(
+            1_000,
+            false,
+            |command, _deadline| match command {
+                TestCommand::Pump {} => {
+                    pumps += 1;
+                    Ok(TestResponse::Ok {})
+                }
+                TestCommand::WaitForIdle { .. } => {
+                    status_polls += 1;
+                    Ok(TestResponse::MotionStatus {
+                        finite: if status_polls == 1 { 1 } else { 0 },
+                        repeating: 0,
+                        ripples: 0,
+                    })
+                }
+                _ => panic!("unexpected browser test command: {command:?}"),
+            },
+            |_| {},
+        )
+        .expect("motion polling should succeed");
+
+        assert!(matches!(response, TestResponse::Ok {}));
+        assert_eq!(pumps, 1);
+        assert_eq!(status_polls, 2);
+    }
+
+    #[test]
+    fn browser_wait_for_idle_timeout_reports_the_last_motion_counts() {
+        let response = wait_for_idle_with(
+            5,
+            false,
+            |command, _deadline| match command {
+                TestCommand::Pump {} => Ok(TestResponse::Ok {}),
+                TestCommand::WaitForIdle { .. } => Ok(TestResponse::MotionStatus {
+                    finite: 2,
+                    repeating: 3,
+                    ripples: 4,
+                }),
+                _ => panic!("unexpected browser test command: {command:?}"),
+            },
+            std::thread::sleep,
+        )
+        .expect("a caller timeout should be a protocol error response");
+
+        assert!(matches!(
+            response,
+            TestResponse::Error { message }
+                if message.contains("last motion status: finite=2, repeating=3, ripples=4")
+        ));
     }
 
     #[test]
