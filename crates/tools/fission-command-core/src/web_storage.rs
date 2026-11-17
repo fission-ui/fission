@@ -6,6 +6,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+use toml_edit::{DocumentMut, Item};
 
 use super::{write_binary_file_with_policy, FissionProject, PlatformCapability, WritePolicy};
 
@@ -17,7 +18,7 @@ const WEB_TARGET: &str = "wasm32-unknown-unknown";
 /// to reject a dependency graph that has independently enabled the Rust
 /// provider without declaring its required browser host assets.
 pub fn prepare_web_target(root: &Path, project: &FissionProject) -> Result<()> {
-    let web_sqlite_enabled = resolved_web_sqlite_enabled(root)?;
+    let web_sqlite_enabled = web_sqlite_enabled(root)?;
     prepare_web_target_with_feature_state(root, project, web_sqlite_enabled)
 }
 
@@ -189,6 +190,62 @@ fn resolved_web_sqlite_enabled(root: &Path) -> Result<bool> {
     let metadata: CargoMetadata = serde_json::from_slice(&output.stdout)
         .context("failed to parse the Web Cargo dependency graph")?;
     Ok(metadata.web_sqlite_enabled_for_root())
+}
+
+/// An unconditional feature on the root package's Fission dependency proves
+/// that the Web SQLite provider is enabled. This is the normal output of
+/// `fission add-capability storage`, so avoid resolving the entire Cargo graph
+/// during every Web run/build. Ambiguous cases still use Cargo's resolver to
+/// catch features enabled through transitive dependencies or workspace
+/// feature unification.
+fn web_sqlite_enabled(root: &Path) -> Result<bool> {
+    web_sqlite_enabled_with(root, || resolved_web_sqlite_enabled(root))
+}
+
+fn web_sqlite_enabled_with(root: &Path, resolve: impl FnOnce() -> Result<bool>) -> Result<bool> {
+    if root_manifest_enables_web_sqlite(root)? {
+        return Ok(true);
+    }
+
+    resolve()
+}
+
+fn root_manifest_enables_web_sqlite(root: &Path) -> Result<bool> {
+    let manifest_path = root.join("Cargo.toml");
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest = manifest_text
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    let Some(dependencies) = manifest.get("dependencies").and_then(Item::as_table_like) else {
+        return Ok(false);
+    };
+
+    let enabled = dependencies.iter().any(|(dependency_name, dependency)| {
+        let Some(dependency) = dependency.as_table_like() else {
+            return false;
+        };
+        let package_name = dependency
+            .get("package")
+            .and_then(Item::as_str)
+            .unwrap_or(dependency_name);
+        let optional = dependency
+            .get("optional")
+            .and_then(Item::as_bool)
+            .unwrap_or(false);
+
+        package_name == "fission"
+            && !optional
+            && dependency
+                .get("features")
+                .and_then(Item::as_array)
+                .is_some_and(|features| {
+                    features
+                        .iter()
+                        .any(|feature| feature.as_str() == Some("store-sqlite-web"))
+                })
+    });
+    Ok(enabled)
 }
 
 fn cargo_metadata_command(manifest_path: &Path) -> Command {
@@ -501,6 +558,63 @@ mod tests {
         };
 
         assert!(metadata.web_sqlite_enabled_for_root());
+    }
+
+    #[test]
+    fn root_fission_feature_avoids_a_full_dependency_resolution() {
+        let root = TestDir::new("web-storage-direct-feature");
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfission.workspace = true\nfission.default-features = false\nfission.features = [\"web\", \"store-sqlite-web\"]\n",
+        )
+        .unwrap();
+
+        assert!(root_manifest_enables_web_sqlite(root.path()).unwrap());
+    }
+
+    #[test]
+    fn direct_feature_fast_path_does_not_call_the_cargo_resolver() {
+        let root = TestDir::new("web-storage-direct-feature-fast-path");
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfission = { version = \"0.16\", features = [\"store-sqlite-web\"] }\n",
+        )
+        .unwrap();
+
+        assert!(web_sqlite_enabled_with(root.path(), || {
+            panic!("direct feature declaration should bypass Cargo metadata")
+        })
+        .unwrap());
+    }
+
+    #[test]
+    fn ambiguous_or_optional_feature_declarations_still_use_cargo_resolution() {
+        let root = TestDir::new("web-storage-ambiguous-feature");
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfission = { version = \"0.16\", optional = true, features = [\"store-sqlite-web\"] }\n",
+        )
+        .unwrap();
+
+        let mut resolver_called = false;
+        assert!(web_sqlite_enabled_with(root.path(), || {
+            resolver_called = true;
+            Ok(true)
+        })
+        .unwrap());
+        assert!(resolver_called);
+    }
+
+    #[test]
+    fn feature_from_another_package_alias_is_not_mistaken_for_fission() {
+        let root = TestDir::new("web-storage-renamed-other-package");
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nother = { package = \"another-crate\", version = \"0.1\", features = [\"store-sqlite-web\"] }\n",
+        )
+        .unwrap();
+
+        assert!(!root_manifest_enables_web_sqlite(root.path()).unwrap());
     }
 
     #[test]
