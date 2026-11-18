@@ -2370,7 +2370,47 @@ struct WebRedrawScheduler {
     fallback_callback: wasm_bindgen::closure::Closure<dyn FnMut()>,
     handle: Rc<Cell<Option<i32>>>,
     fallback_handle: Rc<Cell<Option<i32>>>,
-    scheduled: Rc<Cell<bool>>,
+    state: Rc<Cell<WebRedrawState>>,
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WebRedrawState {
+    scheduled: bool,
+    fallback_armed: bool,
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+impl WebRedrawState {
+    fn schedule(&mut self) -> bool {
+        if self.scheduled {
+            return false;
+        }
+        self.scheduled = true;
+        true
+    }
+
+    fn animation_frame_queued(&self) -> bool {
+        // A RAF callback only queues WebRedrawFrame. Keep the capture watchdog
+        // armed until RedrawRequested acknowledges that the event was handled.
+        self.scheduled
+    }
+
+    fn arm_fallback(&mut self) -> bool {
+        if !self.scheduled || self.fallback_armed {
+            return false;
+        }
+        self.fallback_armed = true;
+        true
+    }
+
+    fn fallback_tick(&self) -> bool {
+        self.scheduled && self.fallback_armed
+    }
+
+    fn redraw_started(&mut self) {
+        *self = Self::default();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2382,32 +2422,29 @@ impl WebRedrawScheduler {
             web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
         let handle = Rc::new(Cell::new(None));
         let fallback_handle = Rc::new(Cell::new(None));
-        let scheduled = Rc::new(Cell::new(false));
+        let state = Rc::new(Cell::new(WebRedrawState::default()));
         let callback_handle = handle.clone();
-        let callback_fallback_handle = fallback_handle.clone();
-        let callback_scheduled = scheduled.clone();
-        let callback_window = window.clone();
+        let callback_state = state.clone();
         let callback_proxy = proxy.clone();
         let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
-            if !callback_scheduled.replace(false) {
+            if !callback_state.get().animation_frame_queued() {
                 return;
             }
             callback_handle.set(None);
-            if let Some(fallback_handle) = callback_fallback_handle.take() {
-                let _ = callback_window.clear_timeout_with_handle(fallback_handle);
-            }
             record_web_test_diagnostic(438, 1);
+            // The browser callback only enqueues WebRedrawFrame. Leave the
+            // capture interval armed until redraw_started() confirms that
+            // Winit handled that event; otherwise a missed proxy callback can
+            // cancel the only fallback and strand a pending LiveTest Pump.
             let _ = callback_proxy.send_event(TestEvent::WebRedrawFrame);
         }) as Box<dyn FnMut(f64)>);
         let fallback_window = window.clone();
-        let fallback_handle_for_callback = fallback_handle.clone();
         let fallback_raf_handle = handle.clone();
-        let fallback_scheduled = scheduled.clone();
+        let fallback_state = state.clone();
         let fallback_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            if !fallback_scheduled.replace(false) {
+            if !fallback_state.get().fallback_tick() {
                 return;
             }
-            fallback_handle_for_callback.set(None);
             if let Some(handle) = fallback_raf_handle.take() {
                 let _ = fallback_window.cancel_animation_frame(handle);
             }
@@ -2426,23 +2463,25 @@ impl WebRedrawScheduler {
             fallback_callback,
             handle,
             fallback_handle,
-            scheduled,
+            state,
         })
     }
 
     fn request(&self) -> Result<(), String> {
         use wasm_bindgen::JsCast;
 
-        if self.scheduled.replace(true) {
+        let mut state = self.state.get();
+        if !state.schedule() {
             return Ok(());
         }
+        self.state.set(state);
         let handle = match self
             .window
             .request_animation_frame(self.callback.as_ref().unchecked_ref())
         {
             Ok(handle) => handle,
             Err(error) => {
-                self.scheduled.set(false);
+                self.state.set(WebRedrawState::default());
                 return Err(js_error_to_string(error));
             }
         };
@@ -2453,27 +2492,39 @@ impl WebRedrawScheduler {
     fn request_fallback(&self, delay_ms: i32) -> Result<(), String> {
         use wasm_bindgen::JsCast;
 
-        if !self.scheduled.get() || self.fallback_handle.get().is_some() {
+        let mut state = self.state.get();
+        if !state.arm_fallback() {
             return Ok(());
         }
+        self.state.set(state);
         let handle = self
             .window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
+            .set_interval_with_callback_and_timeout_and_arguments_0(
                 self.fallback_callback.as_ref().unchecked_ref(),
                 delay_ms,
-            )
-            .map_err(js_error_to_string)?;
+            );
+        let handle = match handle {
+            Ok(handle) => handle,
+            Err(error) => {
+                let mut state = self.state.get();
+                state.fallback_armed = false;
+                self.state.set(state);
+                return Err(js_error_to_string(error));
+            }
+        };
         self.fallback_handle.set(Some(handle));
         Ok(())
     }
 
     fn cancel(&self) {
-        self.scheduled.set(false);
+        let mut state = self.state.get();
+        state.redraw_started();
+        self.state.set(state);
         if let Some(handle) = self.handle.take() {
             let _ = self.window.cancel_animation_frame(handle);
         }
         if let Some(handle) = self.fallback_handle.take() {
-            let _ = self.window.clear_timeout_with_handle(handle);
+            let _ = self.window.clear_interval_with_handle(handle);
         }
     }
 }
@@ -12396,7 +12447,7 @@ mod tests {
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
         BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
         RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WebGpuQueueBackpressure,
-        WindowViewportState,
+        WebRedrawState, WindowViewportState,
     };
     use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
@@ -13810,6 +13861,42 @@ mod tests {
             web_live_test_event_loop_wait_until(now),
             ControlFlow::WaitUntil(now + Duration::from_millis(16))
         );
+    }
+
+    #[test]
+    fn capture_fallback_stays_armed_until_winit_starts_the_redraw() {
+        let mut state = WebRedrawState::default();
+        assert!(state.schedule());
+        assert!(state.arm_fallback());
+
+        // The RAF callback only queues a Winit user event. It is not an
+        // acknowledgement that RedrawRequested has started.
+        assert!(state.animation_frame_queued());
+        assert!(state.scheduled);
+        assert!(state.fallback_armed);
+
+        state.redraw_started();
+        assert!(!state.scheduled);
+        assert!(!state.fallback_armed);
+        assert!(!state.fallback_tick());
+    }
+
+    #[test]
+    fn capture_fallback_recovers_when_the_raf_user_event_is_missed() {
+        let mut state = WebRedrawState::default();
+        assert!(state.schedule());
+        assert!(state.arm_fallback());
+
+        assert!(state.animation_frame_queued());
+        // If WebRedrawFrame was accepted but not delivered, the still-armed
+        // interval supplies repeated HeadlessFrame redraw attempts.
+        assert!(state.fallback_tick());
+        assert!(state.fallback_tick());
+        assert!(state.scheduled);
+        assert!(state.fallback_armed);
+
+        state.redraw_started();
+        assert!(!state.fallback_tick());
     }
 
     #[test]
