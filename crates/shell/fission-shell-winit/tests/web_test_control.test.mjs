@@ -70,9 +70,11 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
       unacknowledged: 0,
       lastAccepted: true,
       lastWakeRequested: false,
+      lastDispatchCommand: { kind: "Query", selectorIdentifier: null },
       pendingRequestIds: [],
       inFlightRequestIds: [],
       pendingResponseWakeCount: 0,
+      lastPendingResponse: null,
       lastResponseWakeRequestId: null,
       lastResponsePollPending: null,
       deferredWakeSchedules: 0,
@@ -203,9 +205,15 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       unacknowledged: 0,
       lastAccepted: true,
       lastWakeRequested: true,
+      lastDispatchCommand: { kind: "CaptureScreenshot", selectorIdentifier: null },
       pendingRequestIds: [],
       inFlightRequestIds: [],
       pendingResponseWakeCount: 1,
+      lastPendingResponse: {
+        requestId,
+        kind: "CaptureScreenshot",
+        selectorIdentifier: null,
+      },
       lastResponseWakeRequestId: requestId,
       lastResponsePollPending: true,
       deferredWakeSchedules: 1,
@@ -266,7 +274,9 @@ test("a pending selector response retries a deferred event-loop wake", () => {
 
   try {
     const adapters = createWebTestAdapters(exports, memory, 48);
-    const requestId = adapters.submit('{"cmd":"TapSelector","query":"browse"}');
+    const requestId = adapters.submit(
+      '{"cmd":"ResolveSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"command.document.bold"}}}',
+    );
     assert.equal(requestId, 119);
 
     timers.shift().callback(); // deferred command dispatch
@@ -279,6 +289,11 @@ test("a pending selector response retries a deferred event-loop wake", () => {
     firstWake.callback(); // accepted, but Winit misses this callback
     assert.equal(wakeCalls, 1);
     assert.equal(adapters.poll(requestId), "null");
+    assert.deepEqual(adapters.diagnostics().bridgeDispatch.lastPendingResponse, {
+      requestId,
+      kind: "ResolveSelector",
+      selectorIdentifier: "command.document.bold",
+    });
 
     const retry = timers.shift();
     assert.equal(retry.delay, 16);
@@ -350,9 +365,15 @@ test("capture wake remains deferred after hundreds of requests", () => {
       unacknowledged: 0,
       lastAccepted: true,
       lastWakeRequested: true,
+      lastDispatchCommand: { kind: "CaptureScreenshot", selectorIdentifier: null },
       pendingRequestIds: [],
       inFlightRequestIds: [],
       pendingResponseWakeCount: 600,
+      lastPendingResponse: {
+        requestId: 600,
+        kind: "CaptureScreenshot",
+        selectorIdentifier: null,
+      },
       lastResponseWakeRequestId: 600,
       lastResponsePollPending: true,
       deferredWakeSchedules: 600,
@@ -490,9 +511,15 @@ test("wake diagnostics distinguish a timer callback from a rejected proxy send",
       unacknowledged: 0,
       lastAccepted: true,
       lastWakeRequested: true,
+      lastDispatchCommand: { kind: "CaptureScreenshot", selectorIdentifier: null },
       pendingRequestIds: [],
       inFlightRequestIds: [],
       pendingResponseWakeCount: 1,
+      lastPendingResponse: {
+        requestId: 1,
+        kind: "CaptureScreenshot",
+        selectorIdentifier: null,
+      },
       lastResponseWakeRequestId: 1,
       lastResponsePollPending: true,
       deferredWakeSchedules: 1,

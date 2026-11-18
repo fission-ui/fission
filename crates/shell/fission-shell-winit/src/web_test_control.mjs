@@ -10,6 +10,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   const pendingDispatches = new Set();
   const dispatchesInFlight = new Set();
   const pendingResponseWakes = new Set();
+  const requestCommands = new Map();
   const responseWakeTimers = new Map();
   const responseWakeRetryAttempts = new Map();
   let dispatchAttempts = 0;
@@ -21,6 +22,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let unacknowledgedDispatches = 0;
   let lastDispatchAccepted = null;
   let lastDispatchWakeRequested = null;
+  let lastDispatchCommand = null;
   let lastResponseWakeRequestId = null;
   let lastResponsePollPending = null;
   let deferredWakeSchedules = 0;
@@ -33,8 +35,24 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let deferredWakeRetryCalls = 0;
 
   const responseWakeRetryDelay = (attempt) => [16, 32, 64, 128, 250][Math.min(attempt, 4)];
+  const summarizeCommand = (commandJson) => {
+    try {
+      const command = JSON.parse(commandJson);
+      const selector = command?.query?.selector;
+      return {
+        kind: typeof command?.cmd === "string" ? command.cmd : "unknown",
+        selectorIdentifier: selector?.kind === "semantic_identifier"
+          && typeof selector.identifier === "string"
+          ? selector.identifier
+          : null,
+      };
+    } catch {
+      return { kind: "invalid", selectorIdentifier: null };
+    }
+  };
   const clearResponseWake = (requestId) => {
     pendingResponseWakes.delete(requestId);
+    requestCommands.delete(requestId);
     responseWakeRetryAttempts.delete(requestId);
     const timer = responseWakeTimers.get(requestId);
     if (timer !== undefined) globalThis.clearTimeout(timer);
@@ -76,6 +94,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
     dispatchesInFlight.add(requestId);
     dispatchAttempts += 1;
     lastDispatchRequestId = requestId;
+    lastDispatchCommand = requestCommands.get(requestId) || null;
     let wakeAfterDispatch = false;
     try {
       const status = exports.fission_web_test_dispatch_command(requestId) >>> 0;
@@ -90,6 +109,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       dispatchCompletions += 1;
     } catch (error) {
       pendingDispatches.delete(requestId);
+      requestCommands.delete(requestId);
       dispatchFailures += 1;
       throw error;
     } finally {
@@ -128,6 +148,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       const requestId = exports.fission_web_test_submit_json(bytes.length) >>> 0;
       if (requestId !== 0) {
         pendingDispatches.add(requestId);
+        requestCommands.set(requestId, summarizeCommand(commandJson));
         globalThis.setTimeout(() => dispatch(requestId), 0);
       }
       return requestId;
@@ -151,6 +172,8 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           lastResponsePollPending = true;
           sendDeferredWake(requestId, true);
         }
+      } else if (json !== "null") {
+        requestCommands.delete(requestId);
       }
       return json;
     },
@@ -187,9 +210,21 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           unacknowledged: unacknowledgedDispatches,
           lastAccepted: lastDispatchAccepted,
           lastWakeRequested: lastDispatchWakeRequested,
+          lastDispatchCommand,
           pendingRequestIds: [...pendingDispatches],
           inFlightRequestIds: [...dispatchesInFlight],
           pendingResponseWakeCount: pendingResponseWakes.size,
+          lastPendingResponse: (() => {
+            const requestId = [...pendingResponseWakes].at(-1);
+            if (requestId === undefined) return null;
+            return {
+              requestId,
+              ...(requestCommands.get(requestId) || {
+                kind: "unknown",
+                selectorIdentifier: null,
+              }),
+            };
+          })(),
           lastResponseWakeRequestId,
           lastResponsePollPending,
           deferredWakeSchedules,
