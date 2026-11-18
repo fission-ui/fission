@@ -72,9 +72,9 @@ test("static adapters preserve command, frame, diagnostics and grown-memory ABI"
       lastWakeRequested: false,
       pendingRequestIds: [],
       inFlightRequestIds: [],
-      pendingCaptureWakeCount: 0,
-      lastCaptureWakeRequestId: null,
-      lastCapturePollPending: null,
+      pendingResponseWakeCount: 0,
+      lastResponseWakeRequestId: null,
+      lastResponsePollPending: null,
       deferredWakeSchedules: 0,
       deferredWakeCalls: 0,
       deferredWakeExportReturns: 0,
@@ -205,9 +205,9 @@ test("poll stays observational until the deferred command dispatch runs", () => 
       lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
-      pendingCaptureWakeCount: 1,
-      lastCaptureWakeRequestId: requestId,
-      lastCapturePollPending: true,
+      pendingResponseWakeCount: 1,
+      lastResponseWakeRequestId: requestId,
+      lastResponsePollPending: true,
       deferredWakeSchedules: 1,
       deferredWakeCalls: 1,
       deferredWakeExportReturns: 1,
@@ -222,6 +222,75 @@ test("poll stays observational until the deferred command dispatch runs", () => 
     assert.deepEqual(dispatched, [requestId], "the original timer must be idempotent");
   } finally {
     globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("a pending selector response retries a deferred event-loop wake", () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = [];
+  const dispatched = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let responseJson = null;
+  let wakeCalls = 0;
+  const exports = {
+    fission_web_test_diagnostics_ptr: () => 64,
+    fission_web_test_command_json_ptr: () => 256,
+    fission_web_test_command_json_capacity: () => 128,
+    fission_web_test_submit_json: () => 119,
+    fission_web_test_dispatch_command: (id) => {
+      dispatched.push(id);
+      return 3;
+    },
+    fission_web_test_wake_event_loop: () => {
+      wakeCalls += 1;
+      // Model EventLoopProxy accepting the query while Winit misses its
+      // callback once; the retry lets the pending selector request complete.
+      if (wakeCalls === 2) responseJson = JSON.stringify({ status: "Ok" });
+      return 1;
+    },
+    fission_web_test_deferred_wake_scheduled: () => {},
+    fission_web_test_poll_json_len: () => {
+      const bytes = new TextEncoder().encode(responseJson ?? "null");
+      new Uint8Array(memory.buffer, 512, bytes.length).set(bytes);
+      return bytes.length;
+    },
+    fission_web_test_poll_json_ptr: () => 512,
+  };
+  globalThis.setTimeout = (callback, delay = 0) => {
+    const timer = { callback, delay, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => { timer.cleared = true; };
+
+  try {
+    const adapters = createWebTestAdapters(exports, memory, 48);
+    const requestId = adapters.submit('{"cmd":"TapSelector","query":"browse"}');
+    assert.equal(requestId, 119);
+
+    timers.shift().callback(); // deferred command dispatch
+    assert.deepEqual(dispatched, [requestId]);
+    assert.equal(wakeCalls, 0, "the wake must not run on the Wasm dispatch stack");
+    assert.equal(adapters.poll(requestId), "null");
+
+    const firstWake = timers.shift();
+    assert.equal(firstWake.delay, 0);
+    firstWake.callback(); // accepted, but Winit misses this callback
+    assert.equal(wakeCalls, 1);
+    assert.equal(adapters.poll(requestId), "null");
+
+    const retry = timers.shift();
+    assert.equal(retry.delay, 16);
+    retry.callback(); // the event loop handles the queued selector query
+    assert.equal(wakeCalls, 2);
+    assert.deepEqual(JSON.parse(adapters.poll(requestId)), { status: "Ok" });
+    assert.equal(adapters.diagnostics().bridgeDispatch.pendingResponseWakeCount, 0);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastResponsePollPending, false);
+    assert.equal(timers.length, 0, "response completion leaves no pending wake timer");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
   }
 });
 
@@ -283,9 +352,9 @@ test("capture wake remains deferred after hundreds of requests", () => {
       lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
-      pendingCaptureWakeCount: 600,
-      lastCaptureWakeRequestId: 600,
-      lastCapturePollPending: true,
+      pendingResponseWakeCount: 600,
+      lastResponseWakeRequestId: 600,
+      lastResponsePollPending: true,
       deferredWakeSchedules: 600,
       deferredWakeCalls: 600,
       deferredWakeExportReturns: 600,
@@ -376,9 +445,9 @@ test("queued screenshot retries accepted wakes through queue drain and readback"
     assert.equal(adapters.diagnostics().bridgeDispatch.deferredWakeRetryCalls, 2);
     assert.equal(adapters.diagnostics().bridgeDispatch.lastStatus, 3);
     assert.equal(adapters.diagnostics().bridgeDispatch.lastWakeRequested, true);
-    assert.equal(adapters.diagnostics().bridgeDispatch.pendingCaptureWakeCount, 0);
-    assert.equal(adapters.diagnostics().bridgeDispatch.lastCaptureWakeRequestId, requestId);
-    assert.equal(adapters.diagnostics().bridgeDispatch.lastCapturePollPending, false);
+    assert.equal(adapters.diagnostics().bridgeDispatch.pendingResponseWakeCount, 0);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastResponseWakeRequestId, requestId);
+    assert.equal(adapters.diagnostics().bridgeDispatch.lastResponsePollPending, false);
     assert.equal(adapters.poll(requestId), responseJson, "the response remains stable after polling");
     assert.equal(timers.length, 0, "response completion clears all wake retries");
   } finally {
@@ -423,9 +492,9 @@ test("wake diagnostics distinguish a timer callback from a rejected proxy send",
       lastWakeRequested: true,
       pendingRequestIds: [],
       inFlightRequestIds: [],
-      pendingCaptureWakeCount: 1,
-      lastCaptureWakeRequestId: 1,
-      lastCapturePollPending: true,
+      pendingResponseWakeCount: 1,
+      lastResponseWakeRequestId: 1,
+      lastResponsePollPending: true,
       deferredWakeSchedules: 1,
       deferredWakeCalls: 1,
       deferredWakeExportReturns: 1,

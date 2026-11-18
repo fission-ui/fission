@@ -9,9 +9,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   const diagnosticsAddress = exports.fission_web_test_diagnostics_ptr() >>> 0;
   const pendingDispatches = new Set();
   const dispatchesInFlight = new Set();
-  const pendingCaptureWakes = new Set();
-  const captureWakeTimers = new Map();
-  const captureWakeRetryAttempts = new Map();
+  const pendingResponseWakes = new Set();
+  const responseWakeTimers = new Map();
+  const responseWakeRetryAttempts = new Map();
   let dispatchAttempts = 0;
   let dispatchCompletions = 0;
   let dispatchFailures = 0;
@@ -21,8 +21,8 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let unacknowledgedDispatches = 0;
   let lastDispatchAccepted = null;
   let lastDispatchWakeRequested = null;
-  let lastCaptureWakeRequestId = null;
-  let lastCapturePollPending = null;
+  let lastResponseWakeRequestId = null;
+  let lastResponsePollPending = null;
   let deferredWakeSchedules = 0;
   let deferredWakeCalls = 0;
   let deferredWakeExportReturns = 0;
@@ -32,33 +32,33 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
   let deferredWakeRetrySchedules = 0;
   let deferredWakeRetryCalls = 0;
 
-  const captureWakeRetryDelay = (attempt) => [16, 32, 64, 128, 250][Math.min(attempt, 4)];
-  const clearCaptureWake = (requestId) => {
-    pendingCaptureWakes.delete(requestId);
-    captureWakeRetryAttempts.delete(requestId);
-    const timer = captureWakeTimers.get(requestId);
+  const responseWakeRetryDelay = (attempt) => [16, 32, 64, 128, 250][Math.min(attempt, 4)];
+  const clearResponseWake = (requestId) => {
+    pendingResponseWakes.delete(requestId);
+    responseWakeRetryAttempts.delete(requestId);
+    const timer = responseWakeTimers.get(requestId);
     if (timer !== undefined) globalThis.clearTimeout(timer);
-    captureWakeTimers.delete(requestId);
+    responseWakeTimers.delete(requestId);
   };
   const sendDeferredWake = (requestId, isRetry) => {
-    if (captureWakeTimers.has(requestId) || !pendingCaptureWakes.has(requestId)) return;
+    if (responseWakeTimers.has(requestId) || !pendingResponseWakes.has(requestId)) return;
     if (isRetry) deferredWakeRetrySchedules += 1;
     else {
       deferredWakeSchedules += 1;
       exports.fission_web_test_deferred_wake_scheduled();
     }
-    const attempt = captureWakeRetryAttempts.get(requestId) || 0;
-    const delay = isRetry ? captureWakeRetryDelay(attempt) : 0;
-    if (isRetry) captureWakeRetryAttempts.set(requestId, attempt + 1);
+    const attempt = responseWakeRetryAttempts.get(requestId) || 0;
+    const delay = isRetry ? responseWakeRetryDelay(attempt) : 0;
+    if (isRetry) responseWakeRetryAttempts.set(requestId, attempt + 1);
     const timer = globalThis.setTimeout(() => {
-      captureWakeTimers.delete(requestId);
-      if (!pendingCaptureWakes.has(requestId)) return;
+      responseWakeTimers.delete(requestId);
+      if (!pendingResponseWakes.has(requestId)) return;
       deferredWakeCalls += 1;
       if (isRetry) deferredWakeRetryCalls += 1;
       try {
-        // A repeated wake is safe while this request remains in the Rust
-        // capture queue: the event-loop drain removes it before dispatching
-        // the render capture, and the request response remains single-shot.
+        // A repeated wake is safe while this request has no response: event
+        // loop queries are single-shot, and screenshot capture drains its
+        // queue before dispatching the render capture.
         const sent = (exports.fission_web_test_wake_event_loop() >>> 0) === 1;
         deferredWakeExportReturns += 1;
         lastDeferredWakeSendResult = sent;
@@ -68,7 +68,7 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
         throw error;
       }
     }, delay);
-    captureWakeTimers.set(requestId, timer);
+    responseWakeTimers.set(requestId, timer);
   };
 
   const dispatch = (requestId) => {
@@ -98,11 +98,11 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
     if (wakeAfterDispatch) {
       // Run the extra Winit wake only after the command's Wasm export has
       // returned. If Winit accepts a proxy event but misses its callback, a
-      // later null poll schedules another wake while this capture remains in
-      // Rust's queue. Poll never invokes Wasm recursively.
-      pendingCaptureWakes.add(requestId);
-      lastCaptureWakeRequestId = requestId;
-      lastCapturePollPending = true;
+      // later null poll schedules another wake while the response is pending.
+      // Poll never invokes Wasm recursively.
+      pendingResponseWakes.add(requestId);
+      lastResponseWakeRequestId = requestId;
+      lastResponsePollPending = true;
       try {
         sendDeferredWake(requestId, false);
       } catch (error) {
@@ -142,13 +142,13 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
       const length = exports.fission_web_test_poll_json_len(requestId) >>> 0;
       const address = exports.fission_web_test_poll_json_ptr() >>> 0;
       const json = decoder.decode(new Uint8Array(memory.buffer, address, length));
-      if (pendingCaptureWakes.has(requestId)) {
-        lastCaptureWakeRequestId = requestId;
+      if (pendingResponseWakes.has(requestId)) {
+        lastResponseWakeRequestId = requestId;
         if (json !== "null") {
-          lastCapturePollPending = false;
-          clearCaptureWake(requestId);
+          lastResponsePollPending = false;
+          clearResponseWake(requestId);
         } else {
-          lastCapturePollPending = true;
+          lastResponsePollPending = true;
           sendDeferredWake(requestId, true);
         }
       }
@@ -189,9 +189,9 @@ export function createWebTestAdapters(exports, memory, pollStageAddress) {
           lastWakeRequested: lastDispatchWakeRequested,
           pendingRequestIds: [...pendingDispatches],
           inFlightRequestIds: [...dispatchesInFlight],
-          pendingCaptureWakeCount: pendingCaptureWakes.size,
-          lastCaptureWakeRequestId,
-          lastCapturePollPending,
+          pendingResponseWakeCount: pendingResponseWakes.size,
+          lastResponseWakeRequestId,
+          lastResponsePollPending,
           deferredWakeSchedules,
           deferredWakeCalls,
           deferredWakeExportReturns,

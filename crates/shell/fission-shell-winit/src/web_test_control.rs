@@ -715,7 +715,8 @@ fn queue_command(command: Result<TestCommand, String>) -> u32 {
 }
 
 /// Returns 0 if no queued request was consumed, 2 if dispatch completed, and
-/// 3 if dispatch completed and a browser-task wake is required.
+/// 3 if dispatch completed and a browser-task wake is required to poll an
+/// asynchronous response.
 fn dispatch_queued_command(request_id: u32) -> u32 {
     let (command, proxy, already_consumed) =
         with_bridge_state(|state| match state.responses.remove(&request_id) {
@@ -737,8 +738,6 @@ fn dispatch_queued_command(request_id: u32) -> u32 {
         };
     };
 
-    let wake_after_dispatch = matches!(&command, Ok(TestCommand::CaptureScreenshot {}));
-
     let response = match (command, proxy) {
         (Ok(command), Some(proxy)) => dispatch(command, &proxy),
         (Ok(_), None) => PendingResponse::Ready(TestResponse::Error {
@@ -746,6 +745,10 @@ fn dispatch_queued_command(request_id: u32) -> u32 {
         }),
         (Err(message), _) => PendingResponse::Ready(TestResponse::Error { message }),
     };
+    // Winit's Web event loop can accept an EventLoopProxy event without
+    // delivering its callback. Keep a deferred wake active for every response
+    // that still depends on the event loop, not only screenshot capture.
+    let wake_after_dispatch = matches!(&response, PendingResponse::Waiting(_));
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
     });
