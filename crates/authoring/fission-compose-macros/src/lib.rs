@@ -27,12 +27,23 @@ fn support() -> Tokens {
         },
     }
 }
-#[proc_macro]
-pub fn fission_component(input: TokenStream) -> TokenStream {
+
+fn expand_component(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ast::Component);
     expand::component(input)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
+}
+
+#[proc_macro]
+pub fn fission_component(input: TokenStream) -> TokenStream {
+    expand_component(input)
+}
+
+/// Define a typed component and compose its retained Fission widget tree.
+#[proc_macro]
+pub fn fission_compose(input: TokenStream) -> TokenStream {
+    expand_component(input)
 }
 
 #[proc_macro_attribute]
