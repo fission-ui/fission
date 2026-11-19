@@ -328,8 +328,11 @@ mod tests {
     #[test]
     fn large_static_assets_can_finish_after_a_slow_client_starts_reading() {
         let root = fixture_root();
-        let asset_size = 16 * 1024 * 1024;
-        std::fs::write(root.join("showcase.wasm"), vec![0x5a; asset_size]).unwrap();
+        let asset_size = 60_118_527usize;
+        std::fs::File::create(root.join("showcase.wasm"))
+            .unwrap()
+            .set_len(asset_size as u64)
+            .unwrap();
         let server = OwnedServer::start_at(root.clone(), "127.0.0.1", 0, "/", false).unwrap();
         let mut stream = TcpStream::connect(server.address()).unwrap();
         stream
@@ -337,15 +340,38 @@ mod tests {
             .unwrap();
         std::thread::sleep(Duration::from_millis(400));
 
-        let mut response = Vec::new();
-        stream.read_to_end(&mut response).unwrap();
-        let body_start = response
-            .windows(4)
-            .position(|window| window == b"\r\n\r\n")
-            .unwrap()
-            + 4;
-        assert!(response.starts_with(b"HTTP/1.1 200 OK"));
-        assert_eq!(response.len() - body_start, asset_size);
+        let mut response_headers = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            stream.read_exact(&mut byte).unwrap();
+            response_headers.push(byte[0]);
+            if response_headers.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response_headers = String::from_utf8(response_headers).unwrap();
+        assert!(response_headers.starts_with("HTTP/1.1 200 OK"));
+        let content_length = response_headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then_some(value.trim())
+            })
+            .and_then(|value| value.parse::<usize>().ok())
+            .expect("static asset response should advertise its content length");
+        assert_eq!(content_length, asset_size);
+
+        let mut received = 0usize;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let bytes_read = stream.read(&mut buffer).unwrap();
+            if bytes_read == 0 {
+                break;
+            }
+            received += bytes_read;
+        }
+        assert_eq!(received, content_length);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
