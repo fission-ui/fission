@@ -282,6 +282,8 @@ mod ios_file_system;
 mod ios_print;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
+#[cfg(target_os = "macos")]
+mod macos_file_picker;
 #[cfg(target_arch = "wasm32")]
 mod web_capabilities;
 #[cfg(target_arch = "wasm32")]

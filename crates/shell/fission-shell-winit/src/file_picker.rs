@@ -151,7 +151,7 @@ fn picked_file_from_path(
     })
 }
 
-fn normalized_extensions(extensions: &[String], mime_types: &[String]) -> Vec<String> {
+pub(crate) fn normalized_extensions(extensions: &[String], mime_types: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for extension in extensions {
         let extension = extension.trim().trim_start_matches('.');

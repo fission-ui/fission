@@ -44,6 +44,7 @@ extern "C" {}
 extern "C" {}
 
 pub(crate) fn register_macos_operation_capabilities(async_registry: &mut AsyncRegistry) {
+    crate::macos_file_picker::register_macos_file_picker_capabilities(async_registry);
     camera::register_camera_capabilities(async_registry, Arc::new(MacosCameraHost));
     barcode::register_barcode_scanner_capabilities(
         async_registry,

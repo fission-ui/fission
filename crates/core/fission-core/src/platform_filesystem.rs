@@ -170,7 +170,7 @@ pub struct PickDirectoryResult {
     pub directory: Option<DirectoryHandle>,
 }
 
-/// Opaque browser-owned writable file selected by a Save dialog.
+/// Opaque host-owned writable file selected by a Save dialog.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WritableFileHandle {
     pub id: WritableFileHandleId,
@@ -181,7 +181,7 @@ pub struct WritableFileHandle {
     pub permission: FileSystemPermission,
 }
 
-/// Runtime-owned identity for a browser-selected writable file.
+/// Runtime-owned identity for a selected writable file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WritableFileHandleId(pub u64);
 
