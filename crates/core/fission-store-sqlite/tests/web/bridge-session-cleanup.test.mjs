@@ -64,6 +64,6 @@ test("cancelling an in-flight import begin removes its partial OPFS file", async
   await deadline(page.request("sqlite_session_cancel_pending", { begin_token: "cancel-test" }));
   releaseAccess();
   const result = await deadline(pendingBegin);
-  assert.ok(result instanceof Error);
+  assert.equal(result?.code, "transaction_lost", `begin returned ${JSON.stringify(result)}`);
   assert.equal(harness.opfs.listFiles(partialPath).length, 0);
 });
