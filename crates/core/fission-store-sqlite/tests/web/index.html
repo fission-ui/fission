@@ -155,10 +155,11 @@
         );
         globalThis.__FISSION_SQLITE_BRIDGE__.close();
       } else {
-        const { default: initializeRust, check_cancelled_begin } =
+        const { default: initializeRust, check_cancelled_begin, check_portable_snapshot } =
           await import("./pkg/web_transaction_cancellation.js");
         await initializeRust();
         await check_cancelled_begin();
+        await check_portable_snapshot();
         await execute(
           "CREATE TABLE IF NOT EXISTS browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)",
         );

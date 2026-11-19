@@ -18,6 +18,7 @@ const namespace = Array.from(namespaceDigest.slice(0, 16), (byte) =>
 const databaseFilename = databaseId
   ? `/fission-apps/${namespace}/store-${databaseId}.sqlite3`
   : `/fission-apps/${namespace}/store.sqlite3`;
+const temporaryDirectoryName = `fission-tmp-${databaseId || "default"}`;
 
 const sqlite3 = await sqlite3InitModule({
   locateFile: (file) => new URL(file, import.meta.url).href,
@@ -101,10 +102,42 @@ async function migrateLegacyDatabase() {
 // Named workspace databases always start independently and must never import
 // the default database's tables or data.
 if (!databaseId) await migrateLegacyDatabase();
+async function databaseDirectory(create = true) {
+  const parts = databaseFilename.split("/").filter(Boolean);
+  parts.pop();
+  let directory = await navigator.storage.getDirectory();
+  for (const part of parts) directory = await directory.getDirectoryHandle(part, { create });
+  return directory;
+}
+
+async function cleanTemporaryFiles() {
+  const parent = await databaseDirectory();
+  let directory;
+  try {
+    directory = await parent.getDirectoryHandle(temporaryDirectoryName);
+  } catch (error) {
+    if (error?.name === "NotFoundError") return;
+    throw error;
+  }
+  for await (const [name] of directory.entries()) {
+    await directory.removeEntry(name, { recursive: true });
+  }
+}
+
+// Only this database's private session files are considered. The database
+// worker lock guarantees no live session for this named DB can be using them.
+await cleanTemporaryFiles();
 const db = new sqlite3.oo1.OpfsWlDb(databaseFilename, "c");
 let activeTransaction = null;
 let activeAuthorizerPolicy = null;
 let allowManagedTransactionControl = false;
+let allowManagedAttach = false;
+let maintenance = null;
+const snapshotSessions = new Map();
+const importSessions = new Map();
+const stagedDatabases = new Map();
+const activeAttachedStagePaths = new Set();
+const activeReadOnlySchemas = new Set();
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS fission (
@@ -187,9 +220,14 @@ function execute(statement, alreadyInTransaction = false) {
   };
 }
 
-function query(statement) {
-  const prepared = db.prepare(statement.sql);
+function query(statement, database = db, readOnly = false) {
+  const prepared = database.prepare(statement.sql);
   try {
+    if (readOnly && sqlite3.capi.sqlite3_stmt_readonly(prepared.pointer) !== 1) {
+      const error = new Error("staged SQLite queries must be read-only");
+      error.code = "read_only";
+      throw error;
+    }
     const bound = bindings(statement.parameters);
     if (bound !== undefined) prepared.bind(bound);
     const columns = prepared
@@ -205,6 +243,454 @@ function query(statement) {
     return { columns, rows };
   } finally {
     prepared.finalize();
+  }
+}
+
+function temporaryFilePath() {
+  return `/fission-apps/${namespace}/${temporaryDirectoryName}/${crypto.randomUUID()}.sqlite3`;
+}
+
+async function ensureTemporaryDirectory() {
+  const parent = await databaseDirectory();
+  await parent.getDirectoryHandle(temporaryDirectoryName, { create: true });
+}
+
+async function opfsFileHandle(filename, create = false) {
+  const parts = filename.split("/").filter(Boolean);
+  const basename = parts.pop();
+  let directory = await navigator.storage.getDirectory();
+  for (const part of parts) directory = await directory.getDirectoryHandle(part, { create });
+  return { directory, file: await directory.getFileHandle(basename, { create }) };
+}
+
+async function removeOpfsFile(filename) {
+  const parts = filename.split("/").filter(Boolean);
+  const basename = parts.pop();
+  let directory = await navigator.storage.getDirectory();
+  try {
+    for (const part of parts) directory = await directory.getDirectoryHandle(part);
+  } catch (error) {
+    if (error?.name === "NotFoundError") return;
+    throw error;
+  }
+  for await (const [name] of directory.entries()) {
+    if (name === basename || name.startsWith(`${basename}-`)) {
+      await directory.removeEntry(name, { recursive: true });
+    }
+  }
+}
+
+function backupError(database, code, action) {
+  const capi = sqlite3.capi;
+  const message = capi.sqlite3_errmsg(database.pointer);
+  const error = new Error(`SQLite ${action} failed (${code}): ${message}`);
+  error.resultCode = code;
+  return error;
+}
+
+async function backupDatabase(source, destination, shouldCancel = () => false) {
+  const capi = sqlite3.capi;
+  const backup = capi.sqlite3_backup_init(destination.pointer, "main", source.pointer, "main");
+  if (!backup) throw backupError(destination, capi.sqlite3_errcode(destination.pointer), "backup initialization");
+  let completed = false;
+  let busySince = null;
+  let busyRetries = 0;
+  const startedAt = Date.now();
+  try {
+    for (;;) {
+      if (shouldCancel()) return false;
+      if (Date.now() - startedAt >= 120_000) {
+        const error = new Error("SQLite online backup exceeded its 120 second limit");
+        error.code = "unavailable";
+        throw error;
+      }
+      const result = capi.sqlite3_backup_step(backup, 128);
+      if (result === capi.SQLITE_DONE) {
+        completed = true;
+        break;
+      }
+      if (result !== capi.SQLITE_OK && result !== capi.SQLITE_BUSY && result !== capi.SQLITE_LOCKED) {
+        throw backupError(destination, result, "backup step");
+      }
+      if (result === capi.SQLITE_OK) {
+        busySince = null;
+        busyRetries = 0;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        continue;
+      }
+      busySince ??= Date.now();
+      busyRetries += 1;
+      if (Date.now() - busySince >= 5000 || busyRetries >= 100) {
+        const error = backupError(destination, result, "backup retry");
+        error.code = "busy";
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(100, busyRetries * 10)));
+    }
+  } finally {
+    const result = capi.sqlite3_backup_finish(backup);
+    if (completed && result !== capi.SQLITE_OK) throw backupError(destination, result, "backup finish");
+  }
+  return completed;
+}
+
+function verifyIntegrity(database) {
+  const result = database.selectValue("PRAGMA quick_check");
+  if (result !== "ok") {
+    const error = new Error(`imported SQLite database failed quick_check: ${String(result)}`);
+    error.code = "invalid_request";
+    throw error;
+  }
+}
+
+function busyError(message = "SQLite is busy with another worker operation.") {
+  const error = new Error(message);
+  error.code = "busy";
+  return error;
+}
+
+function sessionError(message = "The SQLite session is unknown, expired, or belongs to another browser context.") {
+  const error = new Error(message);
+  error.code = "transaction_lost";
+  return error;
+}
+
+function ownedSession(sessions, request, clientId) {
+  const session = sessions.get(request.session_id);
+  if (!session || session.clientId !== clientId) throw sessionError();
+  return session;
+}
+
+async function beginSnapshot(clientId, request) {
+  if (activeTransaction || maintenance) throw busyError();
+  const task = maintenance = {
+    kind: "snapshot-begin",
+    clientId,
+    beginToken: String(request.begin_token ?? ""),
+    cancelled: false,
+  };
+  let path;
+  let source;
+  let destination;
+  let keep = false;
+  try {
+    path = temporaryFilePath();
+    await ensureTemporaryDirectory();
+    if (task.cancelled) {
+      const error = new Error("SQLite snapshot creation was cancelled");
+      error.code = "unavailable";
+      throw error;
+    }
+    source = new sqlite3.oo1.OpfsWlDb(databaseFilename, "c");
+    destination = new sqlite3.oo1.OpfsWlDb(path, "c");
+    const completed = await backupDatabase(source, destination, () => task.cancelled);
+    if (!completed) {
+      const error = new Error("SQLite snapshot creation was cancelled");
+      error.code = "unavailable";
+      throw error;
+    }
+    source.exec("ROLLBACK");
+    source.close();
+    source = null;
+    destination.close();
+    destination = null;
+    const { file } = await opfsFileHandle(path);
+    const access = await file.createSyncAccessHandle();
+    let byteLength;
+    try { byteLength = access.getSize(); } finally { access.close(); }
+    if (task.cancelled) {
+      const error = new Error("SQLite snapshot creation was cancelled");
+      error.code = "unavailable";
+      throw error;
+    }
+    if (!Number.isSafeInteger(byteLength) || byteLength <= 0) {
+      throw new Error("SQLite snapshot has an invalid file size");
+    }
+    const sessionId = crypto.randomUUID();
+    snapshotSessions.set(sessionId, {
+      clientId,
+      beginToken: task.beginToken,
+      path,
+      byteLength,
+      offset: 0,
+      readingStarted: false,
+      busy: false,
+      cancelRequested: false,
+    });
+    keep = true;
+    return { session_id: sessionId, byte_len: String(byteLength) };
+  } finally {
+    try { source?.close(); } catch (_) { /* Snapshot cleanup. */ }
+    try { destination?.close(); } catch (_) { /* Snapshot cleanup. */ }
+    if (!keep && path) {
+      try { await removeOpfsFile(path); } catch (_) { /* It may not have been created. */ }
+    }
+    if (maintenance === task) maintenance = null;
+  }
+}
+
+async function snapshotQuery(request, clientId) {
+  const session = ownedSession(snapshotSessions, request, clientId);
+  if (session.readingStarted || session.busy) {
+    const error = new Error("snapshot queries must run before chunk reads");
+    error.code = "invalid_request";
+    throw error;
+  }
+  session.busy = true;
+  let snapshot;
+  try {
+    snapshot = new sqlite3.oo1.OpfsWlDb(session.path, "c");
+    return query(request.query.statement, snapshot, true);
+  } finally {
+    try { snapshot?.close(); } catch (_) { /* Query cleanup. */ }
+    session.busy = false;
+  }
+}
+
+async function snapshotRead(request, clientId) {
+  const session = ownedSession(snapshotSessions, request, clientId);
+  const maxBytes = Number(request.max_bytes);
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 1024 * 1024) {
+    const error = new Error("snapshot chunk size must be within 1..=1048576 bytes");
+    error.code = "invalid_request";
+    throw error;
+  }
+  if (session.busy) throw busyError("the snapshot is already being read");
+  session.busy = true;
+  let access;
+  let done = false;
+  try {
+    session.readingStarted = true;
+    const { file } = await opfsFileHandle(session.path);
+    access = await file.createSyncAccessHandle();
+    const size = Math.min(maxBytes, session.byteLength - session.offset);
+    const bytes = new Uint8Array(size);
+    const read = access.read(bytes, { at: session.offset });
+    if (read !== size) throw new Error("OPFS returned a truncated SQLite snapshot chunk");
+    session.offset += read;
+    done = session.offset >= session.byteLength;
+    if (done) snapshotSessions.delete(request.session_id);
+    return { bytes, done };
+  } finally {
+    try { access?.close(); } finally {
+      session.busy = false;
+      if (done || session.cancelRequested) {
+        snapshotSessions.delete(request.session_id);
+        await removeOpfsFile(session.path);
+      }
+    }
+  }
+}
+
+async function cleanupSnapshot(sessionId, clientId) {
+  const session = snapshotSessions.get(sessionId);
+  if (!session || session.clientId !== clientId) return;
+  if (session.busy) {
+    session.cancelRequested = true;
+    return;
+  }
+  snapshotSessions.delete(sessionId);
+  await removeOpfsFile(session.path);
+}
+
+async function beginImport(clientId, request) {
+  if (activeTransaction || maintenance) throw busyError();
+  const sessionId = crypto.randomUUID();
+  const session = {
+    clientId,
+    beginToken: String(request.begin_token ?? ""),
+    path: temporaryFilePath(),
+    offset: 0,
+    busy: true,
+    cancelRequested: false,
+  };
+  importSessions.set(sessionId, session);
+  let access;
+  let success = false;
+  try {
+    await ensureTemporaryDirectory();
+    if (session.cancelRequested) throw sessionError("SQLite import creation was cancelled");
+    const { file } = await opfsFileHandle(session.path, true);
+    access = await file.createSyncAccessHandle();
+    if (session.cancelRequested) throw sessionError("SQLite import creation was cancelled");
+    access.truncate(0);
+    access.flush();
+    success = true;
+    return { session_id: sessionId };
+  } finally {
+    try { access?.close(); } finally {
+      session.busy = false;
+      if (!success || session.cancelRequested) {
+        importSessions.delete(sessionId);
+        try { await removeOpfsFile(session.path); } catch (_) { /* Partial creation cleanup. */ }
+      }
+    }
+  }
+}
+
+async function importWrite(request, clientId) {
+  const session = ownedSession(importSessions, request, clientId);
+  const bytes = request.bytes instanceof Uint8Array
+    ? request.bytes
+    : new Uint8Array(request.bytes || []);
+  if (bytes.length < 1 || bytes.length > 1024 * 1024) {
+    const error = new Error("import chunks must contain 1..=1048576 bytes");
+    error.code = "invalid_request";
+    throw error;
+  }
+  if (session.busy) throw busyError("the import session is already being written");
+  session.busy = true;
+  try {
+    const { file } = await opfsFileHandle(session.path);
+    const access = await file.createSyncAccessHandle();
+    let written;
+    try {
+      written = access.write(bytes, { at: session.offset });
+      access.flush();
+    } finally {
+      access.close();
+    }
+    if (written !== bytes.length) throw new Error("OPFS wrote a truncated SQLite import chunk");
+    session.offset += written;
+    return { bytes_written: written };
+  } finally {
+    session.busy = false;
+    if (session.cancelRequested) {
+      importSessions.delete(request.session_id);
+      await removeOpfsFile(session.path);
+    }
+  }
+}
+
+async function finishImport(request, clientId) {
+  const session = ownedSession(importSessions, request, clientId);
+  if (session.busy) throw busyError("the import session is busy");
+  if (session.offset <= 0) {
+    const error = new Error("an empty SQLite import cannot be staged");
+    error.code = "invalid_request";
+    throw error;
+  }
+  session.busy = true;
+  let staged;
+  try {
+    staged = new sqlite3.oo1.OpfsWlDb(session.path, "c");
+    verifyIntegrity(staged);
+    staged.close();
+    staged = null;
+    importSessions.delete(request.session_id);
+    stagedDatabases.set(request.session_id, {
+      clientId,
+      beginToken: session.beginToken,
+      path: session.path,
+      attached: new Set(),
+      cancelRequested: false,
+    });
+    return { session_id: request.session_id };
+  } catch (error) {
+    importSessions.delete(request.session_id);
+    try { await removeOpfsFile(session.path); } catch (_) { /* Preserve validation error. */ }
+    throw error;
+  } finally {
+    try { staged?.close(); } catch (_) { /* Import cleanup. */ }
+  }
+}
+
+async function cleanupImport(sessionId, clientId) {
+  const session = importSessions.get(sessionId);
+  if (!session || session.clientId !== clientId) return;
+  if (session.busy) {
+    session.cancelRequested = true;
+    return;
+  }
+  importSessions.delete(sessionId);
+  await removeOpfsFile(session.path);
+}
+
+async function stageQuery(request, clientId) {
+  const session = ownedSession(stagedDatabases, request, clientId);
+  let staged;
+  try {
+    staged = new sqlite3.oo1.OpfsWlDb(session.path, "c");
+    return query(request.query.statement, staged, true);
+  } finally {
+    try { staged?.close(); } catch (_) { /* Stage query cleanup. */ }
+  }
+}
+
+async function cleanupStage(sessionId, clientId) {
+  const session = stagedDatabases.get(sessionId);
+  if (!session || session.clientId !== clientId) return;
+  if (session.attached.size > 0 || maintenance?.stageId === sessionId) {
+    session.cancelRequested = true;
+    if (maintenance?.stageId === sessionId) maintenance.cancelled = true;
+    return;
+  }
+  stagedDatabases.delete(sessionId);
+  await removeOpfsFile(session.path);
+}
+
+async function installStage(request, clientId) {
+  const session = ownedSession(stagedDatabases, request, clientId);
+  if (activeTransaction || maintenance || session.attached.size > 0) throw busyError();
+  const task = maintenance = {
+    kind: "stage-install",
+    clientId,
+    stageId: request.session_id,
+    cancelled: false,
+  };
+  let staged;
+  try {
+    staged = new sqlite3.oo1.OpfsWlDb(session.path, "c");
+    const complete = await backupDatabase(staged, db, () => task.cancelled || session.cancelRequested);
+    if (!complete) {
+      const error = new Error("SQLite staged installation was cancelled");
+      error.code = "unavailable";
+      throw error;
+    }
+    staged.close();
+    staged = null;
+    stagedDatabases.delete(request.session_id);
+    await removeOpfsFile(session.path);
+    return null;
+  } finally {
+    try { staged?.close(); } catch (_) { /* Stage install cleanup. */ }
+    if (maintenance === task) maintenance = null;
+    if (session.cancelRequested && session.attached.size === 0) {
+      stagedDatabases.delete(request.session_id);
+      try { await removeOpfsFile(session.path); } catch (_) { /* May already be removed. */ }
+    }
+  }
+}
+
+async function cancelImportOrStage(sessionId, clientId) {
+  if (importSessions.has(sessionId)) return cleanupImport(sessionId, clientId);
+  return cleanupStage(sessionId, clientId);
+}
+
+async function cancelPendingSession(request, clientId) {
+  const token = String(request.begin_token ?? "");
+  if (!token) return;
+  if (maintenance?.clientId === clientId && maintenance.beginToken === token) {
+    maintenance.cancelled = true;
+    return;
+  }
+  for (const [sessionId, session] of snapshotSessions) {
+    if (session.clientId === clientId && session.beginToken === token) {
+      await cleanupSnapshot(sessionId, clientId);
+      return;
+    }
+  }
+  for (const [sessionId, session] of importSessions) {
+    if (session.clientId === clientId && session.beginToken === token) {
+      await cleanupImport(sessionId, clientId);
+      return;
+    }
+  }
+  for (const [sessionId, session] of stagedDatabases) {
+    if (session.clientId === clientId && session.beginToken === token) {
+      await cleanupStage(sessionId, clientId);
+      return;
+    }
   }
 }
 
@@ -398,6 +884,29 @@ function installAuthorizer(policy) {
 
 function authorizerDecision(action, first, second, database, trigger) {
   const capi = sqlite3.capi;
+  const schema = String(database ?? "").toLocaleLowerCase();
+  if (allowManagedAttach && (action === authorizerActions.Attach || action === authorizerActions.Detach)) {
+    return capi.SQLITE_OK;
+  }
+  if (action === authorizerActions.Attach && activeAttachedStagePaths.has(String(first ?? ""))) {
+    return capi.SQLITE_DENY;
+  }
+  if (activeReadOnlySchemas.size > 0 &&
+    (action === authorizerActions.Attach || action === authorizerActions.Detach)) {
+    return capi.SQLITE_DENY;
+  }
+  if (activeReadOnlySchemas.has(schema) && [
+    authorizerActions.CreateIndex, authorizerActions.CreateTable, authorizerActions.CreateTempIndex,
+    authorizerActions.CreateTempTable, authorizerActions.CreateTempTrigger, authorizerActions.CreateTempView,
+    authorizerActions.CreateTrigger, authorizerActions.CreateView, authorizerActions.Delete,
+    authorizerActions.DropIndex, authorizerActions.DropTable, authorizerActions.DropTempIndex,
+    authorizerActions.DropTempTable, authorizerActions.DropTempTrigger, authorizerActions.DropTempView,
+    authorizerActions.DropTrigger, authorizerActions.DropView, authorizerActions.Insert,
+    authorizerActions.Pragma, authorizerActions.Transaction, authorizerActions.Update,
+    authorizerActions.Detach, authorizerActions.AlterTable, authorizerActions.Reindex,
+    authorizerActions.Analyze, authorizerActions.CreateVtable, authorizerActions.DropVtable,
+    authorizerActions.Savepoint,
+  ].includes(action)) return capi.SQLITE_DENY;
   const policy = activeAuthorizerPolicy;
   if (!policy) return capi.SQLITE_OK;
   const rules = policy.rules || [];
@@ -455,7 +964,7 @@ function deleteSessions(transaction) {
   transaction.sessions.clear();
 }
 
-function clearTransaction(transaction, { rollback = false } = {}) {
+async function clearTransaction(transaction, { rollback = false } = {}) {
   if (!transaction || activeTransaction !== transaction) return;
   removeAuthorizer();
   removeOperationContext();
@@ -471,6 +980,72 @@ function clearTransaction(transaction, { rollback = false } = {}) {
     }
   }
   activeTransaction = null;
+  await detachAttachedStages(transaction);
+}
+
+async function detachAttachedStages(transaction) {
+  if (!transaction?.attachedStages?.size) return;
+  for (const [schema, stageId] of transaction.attachedStages) {
+    try {
+      await detachStagedAlias(transaction, schema, stageId);
+    } catch (_) {
+      // The worker will close the connection on shutdown; keep the stage alive
+      // until that happens rather than deleting a file SQLite may still own.
+      continue;
+    }
+  }
+}
+
+async function detachStagedAlias(transaction, schema, stageId) {
+  const stage = stagedDatabases.get(stageId);
+  allowManagedAttach = true;
+  try {
+    db.exec(`DETACH DATABASE "${schema}"`);
+  } finally {
+    allowManagedAttach = false;
+  }
+  activeReadOnlySchemas.delete(schema);
+  stage?.attached.delete(schema);
+  transaction.attachedStages.delete(schema);
+  if (stage?.attached.size === 0) activeAttachedStagePaths.delete(stage.path);
+  if (stage?.cancelRequested && stage.attached.size === 0) {
+    await cleanupStage(stageId, stage.clientId);
+  }
+}
+
+function currentlyAttachedStages() {
+  const attached = new Map();
+  for (const [stageId, stage] of stagedDatabases) {
+    for (const schema of stage.attached) attached.set(schema, stageId);
+  }
+  return attached;
+}
+
+function attachStagedDatabase(transaction, request) {
+  const stage = ownedSession(stagedDatabases, { session_id: request.stage_id }, transaction.clientId);
+  const alias = String(request.alias ?? "");
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(alias) || ["main", "temp"].includes(alias.toLowerCase())) {
+    const error = new Error("invalid staged database SQL alias");
+    error.code = "invalid_request";
+    throw error;
+  }
+  const schema = alias.toLowerCase();
+  if (transaction.attachedStages.has(schema)) {
+    const error = new Error("staged database alias is already attached");
+    error.code = "invalid_request";
+    throw error;
+  }
+  allowManagedAttach = true;
+  try {
+    db.exec({ sql: `ATTACH DATABASE ? AS "${alias}"`, bind: [stage.path] });
+  } finally {
+    allowManagedAttach = false;
+  }
+  transaction.attachedStages.set(schema, request.stage_id);
+  stage.attached.add(schema);
+  activeAttachedStagePaths.add(stage.path);
+  activeReadOnlySchemas.add(schema);
+  return null;
 }
 
 function transactionFor(clientId, request) {
@@ -493,7 +1068,7 @@ function transactionFor(clientId, request) {
   return transaction;
 }
 
-function beginTransaction(clientId, request) {
+async function beginTransaction(clientId, request) {
   if (activeTransaction) {
     const error = new Error("Another browser context currently owns a SQLite transaction.");
     error.code = "busy";
@@ -510,13 +1085,14 @@ function beginTransaction(clientId, request) {
     id: crypto.randomUUID(),
     clientId,
     sessions: new Map(),
+    attachedStages: currentlyAttachedStages(),
   };
   activeTransaction = transaction;
   try {
     registerOperationContext(request.operationContext);
     installAuthorizer(request.authorizerPolicy);
   } catch (error) {
-    clearTransaction(transaction, { rollback: true });
+    await clearTransaction(transaction, { rollback: true });
     throw error;
   }
   return { transaction_id: transaction.id };
@@ -621,7 +1197,7 @@ function applyChangeset(request) {
   }
 }
 
-function dispatchTransaction(operation, request, clientId) {
+async function dispatchTransaction(operation, request, clientId) {
   if (operation === "sql_tx_begin") return beginTransaction(clientId, request);
   const transaction = transactionFor(clientId, request);
   switch (operation) {
@@ -632,6 +1208,24 @@ function dispatchTransaction(operation, request, clientId) {
     case "sql_tx_session_capture":
       return { changeset: captureChangeset(transaction, request) };
     case "sql_tx_changeset_apply": return applyChangeset(request);
+    case "sql_tx_stage_attach": return attachStagedDatabase(transaction, request);
+    case "sql_tx_stage_detach": {
+      const alias = String(request.alias ?? "");
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(alias) || ["main", "temp"].includes(alias.toLowerCase())) {
+        const error = new Error("invalid staged database SQL alias");
+        error.code = "invalid_request";
+        throw error;
+      }
+      const schema = alias.toLowerCase();
+      const stageId = transaction.attachedStages.get(schema);
+      if (!stageId) {
+        const error = new Error("staged database alias is not attached to this transaction");
+        error.code = "invalid_request";
+        throw error;
+      }
+      await detachStagedAlias(transaction, schema, stageId);
+      return null;
+    }
     case "sql_tx_commit":
       removeAuthorizer();
       removeOperationContext();
@@ -643,17 +1237,49 @@ function dispatchTransaction(operation, request, clientId) {
         allowManagedTransactionControl = false;
       }
       activeTransaction = null;
+      await detachAttachedStages(transaction);
       return null;
     case "sql_tx_rollback":
-      clearTransaction(transaction, { rollback: true });
+      await clearTransaction(transaction, { rollback: true });
       return null;
     default: throw new Error(`unsupported SQLite transaction operation: ${operation}`);
   }
 }
 
-function dispatch(operation, request, clientId) {
+function cancellationOperation(operation) {
+  return operation === "sqlite_snapshot_cancel" ||
+    operation === "sqlite_import_cancel" ||
+    operation === "sqlite_stage_cancel" ||
+    operation === "sqlite_session_cancel_pending";
+}
+
+function independentSessionOperation(operation) {
+  return operation.startsWith("sqlite_snapshot_") ||
+    operation.startsWith("sqlite_import_") ||
+    operation === "sqlite_stage_query" ||
+    operation === "sqlite_stage_cancel";
+}
+
+async function dispatch(operation, request, clientId) {
+  if (maintenance && maintenance.kind !== "snapshot-begin" && !cancellationOperation(operation)) {
+    throw busyError();
+  }
+  switch (operation) {
+    case "sqlite_snapshot_begin": return beginSnapshot(clientId, request);
+    case "sqlite_snapshot_query": return snapshotQuery(request, clientId);
+    case "sqlite_snapshot_read": return snapshotRead(request, clientId);
+    case "sqlite_snapshot_cancel": return cleanupSnapshot(request.session_id, clientId);
+    case "sqlite_import_begin": return beginImport(clientId, request);
+    case "sqlite_import_write": return importWrite(request, clientId);
+    case "sqlite_import_finish_stage": return finishImport(request, clientId);
+    case "sqlite_import_cancel": return cancelImportOrStage(request.session_id, clientId);
+    case "sqlite_stage_query": return stageQuery(request, clientId);
+    case "sqlite_stage_install": return installStage(request, clientId);
+    case "sqlite_stage_cancel": return cleanupStage(request.session_id, clientId);
+    case "sqlite_session_cancel_pending": return cancelPendingSession(request, clientId);
+  }
   if (operation.startsWith("sql_tx_")) return dispatchTransaction(operation, request, clientId);
-  if (activeTransaction) {
+  if (activeTransaction && !independentSessionOperation(operation)) {
     const error = new Error("SQLite is busy with a transaction owned by another request.");
     error.code = "busy";
     throw error;
@@ -692,11 +1318,25 @@ function errorResponse(error) {
   };
 }
 
-function handleMessage(endpoint, data) {
+async function closeClient(clientId) {
+  if (maintenance?.clientId === clientId) maintenance.cancelled = true;
+  if (activeTransaction?.clientId === clientId) {
+    await clearTransaction(activeTransaction, { rollback: true });
+  }
+  for (const [sessionId, session] of snapshotSessions) {
+    if (session.clientId === clientId) await cleanupSnapshot(sessionId, clientId);
+  }
+  for (const [sessionId, session] of importSessions) {
+    if (session.clientId === clientId) await cleanupImport(sessionId, clientId);
+  }
+  for (const [sessionId, session] of stagedDatabases) {
+    if (session.clientId === clientId) await cleanupStage(sessionId, clientId);
+  }
+}
+
+async function handleMessage(endpoint, data) {
   if (data?.type === "client-closed") {
-    if (activeTransaction?.clientId === data.clientId) {
-      clearTransaction(activeTransaction, { rollback: true });
-    }
+    await closeClient(data.clientId);
     return;
   }
   let operation;
@@ -711,7 +1351,7 @@ function handleMessage(endpoint, data) {
     endpoint.postMessage({
       id: data.id,
       ok: true,
-      value: dispatch(operation, request, data.clientId),
+      value: await dispatch(operation, request, data.clientId),
     });
   } catch (error) {
     const transaction = activeTransaction;
@@ -719,7 +1359,7 @@ function handleMessage(endpoint, data) {
     const ownsFailedTransaction = isTransactionOperation &&
       operation !== "sql_tx_begin" && transaction?.clientId === data.clientId &&
       transaction?.id === request?.transaction_id;
-    if (ownsFailedTransaction) clearTransaction(transaction, { rollback: true });
+    if (ownsFailedTransaction) await clearTransaction(transaction, { rollback: true });
     endpoint.postMessage({ id: data.id, ok: false, ...errorResponse(error) });
   }
 }

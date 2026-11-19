@@ -1,8 +1,11 @@
 //! Browser regression fixture; see tests/web/index.html and the crate README.
 #[cfg(target_arch = "wasm32")]
 mod browser {
-    use fission_store::SqlErrorKind;
-    use fission_store_sqlite::{WebSqliteStore, WebSqliteTransactionOptions};
+    use fission_store::{SqlErrorKind, SqlQuery, SqlRows, SqlStatement, SqlStoreProvider};
+    use fission_store_sqlite::{
+        WebSqliteImport, WebSqliteSnapshot, WebSqliteStagedDatabase, WebSqliteStore,
+        WebSqliteTransactionOptions, MAX_WEB_SQLITE_STREAM_CHUNK_BYTES,
+    };
     use std::future::{poll_fn, Future};
     use std::task::Poll;
     use wasm_bindgen::prelude::*;
@@ -24,6 +27,74 @@ mod browser {
 
     fn failure(error: impl std::fmt::Display) -> JsValue {
         JsValue::from_str(&error.to_string())
+    }
+
+    async fn read_label(staged: &WebSqliteStagedDatabase, expected: &str) -> Result<(), JsValue> {
+        let rows = staged
+            .query(SqlStatement::new("SELECT label FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let label: String = rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("snapshot row is missing"))?
+            .get("label")
+            .map_err(failure)?;
+        if label != expected {
+            return Err(JsValue::from_str(&format!(
+                "snapshot label was {label}, expected {expected}"
+            )));
+        }
+        Ok(())
+    }
+
+    async fn check_no_attached_alias(store: &WebSqliteStore) -> Result<(), JsValue> {
+        let rows = store
+            .query(SqlStatement::new("PRAGMA database_list").into())
+            .await
+            .map_err(failure)?;
+        for row in rows.rows {
+            let name: String = row.get("name").map_err(failure)?;
+            if name == "incoming" {
+                return Err(JsValue::from_str("staged database remained attached"));
+            }
+        }
+        Ok(())
+    }
+
+    async fn stream_snapshot(
+        snapshot: &mut WebSqliteSnapshot,
+        import: &mut WebSqliteImport,
+    ) -> Result<u64, JsValue> {
+        let expected_bytes = snapshot.byte_len();
+        let mut copied = 0u64;
+        while let Some(chunk) = snapshot
+            .read_chunk(MAX_WEB_SQLITE_STREAM_CHUNK_BYTES)
+            .await
+            .map_err(failure)?
+        {
+            if chunk.is_empty() || chunk.len() > MAX_WEB_SQLITE_STREAM_CHUNK_BYTES {
+                return Err(JsValue::from_str("snapshot chunk exceeded its bound"));
+            }
+            import.write_chunk(&chunk).await.map_err(failure)?;
+            copied += chunk.len() as u64;
+        }
+        if copied != expected_bytes {
+            return Err(JsValue::from_str(&format!(
+                "snapshot transferred {copied} bytes, expected {expected_bytes}"
+            )));
+        }
+        Ok(copied)
+    }
+
+    async fn create_stage_from_snapshot(
+        source: &WebSqliteStore,
+        target: &WebSqliteStore,
+    ) -> Result<WebSqliteStagedDatabase, JsValue> {
+        let mut snapshot = source.begin_snapshot().await.map_err(failure)?;
+        let mut import = target.begin_import().await.map_err(failure)?;
+        stream_snapshot(&mut snapshot, &mut import).await?;
+        import.finish_stage().await.map_err(failure)
     }
 
     #[wasm_bindgen]
@@ -66,5 +137,202 @@ mod browser {
             }
         }
         store.close().map_err(failure)
+    }
+
+    #[wasm_bindgen]
+    pub async fn check_portable_snapshot() -> Result<(), JsValue> {
+        let source = WebSqliteStore::open_database("portable-snapshot-source-regression")
+            .map_err(failure)?;
+        let target = WebSqliteStore::open_database("portable-snapshot-target-regression")
+            .map_err(failure)?;
+        source
+            .execute(SqlStatement::new(
+                "CREATE TABLE IF NOT EXISTS snapshot_fixture(id INTEGER PRIMARY KEY, label TEXT NOT NULL, payload BLOB NOT NULL)",
+            ))
+            .await
+            .map_err(failure)?;
+        target
+            .execute(SqlStatement::new(
+                "CREATE TABLE IF NOT EXISTS snapshot_fixture(id INTEGER PRIMARY KEY, label TEXT NOT NULL, payload BLOB NOT NULL)",
+            ))
+            .await
+            .map_err(failure)?;
+        source
+            .execute(SqlStatement::new("DELETE FROM snapshot_fixture"))
+            .await
+            .map_err(failure)?;
+        target
+            .execute(SqlStatement::new("DELETE FROM snapshot_fixture"))
+            .await
+            .map_err(failure)?;
+
+        let abandoned = source.begin_snapshot().await.map_err(failure)?;
+        drop(abandoned);
+        browser_turn().await?;
+        let mut cancelled = source.begin_snapshot().await.map_err(failure)?;
+        cancelled.cancel().await.map_err(failure)?;
+
+        let mut invalid_import = target.begin_import().await.map_err(failure)?;
+        match invalid_import.write_chunk(&[]).await {
+            Err(error) if error.kind == SqlErrorKind::InvalidParameter => {}
+            Err(error) => return Err(failure(error)),
+            Ok(_) => return Err(JsValue::from_str("empty import chunk was accepted")),
+        }
+        invalid_import
+            .write_chunk(b"not a SQLite database")
+            .await
+            .map_err(failure)?;
+        if invalid_import.finish_stage().await.is_ok() {
+            return Err(JsValue::from_str(
+                "invalid SQLite image passed stage validation",
+            ));
+        }
+        invalid_import.cancel().await.map_err(failure)?;
+
+        let payload_len = 2 * 1024 * 1024 + 37;
+        source
+            .execute(
+                SqlStatement::new(
+                    "INSERT INTO snapshot_fixture(id,label,payload) VALUES(1,'before',zeroblob(?1))",
+                )
+                .bind(payload_len as i64),
+            )
+            .await
+            .map_err(failure)?;
+
+        let mut snapshot = source.begin_snapshot().await.map_err(failure)?;
+        let manifest_rows = snapshot
+            .query(SqlStatement::new("SELECT label,length(payload) AS payload_bytes FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let manifest_label: String = manifest_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("snapshot manifest row is missing"))?
+            .get("label")
+            .map_err(failure)?;
+        let stored_payload_bytes: i64 = manifest_rows.rows[0]
+            .get("payload_bytes")
+            .map_err(failure)?;
+        if manifest_label != "before" || stored_payload_bytes != payload_len as i64 {
+            return Err(JsValue::from_str(
+                "snapshot manifest did not match the seeded row",
+            ));
+        }
+
+        let mut import = target.begin_import().await.map_err(failure)?;
+        let first_chunk = snapshot
+            .read_chunk(64 * 1024)
+            .await
+            .map_err(failure)?
+            .ok_or_else(|| JsValue::from_str("snapshot was unexpectedly empty"))?;
+        import.write_chunk(&first_chunk).await.map_err(failure)?;
+
+        // Change the live database after export has started. The subsequent
+        // chunks must still describe the immutable image queried above.
+        let mut live_edit = source
+            .begin_transaction(WebSqliteTransactionOptions::default())
+            .await
+            .map_err(failure)?;
+        live_edit
+            .execute(SqlStatement::new(
+                "UPDATE snapshot_fixture SET label='after' WHERE id=1",
+            ))
+            .await
+            .map_err(failure)?;
+        live_edit.commit().await.map_err(failure)?;
+        stream_snapshot(&mut snapshot, &mut import).await?;
+
+        let staged = import.finish_stage().await.map_err(failure)?;
+        read_label(&staged, "before").await?;
+        match staged
+            .query(SqlStatement::new("UPDATE snapshot_fixture SET label='invalid'").into())
+            .await
+        {
+            Err(error) if error.kind == SqlErrorKind::ReadOnly => {}
+            Err(error) => return Err(failure(error)),
+            Ok(_) => return Err(JsValue::from_str("staged database accepted a write query")),
+        }
+
+        let mut copy = target
+            .begin_transaction(WebSqliteTransactionOptions::default())
+            .await
+            .map_err(failure)?;
+        copy.attach_staged_database(&staged, "incoming")
+            .await
+            .map_err(failure)?;
+        copy.execute(SqlStatement::new(
+            "INSERT INTO main.snapshot_fixture SELECT id,label,payload FROM incoming.snapshot_fixture",
+        ))
+        .await
+        .map_err(failure)?;
+        copy.commit().await.map_err(failure)?;
+        check_no_attached_alias(&target).await?;
+        read_label(&staged, "before").await?;
+
+        let mut explicit_detach = target
+            .begin_transaction(WebSqliteTransactionOptions::default())
+            .await
+            .map_err(failure)?;
+        explicit_detach
+            .attach_staged_database(&staged, "incoming")
+            .await
+            .map_err(failure)?;
+        explicit_detach
+            .detach_staged_database("incoming")
+            .await
+            .map_err(failure)?;
+        explicit_detach.rollback().await.map_err(failure)?;
+        check_no_attached_alias(&target).await?;
+
+        let mut rollback_cleanup = target
+            .begin_transaction(WebSqliteTransactionOptions::default())
+            .await
+            .map_err(failure)?;
+        rollback_cleanup
+            .attach_staged_database(&staged, "incoming")
+            .await
+            .map_err(failure)?;
+        let mut staged_for_rollback = staged;
+        staged_for_rollback.cancel().await.map_err(failure)?;
+        rollback_cleanup.rollback().await.map_err(failure)?;
+        check_no_attached_alias(&target).await?;
+
+        let mut second = create_stage_from_snapshot(&source, &target).await?;
+        let mut commit_cleanup = target
+            .begin_transaction(WebSqliteTransactionOptions::default())
+            .await
+            .map_err(failure)?;
+        commit_cleanup
+            .attach_staged_database(&second, "incoming")
+            .await
+            .map_err(failure)?;
+        second.cancel().await.map_err(failure)?;
+        commit_cleanup.commit().await.map_err(failure)?;
+        check_no_attached_alias(&target).await?;
+
+        target.close().map_err(failure)?;
+        let reopened = WebSqliteStore::open_database("portable-snapshot-target-regression")
+            .map_err(failure)?;
+        let rows: SqlRows = reopened
+            .query(SqlQuery::from(SqlStatement::new(
+                "SELECT label,length(payload) AS payload_bytes FROM snapshot_fixture WHERE id=1",
+            )))
+            .await
+            .map_err(failure)?;
+        let label: String = rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("copied database row is missing after reopen"))?
+            .get("label")
+            .map_err(failure)?;
+        let copied_bytes: i64 = rows.rows[0].get("payload_bytes").map_err(failure)?;
+        if label != "before" || copied_bytes != payload_len as i64 {
+            return Err(JsValue::from_str(
+                "copied row did not survive database reopen",
+            ));
+        }
+        reopened.close().map_err(failure)?;
+        source.close().map_err(failure)
     }
 }

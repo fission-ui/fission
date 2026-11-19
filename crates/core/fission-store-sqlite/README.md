@@ -54,6 +54,29 @@ a borrower may reuse another context's existing worker. Remote rollback is
 asynchronous, so competing requests may briefly return `Busy` whilst the owner
 processes the disconnect.
 
+### Bounded Web database snapshots
+
+`begin_snapshot()` uses SQLite's Online Backup API to build a consistent,
+immutable copy in a private OPFS file. It closes the source and copy handles
+before returning, so external file transfer does not hold the live database
+connection. Query the immutable image before `read_chunk()` when its metadata
+must describe the exact exported bytes. Reads are capped at
+`MAX_WEB_SQLITE_STREAM_CHUNK_BYTES` (1 MiB), and the Rust/JavaScript bridge
+uses typed `Uint8Array` chunks rather than per-byte JavaScript arrays.
+
+For import, call `begin_import()`, write chunks in order, then call
+`finish_stage()`. The worker validates SQLite integrity and returns a read-only
+`WebSqliteStagedDatabase`; it does not replace the target before app-level
+validation. PersonalDB can query identity/schema/log metadata from that stage,
+then attach it to a target `WebSqliteTransaction` and use `INSERT ... SELECT`
+for a transactional restore without returning large BLOBs to Rust. Attached
+stages reject writes and detach automatically at commit or rollback; explicit
+detach is also available. `install_into_target()` performs a whole-database
+replacement and is intended only for a new or intentionally replaced named
+database after application checks. Cancel or drop an unfinished session to
+remove its temporary OPFS file. If a worker is terminated, startup cleanup
+prunes only that named database's private staging directory.
+
 ### Worker-owned Web transactions
 
 For browser runtimes that need to keep one SQLite transaction open across
@@ -138,12 +161,15 @@ Run the browser-transport regressions without compiling an application:
 
 ```sh
 node --experimental-vm-modules --test \
-  crates/core/fission-store-sqlite/tests/web/bridge-lifetime.test.mjs
+  crates/core/fission-store-sqlite/tests/web/bridge-lifetime.test.mjs \
+  crates/core/fission-store-sqlite/tests/web/bridge-session-cleanup.test.mjs
 ```
 
 These tests execute the actual bridge and worker modules with in-memory browser
 transports and SQLite primitives. They cover close/disconnect ordering and
-authorizer dispatch, not OPFS durability or the SQLite engine itself.
+authorizer dispatch, not OPFS durability or the SQLite engine itself. The real
+Chromium fixture also exercises snapshot streaming, staged read-only queries,
+transactional `INSERT ... SELECT`, cancellation, and reopen behavior.
 
 The real Chromium fixture also exercises Rust cancellation. From the workspace
 root, with `CARGO_TARGET_DIR` set to the configured shared project target, build
