@@ -629,7 +629,7 @@ async function cleanupStage(sessionId, clientId) {
   await removeOpfsFile(session.path);
 }
 
-async function installStage(request, clientId) {
+async function installStage(request, clientId, { requireEmpty = false } = {}) {
   const session = ownedSession(stagedDatabases, request, clientId);
   if (activeTransaction || maintenance || session.attached.size > 0) throw busyError();
   const task = maintenance = {
@@ -640,6 +640,20 @@ async function installStage(request, clientId) {
   };
   let staged;
   try {
+    if (requireEmpty) {
+      const count = Number(db.selectValue(`
+        SELECT
+          (SELECT count(*) FROM main.sqlite_schema
+           WHERE substr(name, 1, 7) <> 'sqlite_'
+             AND NOT (type='table' AND name='fission'))
+          + (SELECT count(*) FROM main.fission)
+      `));
+      if (!Number.isSafeInteger(count) || count !== 0) {
+        const error = new Error("target Web SQLite database is not empty");
+        error.resultCode = sqlite3.capi.SQLITE_CONSTRAINT;
+        throw error;
+      }
+    }
     staged = new sqlite3.oo1.OpfsWlDb(session.path, "c");
     const complete = await backupDatabase(staged, db, () => task.cancelled || session.cancelRequested);
     if (!complete) {
@@ -1275,6 +1289,7 @@ async function dispatch(operation, request, clientId) {
     case "sqlite_import_cancel": return cancelImportOrStage(request.session_id, clientId);
     case "sqlite_stage_query": return stageQuery(request, clientId);
     case "sqlite_stage_install": return installStage(request, clientId);
+    case "sqlite_stage_install_empty": return installStage(request, clientId, { requireEmpty: true });
     case "sqlite_stage_cancel": return cleanupStage(request.session_id, clientId);
     case "sqlite_session_cancel_pending": return cancelPendingSession(request, clientId);
   }

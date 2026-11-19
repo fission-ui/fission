@@ -311,6 +311,111 @@ mod browser {
         commit_cleanup.commit().await.map_err(failure)?;
         check_no_attached_alias(&target).await?;
 
+        let fresh_target =
+            WebSqliteStore::open_database("portable-snapshot-empty-install-regression")
+                .map_err(failure)?;
+        fresh_target
+            .execute(SqlStatement::new(
+                "DROP TABLE IF EXISTS install_race_fixture",
+            ))
+            .await
+            .map_err(failure)?;
+        fresh_target
+            .execute(SqlStatement::new("DROP TABLE IF EXISTS snapshot_fixture"))
+            .await
+            .map_err(failure)?;
+        let mut race_snapshot = source.begin_snapshot().await.map_err(failure)?;
+        let mut race_import = fresh_target.begin_import().await.map_err(failure)?;
+        let first_race_chunk = race_snapshot
+            .read_chunk(64 * 1024)
+            .await
+            .map_err(failure)?
+            .ok_or_else(|| JsValue::from_str("race snapshot was unexpectedly empty"))?;
+        race_import
+            .write_chunk(&first_race_chunk)
+            .await
+            .map_err(failure)?;
+
+        // A second tab may create this named workspace while file transfer is
+        // in progress. Empty-install must check again at install time.
+        fresh_target
+            .execute(SqlStatement::new(
+                "CREATE TABLE install_race_fixture(id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
+            ))
+            .await
+            .map_err(failure)?;
+        fresh_target
+            .execute(SqlStatement::new(
+                "INSERT INTO install_race_fixture(id,value) VALUES(1,'created during transfer')",
+            ))
+            .await
+            .map_err(failure)?;
+        stream_snapshot(&mut race_snapshot, &mut race_import).await?;
+        let mut race_stage = race_import.finish_stage().await.map_err(failure)?;
+        match race_stage.install_into_empty_target().await {
+            Err(error) if error.kind == SqlErrorKind::Constraint => {}
+            Err(error) => return Err(failure(error)),
+            Ok(()) => {
+                return Err(JsValue::from_str(
+                    "empty-target install overwrote a workspace created during transfer",
+                ))
+            }
+        }
+        let race_rows = fresh_target
+            .query(SqlStatement::new("SELECT value FROM install_race_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let race_value: String = race_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("concurrent workspace write was lost"))?
+            .get("value")
+            .map_err(failure)?;
+        if race_value != "created during transfer" {
+            return Err(JsValue::from_str("concurrent workspace row changed"));
+        }
+        fresh_target
+            .execute(SqlStatement::new("DROP TABLE install_race_fixture"))
+            .await
+            .map_err(failure)?;
+        race_stage
+            .install_into_empty_target()
+            .await
+            .map_err(failure)?;
+        let installed_rows = fresh_target
+            .query(SqlStatement::new("SELECT label FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let installed_label: String = installed_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("empty-target install did not install the snapshot"))?
+            .get("label")
+            .map_err(failure)?;
+        if installed_label != "after" {
+            return Err(JsValue::from_str(
+                "empty-target install has an unexpected snapshot",
+            ));
+        }
+        fresh_target.close().map_err(failure)?;
+        let reopened_fresh =
+            WebSqliteStore::open_database("portable-snapshot-empty-install-regression")
+                .map_err(failure)?;
+        let reopened_rows = reopened_fresh
+            .query(SqlStatement::new("SELECT label FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let reopened_label: String = reopened_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("installed snapshot was lost after reopen"))?
+            .get("label")
+            .map_err(failure)?;
+        if reopened_label != "after" {
+            return Err(JsValue::from_str("reopened snapshot row changed"));
+        }
+        reopened_fresh.close().map_err(failure)?;
+
         target.close().map_err(failure)?;
         let reopened = WebSqliteStore::open_database("portable-snapshot-target-regression")
             .map_err(failure)?;

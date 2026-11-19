@@ -71,9 +71,12 @@ validation. PersonalDB can query identity/schema/log metadata from that stage,
 then attach it to a target `WebSqliteTransaction` and use `INSERT ... SELECT`
 for a transactional restore without returning large BLOBs to Rust. Attached
 stages reject writes and detach automatically at commit or rollback; explicit
-detach is also available. `install_into_target()` performs a whole-database
-replacement and is intended only for a new or intentionally replaced named
-database after application checks. Cancel or drop an unfinished session to
+detach is also available. For a new workspace, `install_into_empty_target()`
+checks `sqlite_schema` again under the worker's install lock, allowing only the
+Fission `fission` table and SQLite-owned objects, and requires that the Fission
+key/value table has no rows, before replacing the image.
+`install_into_target()` is an explicit whole-database replacement for callers
+that have chosen replacement semantics. Cancel or drop an unfinished session to
 remove its temporary OPFS file. If a worker is terminated, startup cleanup
 prunes only that named database's private staging directory.
 

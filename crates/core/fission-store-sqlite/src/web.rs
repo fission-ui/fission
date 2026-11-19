@@ -429,6 +429,30 @@ impl WebSqliteStagedDatabase {
         Ok(())
     }
 
+    /// Installs this image only if the named database is still empty when the
+    /// worker begins the atomic replacement. The Fission `fission` table and
+    /// SQLite-owned `sqlite_*` objects are permitted. This closes the race
+    /// between checking a new workspace and finishing a potentially long import.
+    pub async fn install_into_empty_target(&mut self) -> Result<(), SqlError> {
+        if self.closed {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database is closed",
+            ));
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_stage_install_empty",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed = true;
+        Ok(())
+    }
+
     pub async fn cancel(&mut self) -> Result<(), SqlError> {
         if self.closed {
             return Ok(());
