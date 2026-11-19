@@ -184,7 +184,7 @@ fn extensions_for_mime_type(mime_type: &str) -> impl Iterator<Item = &'static st
     .copied()
 }
 
-fn content_type_for_path(path: &Path) -> Option<&'static str> {
+pub(crate) fn content_type_for_path(path: &Path) -> Option<&'static str> {
     match path
         .extension()
         .and_then(|extension| extension.to_str())

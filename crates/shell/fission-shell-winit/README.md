@@ -150,6 +150,12 @@ an accessible security-scoped URL. Import reads use the coordinator's supplied
 URL and take a private snapshot while access is coordinated; consuming that
 snapshot does not keep an external document open.
 
+On sandboxed macOS, `PICK_OPEN_FILES` retains each `NSOpenPanel` URL and returns
+a bounded, single-consumer stream. The host activates the URL's security scope
+before opening the file and keeps it active until the stream is exhausted or
+dropped. Consumers should import selected database files into their own managed
+storage; the stream does not make the picked file a live SQLite connection.
+
 Android printing stages the PDF in the application's private cache, copies it
 to the system spooler on a bounded background writer, and honours cancellation
 during the copy. The original PDF is not rasterised. The adapter reports that
