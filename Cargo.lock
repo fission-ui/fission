@@ -2234,6 +2234,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "custom-title-bar"
+version = "0.16.0"
+dependencies = [
+ "anyhow",
+ "fission",
+ "serde_json",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3452,6 +3461,7 @@ dependencies = [
  "fission-widgets",
  "fission-winit",
  "fontique",
+ "futures-channel",
  "futures-core",
  "glam 0.29.3",
  "gstreamer",

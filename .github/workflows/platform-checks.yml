@@ -60,11 +60,23 @@ jobs:
             -p fission-physics-rapier2d \
             -p fission-physics-rapier3d
 
+      - name: Test desktop title bars and keyboard activation
+        run: |
+          cargo test --locked -p fission-core --lib \
+            --test window_drag_region --test button_focus_click \
+            --test button_recipe_motion --test button_loading \
+            --test control_recipe_fidelity --test focus_visible
+          cargo test --locked -p fission-shell-winit --lib window_controls::desktop::tests
+          cargo check --locked -p custom-title-bar
+
       - name: Test owned serving and readiness without canonicalisation
         run: cargo test --locked -p fission-command-site
 
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
+
+      - name: Test release tutorial examples and API parity
+        run: cargo test --locked -p compose-example --test release_post
 
   serving-windows:
     name: Windows owned serving paths

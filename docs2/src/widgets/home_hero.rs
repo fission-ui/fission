@@ -8,6 +8,7 @@ fission_component! {
         props {
             source: String,
             preview_url: String,
+            tutorial_url: String,
         }
     }
     view(_hero, _state, cx) {
@@ -80,15 +81,15 @@ fission_component! {
                                         identifier: Some("home-hero-preview".to_string()),
                                         child: Column(children: [
                                             Row(children: [
-                                                copy("site.brand"),
+                                                copy("home.demo_title"),
                                                 Spacer(flex_grow: 1.0),
-                                                Link::to(cx.view.env().tr("home.see_action"), _hero.preview_url.clone()),
+                                                Link::to(cx.view.env().tr("home.build_demo"), _hero.tutorial_url.clone()),
                                             ]),
                                             WebView(
-                                                id: WidgetId::explicit("home-live-task-workspace"),
+                                                id: WidgetId::explicit("home-live-whatsapp-clone"),
                                                 url: _hero.preview_url.clone(),
                                                 label: Some(cx.view.env().tr("home.demo_label")),
-                                                height: Some(312.0),
+                                                height: Some(460.0),
                                             ),
                                         ]),
                                     ),

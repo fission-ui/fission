@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Custom desktop title bars** - Opt out of native decorations with
+  `DesktopApp::with_decorations(false)`, compose a native `WindowDragRegion`,
+  and request minimize, maximize, restore or close through `WINDOW_CONTROL`.
+  Read the observed maximization state from `Env.window.maximized`. Interactive
+  descendants retain their configured minimum pointer targets.
+
+### Fixed
+
+- **Desktop title-bar input** - Preserve native navigation keys and literal
+  Space activation, keep button capture stable when the focus ring changes,
+  and avoid starting a window drag from a child control's expanded hit area.
+
 ## [0.16.0] - 2026-11-13
 
 ### Added

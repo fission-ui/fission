@@ -94,6 +94,13 @@ where
         self
     }
 
+    /// Keeps native decorations by default. Set `false` when providing a custom
+    /// title bar with [`fission_core::ui::WindowDragRegion`] and window controls.
+    pub fn with_decorations(mut self, decorations: bool) -> Self {
+        self.inner = self.inner.with_decorations(decorations);
+        self
+    }
+
     /// Opens the native live-test control listener on `port` in test builds.
     pub fn with_test_control_port(mut self, port: u16) -> Self {
         self.inner = self.inner.with_test_control_port(port);
