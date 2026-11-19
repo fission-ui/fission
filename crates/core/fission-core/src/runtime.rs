@@ -425,10 +425,16 @@ impl Runtime {
                 let replacement = (candidates.len() == 1)
                     .then(|| candidates.first().copied())
                     .flatten();
+                let next_anchor = match replacement {
+                    Some(replacement) => focus_semantic_anchor(ir, replacement),
+                    // Responsive alternatives may not expose a matching focus
+                    // target at this width. Keep the semantic identity so a
+                    // later layout can restore it when its branch is active.
+                    None => Some(anchor),
+                };
                 changed |=
                     self.set_focused_widget(ir, replacement, crate::TextEditSource::Programmatic)?;
-                self.focus_semantic_anchor =
-                    replacement.and_then(|replacement| focus_semantic_anchor(ir, replacement));
+                self.focus_semantic_anchor = next_anchor;
             }
         }
 
