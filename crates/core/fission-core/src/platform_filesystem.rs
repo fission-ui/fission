@@ -184,7 +184,7 @@ pub struct WritableFileHandle {
     pub permission: FileSystemPermission,
 }
 
-/// Runtime-owned identity for a browser-selected writable file.
+/// Runtime-owned identity for a selected writable file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WritableFileHandleId(pub u64);
 
