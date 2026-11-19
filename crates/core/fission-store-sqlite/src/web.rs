@@ -1,5 +1,7 @@
 //! Browser SQLite provider backed by the official SQLite WASM OPFS VFS.
 
+use std::cell::Cell;
+
 use fission_store::{
     SqlError, SqlErrorKind, SqlExecuteResult, SqlMigrationResult, SqlMigrations, SqlQuery, SqlRows,
     SqlStatement, SqlStoreProvider, SqlTransaction, SqlTransactionResult, StoreBatch,
@@ -342,7 +344,7 @@ impl WebSqliteImport {
         Ok(WebSqliteStagedDatabase {
             database_name: self.database_name.clone(),
             session_id: result.session_id,
-            closed: false,
+            closed: Cell::new(false),
         })
     }
 
@@ -381,13 +383,13 @@ impl Drop for WebSqliteImport {
 pub struct WebSqliteStagedDatabase {
     database_name: Option<String>,
     session_id: String,
-    closed: bool,
+    closed: Cell<bool>,
 }
 
 impl WebSqliteStagedDatabase {
     /// Queries the imported file without changing it.
     pub async fn query(&self, query: SqlQuery) -> Result<SqlRows, SqlError> {
-        if self.closed {
+        if self.closed.get() {
             return Err(SqlError::new(
                 SqlErrorKind::InvalidParameter,
                 "Web SQLite staged database is closed",
@@ -409,8 +411,8 @@ impl WebSqliteStagedDatabase {
     /// Use only after application-level identity and schema validation. Existing
     /// PersonalDB workspaces should instead attach the stage to their own restore
     /// transaction and preserve PersonalDB's identity and restore rules.
-    pub async fn install_into_target(&mut self) -> Result<(), SqlError> {
-        if self.closed {
+    pub async fn install_into_target(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
             return Err(SqlError::new(
                 SqlErrorKind::InvalidParameter,
                 "Web SQLite staged database is closed",
@@ -425,7 +427,7 @@ impl WebSqliteStagedDatabase {
         )
         .await
         .map_err(sql_error)?;
-        self.closed = true;
+        self.closed.set(true);
         Ok(())
     }
 
@@ -433,8 +435,11 @@ impl WebSqliteStagedDatabase {
     /// worker begins the atomic replacement. The Fission `fission` table and
     /// SQLite-owned `sqlite_*` objects are permitted. This closes the race
     /// between checking a new workspace and finishing a potentially long import.
-    pub async fn install_into_empty_target(&mut self) -> Result<(), SqlError> {
-        if self.closed {
+    /// If cancelled before SQLite finishes the backup, `sqlite3_backup_finish`
+    /// rolls back the destination transaction. A backup-finish error is returned
+    /// because SQLite may not have been able to complete that rollback.
+    pub async fn install_into_empty_target(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
             return Err(SqlError::new(
                 SqlErrorKind::InvalidParameter,
                 "Web SQLite staged database is closed",
@@ -449,12 +454,15 @@ impl WebSqliteStagedDatabase {
         )
         .await
         .map_err(sql_error)?;
-        self.closed = true;
+        self.closed.set(true);
         Ok(())
     }
 
-    pub async fn cancel(&mut self) -> Result<(), SqlError> {
-        if self.closed {
+    /// Cancels this staged image, including an install currently in progress.
+    /// The install future then completes with an error after SQLite rolls back
+    /// its incomplete destination backup.
+    pub async fn cancel(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
             return Ok(());
         }
         request::<_, ()>(
@@ -466,14 +474,14 @@ impl WebSqliteStagedDatabase {
         )
         .await
         .map_err(sql_error)?;
-        self.closed = true;
+        self.closed.set(true);
         Ok(())
     }
 }
 
 impl Drop for WebSqliteStagedDatabase {
     fn drop(&mut self) {
-        if self.closed {
+        if self.closed.get() {
             return;
         }
         spawn_session_cancel(
@@ -778,7 +786,7 @@ impl WebSqliteTransaction {
         alias: impl Into<String>,
     ) -> Result<(), SqlError> {
         self.ensure_open()?;
-        if staged.closed || self.database_name != staged.database_name {
+        if staged.closed.get() || self.database_name != staged.database_name {
             return Err(SqlError::new(
                 SqlErrorKind::InvalidParameter,
                 "staged database must be open in the same named Web SQLite store",

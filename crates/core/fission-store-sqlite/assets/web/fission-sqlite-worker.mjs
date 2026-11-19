@@ -329,7 +329,10 @@ async function backupDatabase(source, destination, shouldCancel = () => false) {
     }
   } finally {
     const result = capi.sqlite3_backup_finish(backup);
-    if (completed && result !== capi.SQLITE_OK) throw backupError(destination, result, "backup finish");
+    // SQLite rolls back the destination write transaction when finish runs
+    // before SQLITE_DONE. Surface finish errors too: they can report a failed
+    // rollback or a prior backup-step I/O failure.
+    if (result !== capi.SQLITE_OK) throw backupError(destination, result, "backup finish");
   }
   return completed;
 }

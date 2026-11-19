@@ -416,6 +416,115 @@ mod browser {
         }
         reopened_fresh.close().map_err(failure)?;
 
+        let cancel_target =
+            WebSqliteStore::open_database("portable-snapshot-cancel-install-regression")
+                .map_err(failure)?;
+        cancel_target
+            .execute(SqlStatement::new("DROP TABLE IF EXISTS snapshot_fixture"))
+            .await
+            .map_err(failure)?;
+        cancel_target
+            .execute(SqlStatement::new("DELETE FROM fission"))
+            .await
+            .map_err(failure)?;
+        let cancel_stage = create_stage_from_snapshot(&source, &cancel_target).await?;
+        let mut pending_install = Box::pin(cancel_stage.install_into_empty_target());
+        poll_fn(|cx| match pending_install.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(Ok(())),
+            Poll::Ready(_) => Poll::Ready(Err(JsValue::from_str(
+                "large staged install completed before cancellation could be tested",
+            ))),
+        })
+        .await?;
+
+        // A normal SQL request is rejected only after install has acquired the
+        // worker maintenance lock and yielded from a backup step. Cancel then
+        // exercises sqlite3_backup_finish before SQLITE_DONE.
+        match cancel_target
+            .query(SqlStatement::new("SELECT 1").into())
+            .await
+        {
+            Err(error) if error.kind == SqlErrorKind::Busy => {}
+            Err(error) => return Err(failure(error)),
+            Ok(_) => {
+                return Err(JsValue::from_str(
+                    "staged install did not enter maintenance before the cancellation check",
+                ))
+            }
+        }
+        cancel_stage.cancel().await.map_err(failure)?;
+        match pending_install.await {
+            Err(error) if error.kind == SqlErrorKind::Unavailable => {}
+            Err(error) => return Err(failure(error)),
+            Ok(()) => {
+                return Err(JsValue::from_str(
+                    "cancelled install unexpectedly succeeded",
+                ))
+            }
+        }
+
+        let remaining = cancel_target
+            .query(
+                SqlStatement::new(
+                    "SELECT (SELECT count(*) FROM main.sqlite_schema WHERE substr(name,1,7)<>'sqlite_' AND NOT(type='table' AND name='fission')) + (SELECT count(*) FROM main.fission) AS remaining",
+                )
+                .into(),
+            )
+            .await
+            .map_err(failure)?;
+        let remaining_count: i64 = remaining
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("cancelled install did not return target state"))?
+            .get("remaining")
+            .map_err(failure)?;
+        if remaining_count != 0 {
+            return Err(JsValue::from_str(
+                "cancelled install left a partial database in its target",
+            ));
+        }
+
+        let retry_stage = create_stage_from_snapshot(&source, &cancel_target).await?;
+        retry_stage
+            .install_into_empty_target()
+            .await
+            .map_err(failure)?;
+        let retry_live_rows = cancel_target
+            .query(SqlStatement::new("SELECT label FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let retry_live_label: String = retry_live_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("retry install did not install its snapshot"))?
+            .get("label")
+            .map_err(failure)?;
+        if retry_live_label != "after" {
+            return Err(JsValue::from_str(
+                "retry install has an unexpected snapshot",
+            ));
+        }
+        cancel_target.close().map_err(failure)?;
+        let reopened_cancel_target =
+            WebSqliteStore::open_database("portable-snapshot-cancel-install-regression")
+                .map_err(failure)?;
+        let retry_rows = reopened_cancel_target
+            .query(SqlStatement::new("SELECT label FROM snapshot_fixture WHERE id=1").into())
+            .await
+            .map_err(failure)?;
+        let retry_label: String = retry_rows
+            .rows
+            .first()
+            .ok_or_else(|| JsValue::from_str("retry install did not persist its snapshot"))?
+            .get("label")
+            .map_err(failure)?;
+        if retry_label != "after" {
+            return Err(JsValue::from_str(
+                "retry install persisted an unexpected snapshot",
+            ));
+        }
+        reopened_cancel_target.close().map_err(failure)?;
+
         target.close().map_err(failure)?;
         let reopened = WebSqliteStore::open_database("portable-snapshot-target-regression")
             .map_err(failure)?;

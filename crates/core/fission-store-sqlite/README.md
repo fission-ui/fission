@@ -76,9 +76,13 @@ checks `sqlite_schema` again under the worker's install lock, allowing only the
 Fission `fission` table and SQLite-owned objects, and requires that the Fission
 key/value table has no rows, before replacing the image.
 `install_into_target()` is an explicit whole-database replacement for callers
-that have chosen replacement semantics. Cancel or drop an unfinished session to
-remove its temporary OPFS file. If a worker is terminated, startup cleanup
-prunes only that named database's private staging directory.
+that have chosen replacement semantics. A staged install can be cancelled while
+it is running. If SQLite has not completed the backup, `sqlite3_backup_finish`
+rolls back its destination transaction; Fission reports a finish error if that
+rollback fails. A cancelled stage is removed, so retry with a newly transferred
+stage. Dropping an unfinished session removes its temporary OPFS file. If a
+worker is terminated, startup cleanup prunes only that named database's private
+staging directory.
 
 ### Worker-owned Web transactions
 
