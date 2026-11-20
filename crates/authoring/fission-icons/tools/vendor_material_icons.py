@@ -42,6 +42,8 @@ def main() -> int:
     out_root = Path(args.out)
     unique_dir = out_root / "unique"
     index_path = out_root / "index.json"
+    packed_path = out_root / "material-icons.bin"
+    offsets_path = out_root / "offsets.json"
 
     if not src_root.exists():
         print(f"Source path not found: {src_root}", file=sys.stderr)
@@ -86,8 +88,26 @@ def main() -> int:
         json.dump(icons, f, indent=2, sort_keys=True)
         f.write("\n")
 
+    offsets: dict[str, list[int]] = {}
+    offset = 0
+    with packed_path.open("wb") as packed_file:
+        for svg_path in sorted(unique_dir.glob("*.svg"), key=lambda path: path.stem):
+            data = svg_path.read_bytes()
+            digest = svg_path.stem
+            if hash_bytes(data) != digest:
+                print(f"Unexpected content hash for {svg_path}", file=sys.stderr)
+                return 1
+            offsets[digest] = [offset, len(data)]
+            packed_file.write(data)
+            offset += len(data)
+
+    with offsets_path.open("w", encoding="utf-8") as f:
+        json.dump(offsets, f, indent=2, sort_keys=True)
+        f.write("\n")
+
     print(f"Indexed {total_count} icons; wrote {unique_count} unique SVGs.")
     print(f"Wrote {index_path}")
+    print(f"Wrote {packed_path} and {offsets_path}")
     return 0
 
 

@@ -7,10 +7,12 @@ use walkdir::WalkDir;
 
 // Structure: Category -> IconName -> Variant -> Path (relative to crate root)
 type IconMap = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
+type IconOffsets = BTreeMap<String, [usize; 2]>;
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("material_icons.rs");
+    let generated_asset_path = Path::new(&out_dir).join("material_icons.bin");
     println!("cargo:rerun-if-env-changed=FISSION_MATERIAL_ICONS_DIR");
 
     // CARGO_MANIFEST_DIR points to crates/authoring/fission-icons
@@ -26,13 +28,23 @@ fn main() {
         .map(PathBuf::from)
         .filter(|p| p.exists());
 
+    let mut vendor_bundle = None;
     let icons = if let Some(root) = override_root {
         println!("cargo:rerun-if-changed={}", root.display());
         scan_icons_root(&root, manifest_dir)
     } else if vendor_index.exists() {
         println!("cargo:rerun-if-changed=material-icons-vendor/index.json");
         match load_icons_index(&vendor_index) {
-            Ok(map) => map,
+            Ok(map) => {
+                let packed_asset = vendor_root.join("material-icons.bin");
+                let offsets_path = vendor_root.join("offsets.json");
+                if packed_asset.is_file() && offsets_path.is_file() {
+                    println!("cargo:rerun-if-changed={}", packed_asset.display());
+                    println!("cargo:rerun-if-changed={}", offsets_path.display());
+                    vendor_bundle = Some((packed_asset, offsets_path));
+                }
+                map
+            }
             Err(err) => {
                 println!("cargo:warning=Failed to parse {:?}: {}", vendor_index, err);
                 fs::write(&dest_path, "// Material Icons not found\n").unwrap();
@@ -60,8 +72,44 @@ fn main() {
         scan_icons_root(&src_root, manifest_dir)
     };
 
+    let (icon_offsets, asset_include) = if let Some((packed_asset, offsets_path)) = vendor_bundle {
+        match load_vendor_offsets(&icons, &packed_asset, &offsets_path) {
+            Some(offsets) => (
+                offsets,
+                "concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/material-icons-vendor/material-icons.bin\")".to_string(),
+            ),
+            None => {
+                println!("cargo:warning=Material icon packed offsets are invalid; rebuilding the pack from indexed SVGs.");
+                let offsets = pack_icon_sources(&icons, manifest_dir, &generated_asset_path);
+                (
+                    offsets,
+                    "concat!(env!(\"OUT_DIR\"), \"/material_icons.bin\")".to_string(),
+                )
+            }
+        }
+    } else {
+        let offsets = pack_icon_sources(&icons, manifest_dir, &generated_asset_path);
+        (
+            offsets,
+            "concat!(env!(\"OUT_DIR\"), \"/material_icons.bin\")".to_string(),
+        )
+    };
+
     let mut code = String::new();
     code.push_str("// Generated Material Icons\n\n");
+    code.push_str(&format!(
+        "static MATERIAL_ICON_DATA: &[u8] = include_bytes!({});\n\n",
+        asset_include
+    ));
+    code.push_str(
+        "const fn material_icon(offset: usize, len: usize) -> &'static str {\n\
+             // SAFETY: the packer validates each UTF-8 byte range before emitting it.\n\
+             unsafe {\n\
+                 let start = MATERIAL_ICON_DATA.as_ptr().add(offset);\n\
+                 core::str::from_utf8_unchecked(core::slice::from_raw_parts(start, len))\n\
+             }\n\
+         }\n\n",
+    );
 
     let reflection_enabled = env::var("CARGO_FEATURE_REFLECTION").is_ok();
     let mut reflection_entries = Vec::new();
@@ -79,15 +127,13 @@ fn main() {
             code.push_str(&format!("    pub mod {} {{\n", icon_mod));
 
             for (variant, path) in variants {
+                let [offset, len] = icon_offsets
+                    .get(path)
+                    .unwrap_or_else(|| panic!("No packed offset for Material Icon {path}"));
                 code.push_str(&format!(
-                    "        pub const fn {}() -> &'static str {{\n",
-                    variant
+                    "        pub const fn {}() -> &'static str {{ material_icon({}, {}) }}\n",
+                    variant, offset, len
                 ));
-                code.push_str(&format!(
-                    "            include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{}\"))\n",
-                    path
-                ));
-                code.push_str("        }\n");
 
                 if reflection_enabled {
                     reflection_entries.push(format!(
@@ -113,6 +159,75 @@ fn main() {
     }
 
     fs::write(&dest_path, code).unwrap();
+}
+
+fn load_vendor_offsets(
+    icons: &IconMap,
+    packed_asset: &Path,
+    offsets_path: &Path,
+) -> Option<BTreeMap<String, [usize; 2]>> {
+    let serialized = fs::read_to_string(offsets_path).ok()?;
+    let offsets_by_digest: IconOffsets = serde_json::from_str(&serialized).ok()?;
+    let packed = fs::read(packed_asset).ok()?;
+    let mut offsets_by_path = BTreeMap::new();
+
+    for path in icons
+        .values()
+        .flat_map(|icons| icons.values())
+        .flat_map(|variants| variants.values())
+    {
+        let digest = Path::new(path).file_stem()?.to_str()?;
+        let range = *offsets_by_digest.get(digest)?;
+        let end = range[0].checked_add(range[1])?;
+        let bytes = packed.get(range[0]..end)?;
+        if std::str::from_utf8(bytes).is_err() {
+            return None;
+        }
+        offsets_by_path.insert(path.clone(), range);
+    }
+
+    Some(offsets_by_path)
+}
+
+fn pack_icon_sources(
+    icons: &IconMap,
+    manifest_dir: &Path,
+    packed_asset_path: &Path,
+) -> BTreeMap<String, [usize; 2]> {
+    let mut packed = Vec::new();
+    let mut offsets = BTreeMap::new();
+
+    for path in icons
+        .values()
+        .flat_map(|icons| icons.values())
+        .flat_map(|variants| variants.values())
+    {
+        if offsets.contains_key(path) {
+            continue;
+        }
+
+        let source_path = Path::new(path);
+        let source_path = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            manifest_dir.join(source_path)
+        };
+        println!("cargo:rerun-if-changed={}", source_path.display());
+        let data = fs::read(&source_path).unwrap_or_else(|error| {
+            panic!("Failed to read Material Icon {:?}: {error}", source_path)
+        });
+        std::str::from_utf8(&data).unwrap_or_else(|error| {
+            panic!("Material Icon {:?} is not UTF-8: {error}", source_path)
+        });
+
+        let offset = packed.len();
+        let len = data.len();
+        packed.extend_from_slice(&data);
+        offsets.insert(path.clone(), [offset, len]);
+    }
+
+    fs::write(packed_asset_path, packed).expect("Failed to write packed Material Icons");
+    offsets
 }
 
 fn load_icons_index(path: &Path) -> Result<IconMap, serde_json::Error> {
