@@ -6,6 +6,8 @@ import {
   fissionClosePickedFileWriter,
   fissionOpenPickedFileWriter,
   fissionPickSaveFile,
+  fissionReleaseWritableFile,
+  fissionWritableFilePermission,
   fissionWritePickedFileChunk,
 } from "../src/web_file_picker.mjs";
 
@@ -67,12 +69,47 @@ test("a picked Web save destination remains usable after writes and failures", a
     };
     assert.equal(await fissionPickSaveFile("cancelled.txt", "[]"), null);
     await assert.rejects(fissionOpenPickedFileWriter(selected.id + 100), { name: "invalid_handle" });
+
+    fissionReleaseWritableFile(selected.id);
+    fissionReleaseWritableFile(selected.id);
+    await assert.rejects(fissionWritableFilePermission(selected.id), { name: "invalid_handle" });
+    await assert.rejects(fissionOpenPickedFileWriter(selected.id), { name: "invalid_handle" });
   } finally {
     if (originalPicker === undefined) {
       delete globalThis.showSaveFilePicker;
     } else {
       globalThis.showSaveFilePicker = originalPicker;
     }
+  }
+});
+
+test("a failed permission check does not retain an unreturned writable handle", async () => {
+  const pickerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+  let failPermissionCheck = true;
+  const handle = {
+    name: "report.txt",
+    async queryPermission() {
+      if (failPermissionCheck) {
+        failPermissionCheck = false;
+        throw new DOMException("permission lookup failed", "NotAllowedError");
+      }
+      return "granted";
+    },
+  };
+
+  try {
+    globalThis.showSaveFilePicker = async () => handle;
+    const session = await import(`../src/web_file_picker.mjs?session=${Date.now()}-permission-failure`);
+    await assert.rejects(session.fissionPickSaveFile("report.txt", "[]"), {
+      name: "NotAllowedError",
+    });
+    await assert.rejects(session.fissionWritableFilePermission(1), { name: "invalid_handle" });
+
+    const selected = await session.fissionPickSaveFile("report.txt", "[]");
+    assert.equal(selected.id, 1);
+  } finally {
+    if (pickerDescriptor) Object.defineProperty(globalThis, "showSaveFilePicker", pickerDescriptor);
+    else delete globalThis.showSaveFilePicker;
   }
 });
 

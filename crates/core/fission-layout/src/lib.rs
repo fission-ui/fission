@@ -1053,7 +1053,7 @@ impl LayoutSnapshot {
 ///
 /// The layout engine operates on `&[LayoutInputNode]` rather than traversing the
 /// IR directly, which keeps the engine decoupled from the IR's internal structure.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutInputNode {
     /// The unique identity of this node.
     pub id: WidgetId,

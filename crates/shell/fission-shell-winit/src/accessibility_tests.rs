@@ -34,6 +34,7 @@ fn accessibility_character_geometry_comes_from_resolved_unicode_clusters() {
         glyphs: Vec::new(),
         caret_stops: Vec::new(),
         selection_boxes: Vec::new(),
+        display_breaks: Vec::new(),
     };
 
     let (positions, widths) =
@@ -318,8 +319,15 @@ fn native_accessibility_tree_contains_only_the_active_responsive_branch() {
 
     let built = build_tree_update(&ir, &layout, &Runtime::default(), 1.0);
     let expanded_access = mapped_access_id(&built, expanded_input);
-    assert!(built.update.nodes.iter().any(|(id, _)| *id == expanded_access));
-    assert!(!built.node_map.values().any(|widget_id| *widget_id == compact_input));
+    assert!(built
+        .update
+        .nodes
+        .iter()
+        .any(|(id, _)| *id == expanded_access));
+    assert!(!built
+        .node_map
+        .values()
+        .any(|widget_id| *widget_id == compact_input));
 }
 
 #[test]
