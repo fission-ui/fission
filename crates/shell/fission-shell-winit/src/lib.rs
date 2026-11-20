@@ -37,7 +37,7 @@ use std::{
 #[cfg(feature = "tray")]
 use winit::event::StartCause;
 #[cfg(target_os = "android")]
-use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid};
+use winit::platform::android::{EventLoopBuilderExtAndroid, activity::AndroidApp};
 #[cfg(target_os = "ios")]
 use winit::platform::ios::WindowAttributesExtIOS;
 #[cfg(target_os = "macos")]
@@ -66,10 +66,10 @@ use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
     Env, ExternalDragEvent, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    NotificationResponse, NotificationResponseReceived, OpenUrlRequest, PointerButton,
+    NotificationResponse, NotificationResponseReceived, OPEN_URL, OpenUrlRequest, PointerButton,
     PointerEvent, PointerId, PointerKind, PointerPhase, Runtime, ScrollAlignment, ScrollAxis,
     ScrollBehavior, ScrollDeltaMode, ScrollIntoViewRequest, ServiceBindings, View, Widget,
-    WidgetIdExt, OPEN_URL,
+    WidgetIdExt,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -77,11 +77,12 @@ use fission_ir::semantics::{ActionTrigger, MouseCursor, Role, Semantics};
 use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect};
+use fission_render_vello::VelloTextMeasurer;
+use fission_render_vello::cpu::CpuRenderer;
 #[cfg(feature = "scene3d")]
 use fission_render_vello::gpu::ExternalTextureId;
 use fission_render_vello::gpu::{ExternalTextureBindings, GpuSceneRenderer};
 use fission_render_vello::parley::FontContext;
-use fission_render_vello::VelloTextMeasurer;
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
@@ -155,7 +156,7 @@ mod semantic_records;
 use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
 use semantic_records::*;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{closure::Closure, Clamped, JsCast, JsValue};
+use wasm_bindgen::{Clamped, JsCast, JsValue, closure::Closure};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -189,7 +190,7 @@ use native_renderer_selection::should_auto_select_native_software;
 mod scene3d_renderer;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
-use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
+use renderer_diagnostics::{RendererReport, RendererRequest, emit_renderer_report};
 mod native_surface;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
@@ -323,11 +324,11 @@ fn windows_shell_execute_succeeded(status: usize) -> bool {
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 fn open_host_url(url: &str, _in_app: bool) -> Result<(), String> {
     use ::windows::{
-        core::PCWSTR,
         Win32::{
             Foundation::HWND,
             UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
         },
+        core::PCWSTR,
     };
 
     let operation = windows_wide("open")?;
@@ -847,7 +848,9 @@ enum MainRenderer {
         renderer: GpuSceneRenderer,
         texture_compositor: TextureLayerCompositor,
     },
-    Software,
+    Software {
+        cpu_renderer: CpuRenderer,
+    },
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1330,7 +1333,9 @@ fn create_native_main_renderer(
     );
     let software = |active: &str, reason: String| {
         (
-            MainRenderer::Software,
+            MainRenderer::Software {
+                cpu_renderer: CpuRenderer::new(),
+            },
             RendererReport::new(
                 active,
                 request,
@@ -1613,7 +1618,7 @@ async fn create_webgpu_presenter(
     );
     let active_renderer = match &main_renderer {
         MainRenderer::Vello { .. } => "webgpu-vello",
-        MainRenderer::Software => "webgpu-software",
+        MainRenderer::Software { .. } => "webgpu-software",
     };
     let (backend, adapter) = adapter_labels(device_handle.adapter());
     let renderer_report = RendererReport::new(
@@ -7798,15 +7803,15 @@ where
                                                 WidgetId::from_u128(0),
                                             ) {
                                                 eprintln!(
-                                                "fission-shell-winit: navigation dispatch failed: {error}"
-                                            );
+                                                    "fission-shell-winit: navigation dispatch failed: {error}"
+                                                );
                                             }
                                             invalidations.mark_build();
                                         }
                                     }
                                     Err(error) => eprintln!(
-                                    "fission-shell-winit: cannot read browser location: {error}"
-                                ),
+                                        "fission-shell-winit: cannot read browser location: {error}"
+                                    ),
                                 }
                             }
                             Ok(false) => {}
@@ -8107,7 +8112,7 @@ where
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             render_state.as_ref().is_some_and(|state| {
-                                matches!(&state.main_renderer, MainRenderer::Software)
+                                matches!(&state.main_renderer, MainRenderer::Software { .. })
                             })
                         }
                         #[cfg(target_arch = "wasm32")]
@@ -8800,12 +8805,12 @@ where
                                         }
                                         Err(error) if request.is_explicit_gpu() => {
                                             eprintln!(
-                                                    "webgpu-vello renderer requested but initialization failed: {error}"
-                                                );
+                                                "webgpu-vello renderer requested but initialization failed: {error}"
+                                            );
                                             diag::end_frame(diag::FrameStats::default());
                                             panic!(
-                                                    "webgpu-vello renderer requested but initialization failed: {error}"
-                                                );
+                                                "webgpu-vello renderer requested but initialization failed: {error}"
+                                            );
                                         }
                                         Err(error) => match WebCanvasPresenter::new(window) {
                                             Ok(mut presenter) => {
@@ -8826,8 +8831,8 @@ where
                                             }
                                             Err(err) => {
                                                 eprintln!(
-                                                        "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
-                                                    );
+                                                    "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
+                                                );
                                                 request_redraw_logged(
                                                     &window,
                                                     elwt,
@@ -9459,8 +9464,8 @@ where
                                                     Ok(texture) => texture,
                                                     Err(err) => {
                                                         eprintln!(
-                                                                "failed to get webgpu surface texture: {err}"
-                                                            );
+                                                            "failed to get webgpu surface texture: {err}"
+                                                        );
                                                         diag::end_frame(diag::FrameStats::default());
                                                         return;
                                                     }
@@ -9569,7 +9574,7 @@ where
 .ok();
                                                         }
                                                     }
-                                                    MainRenderer::Software => {}
+                                                    MainRenderer::Software { .. } => {}
                                                 }
                                                 record_web_test_diagnostic(368, 2);
 
@@ -9821,8 +9826,8 @@ where
                                                             &render_state.surface.config,
                                                         );
                                                         eprintln!(
-                                                                "render surface became {error}; reconfigured and retrying"
-                                                            );
+                                                            "render surface became {error}; reconfigured and retrying"
+                                                        );
                                                     }
                                                     SurfaceAcquireRecovery::Retry => {
                                                         if matches!(
@@ -10028,7 +10033,7 @@ where
                                                         .ok();
                                                 }
                                             }
-                                            MainRenderer::Software => {
+                                            MainRenderer::Software { cpu_renderer } => {
                                                 let has_dynamic_surfaces = stats.video_surfaces > 0
                                                     || !pipeline.web_surfaces.is_empty()
                                                     || !pipeline.native_surfaces.is_empty();
@@ -10043,8 +10048,8 @@ where
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
-                                                    let Ok(rgba) =
-                                                        fission_render_vello::cpu::render_to_rgba8(
+                                                    let Ok((rgba, cpu_timings)) = cpu_renderer
+                                                        .render_to_rgba8_with_timings(
                                                             retained_scene,
                                                             render_target_size.0,
                                                             render_target_size.1,
@@ -10087,6 +10092,7 @@ where
                                                         diag::end_frame(diag::FrameStats::default());
                                                         return;
                                                     };
+                                                    let upload_started = Instant::now();
                                                     device_handle.queue.write_texture(
                                                         wgpu::TexelCopyTextureInfo {
                                                             texture: &render_state
@@ -10110,6 +10116,30 @@ where
                                                             width: render_target_size.0,
                                                             height: render_target_size.1,
                                                             depth_or_array_layers: 1,
+                                                        },
+                                                    );
+                                                    let upload_ms =
+                                                        upload_started.elapsed().as_secs_f64()
+                                                            * 1000.0;
+                                                    diag::emit(
+                                                        diag::DiagCategory::Raster,
+                                                        diag::DiagLevel::Debug,
+                                                        diag::DiagEventKind::SoftwareRenderPerformance {
+                                                            width: render_target_size.0,
+                                                            height: render_target_size.1,
+                                                            scene_recording_ms: cpu_timings
+                                                                .scene_recording
+                                                                .as_secs_f64()
+                                                                * 1000.0,
+                                                            rasterization_ms: cpu_timings
+                                                                .rasterization
+                                                                .as_secs_f64()
+                                                                * 1000.0,
+                                                            output_copy_ms: cpu_timings
+                                                                .output_copy
+                                                                .as_secs_f64()
+                                                                * 1000.0,
+                                                            upload_ms,
                                                         },
                                                     );
                                                     software_frame_valid = true;
@@ -10460,9 +10490,9 @@ where
                                     == Some("1")
                                 {
                                     eprintln!(
-                                            "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
-                                            delta, point.x, point.y, dx, dy
-                                        );
+                                        "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
+                                        delta, point.x, point.y, dx, dy
+                                    );
                                 }
                                 handle_scroll(
                                     point.x,
@@ -11534,6 +11564,8 @@ mod tests {
     #[cfg(feature = "scene3d")]
     use super::scene3d_hardware_adapter_supported;
     use super::{
+        BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
+        RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
         cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
@@ -11553,11 +11585,9 @@ mod tests {
         text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
         web_effective_render_scale, web_live_test_event_loop_wait_until,
         window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
-        BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
-        RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
     };
-    use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
     use crate::InvalidationSet;
+    use crate::pipeline::{CompositorTexturePlan, software_frame_needs_raster};
     use fission_core::authoring::BuildCtx;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
@@ -12330,11 +12360,13 @@ mod tests {
             focused_text_input_id(&runtime, pipeline.prev_ir.as_ref()),
             None
         );
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
+        assert!(
+            runtime
+                .get_global_state::<LiveTextState>()
+                .expect("live text state")
+                .edit
+                .is_none()
+        );
     }
 
     #[test]
@@ -12355,11 +12387,13 @@ mod tests {
             }
             other => panic!("expected selector error, got {other:?}"),
         }
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
+        assert!(
+            runtime
+                .get_global_state::<LiveTextState>()
+                .expect("live text state")
+                .edit
+                .is_none()
+        );
         assert!(runtime.runtime_state.text_edit.get(target).is_none());
     }
 
@@ -12383,11 +12417,13 @@ mod tests {
             response,
             fission_test_driver::TestResponse::SelectorError { .. }
         ));
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
+        assert!(
+            runtime
+                .get_global_state::<LiveTextState>()
+                .expect("live text state")
+                .edit
+                .is_none()
+        );
         let editor = runtime
             .runtime_state
             .text_edit
@@ -12607,6 +12643,16 @@ mod tests {
             0,
             false,
         ));
+
+        let mut rebuild_without_diff = InvalidationSet::default();
+        rebuild_without_diff.build = true;
+        assert!(!software_frame_needs_raster(
+            true,
+            rebuild_without_diff,
+            0,
+            false,
+        ));
+
         assert!(software_frame_needs_raster(
             false,
             InvalidationSet::default(),

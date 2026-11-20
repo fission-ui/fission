@@ -5,7 +5,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
-use fission_core::scrollbar::{scrollbar_geometry_for_node, ScrollbarPalette, ScrollbarStyle};
+use fission_core::scrollbar::{ScrollbarPalette, ScrollbarStyle, scrollbar_geometry_for_node};
 use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
@@ -13,8 +13,8 @@ use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
 use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
-    embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
-    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
+    RenderNode, RenderScene, Renderer, Stroke, embed_surface_id,
 };
 use fission_shell::{NativeSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
@@ -114,7 +114,12 @@ pub(crate) fn software_frame_needs_raster(
     paint_misses: usize,
     has_dynamic_surfaces: bool,
 ) -> bool {
-    !frame_valid || invalidations.any() || paint_misses > 0 || has_dynamic_surfaces
+    !frame_valid
+        || invalidations.layout
+        || invalidations.paint
+        || invalidations.composite
+        || paint_misses > 0
+        || has_dynamic_surfaces
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +281,8 @@ impl Pipeline {
     pub fn replace_ir(&mut self, next_ir: CoreIR, env: &Env) -> InvalidationSet {
         let mut invalidation = InvalidationSet::default();
         self.scrollbar_paint.set_theme(&env.theme.tokens);
+        self.paint_cache
+            .retain(|node_id, _| next_ir.nodes.contains_key(node_id));
         let mut rebuild_layout_tree = self.prev_ir.is_none();
 
         if let Some(prev_ir) = &self.prev_ir {
@@ -778,7 +785,8 @@ impl Pipeline {
                 self.retained_scene.is_some()
             );
         }
-        self.paint_cache.clear();
+        // Keep local display lists across scene invalidation. Their cache key
+        // includes all rendered inputs, so unchanged nodes remain reusable.
         self.boundary_cache.clear();
         self.retained_scene = None;
         self.retained_dynamic_ops = RetainedDynamicOps::default();
@@ -1763,21 +1771,20 @@ fn generate_render_layer_recursive(
         layer.style.transform = Some(transform);
     }
 
-    let local_hash = local_paint_hash(node);
+    let resolved_paragraph = snapshot.get_resolved_paragraph(node_id);
+    let annotations = ir
+        .custom_render_objects
+        .get(&node_id)
+        .and_then(|sidecar| sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>());
+    let local_hash = local_paint_hash(node, rect, resolved_paragraph, annotations);
     let local_paint = if let Some((cached_hash, cached_ops)) = paint_cache.get(&node_id) {
         if *cached_hash == local_hash {
             *hit_count += 1;
             Some(cached_ops.clone())
         } else {
-            *miss_count += 1;
-            let ops = build_local_paint_list(
-                ir,
-                node_id,
-                node,
-                rect,
-                snapshot.get_resolved_paragraph(node_id),
-            );
+            let ops = build_local_paint_list(ir, node_id, node, rect, resolved_paragraph);
             if let Some(ops) = ops.clone() {
+                *miss_count += 1;
                 paint_cache.insert(node_id, (local_hash, ops));
             } else {
                 paint_cache.remove(&node_id);
@@ -1785,15 +1792,9 @@ fn generate_render_layer_recursive(
             ops
         }
     } else {
-        *miss_count += 1;
-        let ops = build_local_paint_list(
-            ir,
-            node_id,
-            node,
-            rect,
-            snapshot.get_resolved_paragraph(node_id),
-        );
+        let ops = build_local_paint_list(ir, node_id, node, rect, resolved_paragraph);
         if let Some(ops) = ops.clone() {
+            *miss_count += 1;
             paint_cache.insert(node_id, (local_hash, ops));
         }
         ops
@@ -2338,9 +2339,24 @@ fn collect_video_surfaces_with_visited(
     }
 }
 
-fn local_paint_hash(node: &fission_ir::CoreNode) -> u64 {
+fn local_paint_hash(
+    node: &fission_ir::CoreNode,
+    rect: LayoutRect,
+    resolved_paragraph: Option<&fission_layout::ResolvedParagraphLayout>,
+    annotations: Option<&Vec<fission_ir::op::RichTextAnnotation>>,
+) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     node.op.hash(&mut hasher);
+    rect.origin.x.to_bits().hash(&mut hasher);
+    rect.origin.y.to_bits().hash(&mut hasher);
+    rect.size.width.to_bits().hash(&mut hasher);
+    rect.size.height.to_bits().hash(&mut hasher);
+    if let Some(resolved_paragraph) = resolved_paragraph {
+        hash_serde_value(resolved_paragraph, &mut hasher);
+    }
+    if let Some(annotations) = annotations {
+        hash_serde_value(annotations, &mut hasher);
+    }
     hasher.finish()
 }
 
@@ -2823,13 +2839,13 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_local_paint_list, composite_transform_matrix, scroll_offsets_changed,
-        transform_rect_bounds, translation_matrix, viewport_transform_matrix, InvalidationSet,
-        Pipeline,
+        InvalidationSet, Pipeline, build_local_paint_list, composite_transform_matrix,
+        scroll_offsets_changed, transform_rect_bounds, translation_matrix,
+        viewport_transform_matrix,
     };
-    use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::MotionPropertyId;
     use fission_core::ScrollStateMap;
+    use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_ir::op::{
         Color, Fill, ImageAlignment, ImageFit, ImageRequest, ImageSource, RichTextAnnotation,
         TextRun, TextStyle,
@@ -2899,6 +2915,79 @@ mod tests {
         }
     }
 
+    fn cached_paint_ir(second_color: Color) -> CoreIR {
+        let root = WidgetId::derived(51, &[0]);
+        let first_box = WidgetId::derived(51, &[1]);
+        let first_paint = WidgetId::derived(51, &[2]);
+        let second_box = WidgetId::derived(51, &[3]);
+        let second_paint = WidgetId::derived(51, &[4]);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            first_paint,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 20,
+                    g: 40,
+                    b: 60,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            second_paint,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(second_color)),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            }),
+            vec![],
+        );
+        for (id, child) in [(first_box, first_paint), (second_box, second_paint)] {
+            ir.add_node(
+                id,
+                Op::Layout(LayoutOp::Box {
+                    width: Some(80.0),
+                    height: Some(32.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                }),
+                vec![child],
+            );
+        }
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: Some(4.0),
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
+            vec![first_box, second_box],
+        );
+        ir.set_root(root);
+        ir
+    }
+
     fn two_child_layout_ir(second_width: f32) -> CoreIR {
         let root = WidgetId::derived(50, &[0]);
         let first = WidgetId::derived(50, &[1]);
@@ -2953,6 +3042,67 @@ mod tests {
         );
         ir.set_root(root);
         ir
+    }
+
+    #[test]
+    fn paint_cache_reuses_unchanged_nodes_after_local_paint_change() {
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
+        let render_size = LayoutSize::new(320.0, 240.0);
+        let first_color = Color {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255,
+        };
+
+        pipeline.replace_ir(cached_paint_ir(first_color), &Env::default());
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("initial layout");
+        let initial = pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("initial paint preparation");
+        assert_eq!(initial.paint_misses, 2);
+        assert_eq!(initial.paint_hits, 0);
+
+        let invalidation = pipeline.replace_ir(
+            cached_paint_ir(Color {
+                r: 4,
+                g: 5,
+                b: 6,
+                a: 255,
+            }),
+            &Env::default(),
+        );
+        assert!(invalidation.paint);
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("incremental layout");
+        let updated = pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("updated paint preparation");
+
+        assert_eq!(updated.paint_misses, 1);
+        assert_eq!(updated.paint_hits, 1);
     }
 
     #[test]

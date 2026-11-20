@@ -220,6 +220,14 @@ pub enum DiagEventKind {
         paint_hits: u32,
         paint_misses: u32,
     },
+    SoftwareRenderPerformance {
+        width: u32,
+        height: u32,
+        scene_recording_ms: f64,
+        rasterization_ms: f64,
+        output_copy_ms: f64,
+        upload_ms: f64,
+    },
     InputLatency {
         renderer: String,
         latency_ms: f64,
@@ -655,8 +663,8 @@ pub fn emit(category: DiagCategory, level: DiagLevel, event: DiagEventKind) {
 /// Convenience re-exports for common diagnostic operations.
 pub mod prelude {
     pub use super::{
-        begin_frame, emit, end_frame, init_from_env, DiagCategory, DiagEventKind, DiagLevel,
-        FrameStats,
+        DiagCategory, DiagEventKind, DiagLevel, FrameStats, begin_frame, emit, end_frame,
+        init_from_env,
     };
 }
 
