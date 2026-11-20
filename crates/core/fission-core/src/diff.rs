@@ -117,6 +117,7 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
         (
             PaintOp::DrawRichText {
                 runs: prev_runs,
+                display_breaks: prev_display_breaks,
                 wrap: prev_wrap,
                 paragraph_style: prev_paragraph,
                 caret_index: _,
@@ -127,6 +128,7 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
             },
             PaintOp::DrawRichText {
                 runs,
+                display_breaks,
                 wrap,
                 paragraph_style,
                 caret_index: _,
@@ -135,7 +137,10 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
                 caret_height: _,
                 caret_radius: _,
             },
-        ) => (prev_runs, prev_wrap, prev_paragraph) != (runs, wrap, paragraph_style),
+        ) => {
+            (prev_runs, prev_display_breaks, prev_wrap, prev_paragraph)
+                != (runs, display_breaks, wrap, paragraph_style)
+        }
         (PaintOp::DrawText { .. }, _) | (_, PaintOp::DrawText { .. }) => true,
         (PaintOp::DrawRichText { .. }, _) | (_, PaintOp::DrawRichText { .. }) => true,
         _ => false,
@@ -148,7 +153,8 @@ mod tests {
     use fission_ir::op::Fill;
     use fission_ir::op::TextDisplayBreak;
     use fission_ir::{
-        CompositeScalar, CompositeStyle, CoreIR, LayoutDirection, LayoutOp, Op, PaintOp, WidgetId,
+        CompositeScalar, CompositeStyle, CoreIR, LayoutDirection, LayoutOp, Op, PaintOp,
+        TextDisplayBreak, WidgetId,
     };
 
     fn rect_ir(id_seed: u128, color: (u8, u8, u8, u8)) -> CoreIR {
@@ -198,6 +204,24 @@ mod tests {
             node.parent.hash(&mut hasher);
             node.hash = hasher.finish();
         }
+        ir
+    }
+
+    fn rich_text_ir(id_seed: u128, display_breaks: Vec<TextDisplayBreak>) -> CoreIR {
+        let mut ir = rect_ir(id_seed, (0, 0, 0, 255));
+        let paint = WidgetId::derived(id_seed, &[1]);
+        let node = ir.nodes.get_mut(&paint).expect("paint node");
+        node.op = Op::Paint(PaintOp::DrawRichText {
+            runs: vec![],
+            display_breaks,
+            wrap: true,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+        });
         ir
     }
 
@@ -315,6 +339,22 @@ mod tests {
         }
         let diff = diff_ir(&prev, &next);
         assert!(diff.dirty_layout.contains(&text));
+    }
+
+    #[test]
+    fn rich_text_display_break_changes_force_layout() {
+        let prev = rich_text_ir(30, vec![]);
+        let next = rich_text_ir(
+            30,
+            vec![TextDisplayBreak {
+                text_offset: 0,
+                gap_after: 16.0,
+            }],
+        );
+
+        let diff = diff_ir(&prev, &next);
+
+        assert!(diff.dirty_layout.contains(&WidgetId::derived(30, &[1])));
     }
 
     #[test]
