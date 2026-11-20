@@ -34,6 +34,7 @@ fn accessibility_character_geometry_comes_from_resolved_unicode_clusters() {
         glyphs: Vec::new(),
         caret_stops: Vec::new(),
         selection_boxes: Vec::new(),
+        display_breaks: Vec::new(),
     };
 
     let (positions, widths) =
@@ -318,8 +319,19 @@ fn native_accessibility_tree_contains_only_the_active_responsive_branch() {
 
     let built = build_tree_update(&ir, &layout, &Runtime::default(), 1.0);
     let expanded_access = mapped_access_id(&built, expanded_input);
-    assert!(built.update.nodes.iter().any(|(id, _)| *id == expanded_access));
-    assert!(!built.node_map.values().any(|widget_id| *widget_id == compact_input));
+    assert!(
+        built
+            .update
+            .nodes
+            .iter()
+            .any(|(id, _)| *id == expanded_access)
+    );
+    assert!(
+        !built
+            .node_map
+            .values()
+            .any(|widget_id| *widget_id == compact_input)
+    );
 }
 
 #[test]
@@ -691,11 +703,13 @@ fn noneditable_combobox_never_exposes_text_editing_actions() {
         target,
         "must-not-dispatch",
     ));
-    assert!(runtime
-        .get_app_state::<TextDispatchState>()
-        .expect("text dispatch state")
-        .contextual
-        .is_empty());
+    assert!(
+        runtime
+            .get_app_state::<TextDispatchState>()
+            .expect("text dispatch state")
+            .contextual
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1093,11 +1107,13 @@ fn accesskit_rejects_and_does_not_advertise_edits_for_disabled_or_read_only_inpu
         read_only,
         "must-not-dispatch",
     ));
-    assert!(runtime
-        .get_app_state::<TextDispatchState>()
-        .expect("text dispatch state")
-        .contextual
-        .is_empty());
+    assert!(
+        runtime
+            .get_app_state::<TextDispatchState>()
+            .expect("text dispatch state")
+            .contextual
+            .is_empty()
+    );
     assert!(runtime.runtime_state.text_edit.get(disabled).is_none());
     assert!(runtime.runtime_state.text_edit.get(read_only).is_none());
 
