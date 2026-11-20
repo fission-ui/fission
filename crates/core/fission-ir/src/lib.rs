@@ -20,8 +20,8 @@ pub use op::{
     CornerRadii, EmbedKind, FlexDirection, FlexWrap, FlyoutAlignment, FlyoutOptions,
     FlyoutPlacement, FlyoutWidth, GradientExtend, GridPlacement, GridTrack, ImageBatchInstance,
     ImageSampling, JustifyContent, LayoutDirection, LayoutOp, Op, PaintOp, StructuralOp,
-    ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis, ViewportTransform,
-    ViewportZoomPolicy,
+    TextDisplayBreak, ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis,
+    ViewportTransform, ViewportZoomPolicy,
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasNodeMoveTarget, CanvasSelectionPolicy,
