@@ -595,7 +595,7 @@ fn http_response_headers(
         "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\n{isolation_headers}Connection: close\r\n\r\n",
         content_length
     )
-    .into_bytes();
+    .into_bytes()
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -613,11 +613,24 @@ fn content_type(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_renderer_diagnostic, static_response};
+    use super::{format_renderer_diagnostic, http_response_headers, static_response};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn http_response_headers_returns_complete_header_block() {
+        let headers = http_response_headers(200, "text/html; charset=utf-8", 12, true);
+        let headers = String::from_utf8(headers).expect("headers are UTF-8");
+
+        assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(headers.contains("Content-Length: 12\r\n"));
+        assert!(headers.contains("Content-Type: text/html; charset=utf-8\r\n"));
+        assert!(headers.contains("Cross-Origin-Opener-Policy: same-origin\r\n"));
+        assert!(headers.contains("Cross-Origin-Embedder-Policy: require-corp\r\n"));
+        assert!(headers.ends_with("Connection: close\r\n\r\n"));
+    }
 
     #[test]
     fn legacy_web_server_keeps_relative_bootstrap_at_root_on_deep_refresh() {
