@@ -131,7 +131,7 @@ fn main() {
                     .get(path)
                     .unwrap_or_else(|| panic!("No packed offset for Material Icon {path}"));
                 code.push_str(&format!(
-                    "        pub const fn {}() -> &'static str {{ material_icon({}, {}) }}\n",
+                    "        pub const fn {}() -> &'static str {{ super::super::material_icon({}, {}) }}\n",
                     variant, offset, len
                 ));
 
