@@ -52,7 +52,10 @@ members = [
     "docs2",
     "examples/*"
 ]
-exclude = ["third_party/vello"]
+exclude = [
+    "third_party/vello",
+    "crates/core/fission-store-sqlite/tests/fixtures/duplicate-source-link",
+]
 resolver = "2"
 
 [workspace.lints.rust]
