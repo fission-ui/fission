@@ -392,7 +392,8 @@ async function beginSnapshot(clientId, request) {
       error.code = "unavailable";
       throw error;
     }
-    source.exec("ROLLBACK");
+    // sqlite3_backup_finish() releases the source read transaction, so there
+    // is no transaction left to roll back here.
     source.close();
     source = null;
     destination.close();
