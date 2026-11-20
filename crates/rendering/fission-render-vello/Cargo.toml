@@ -19,7 +19,6 @@ fission-render = { path = "../fission-render", version = "0.16.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.16.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.16.0" }
 anyhow = "1.0"
-vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu" }
 vello_gpu = { package = "fission-vello-gpu", version = "0.2.0-fission.2", path = "../../../third_party/vello/vello_gpu" }
 wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
 parley = "0.11.1"
@@ -28,9 +27,11 @@ image = "0.24"
 lazy_static = "1.5.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu", features = ["multithreading"] }
 ureq = "2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu" }
 js-sys = "0.3"
 uuid = { version = "1", features = ["js"] }
 wasm-bindgen = "0.2"
