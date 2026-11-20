@@ -47,13 +47,13 @@ use crate::platform_clipboard::{
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
     ForgetSaveFileRequest, ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest,
-    ReadFileRequest, ReadPickedFileRequest, ReleaseDirectoryRequest, RemoveEntryRequest,
-    RestoreDirectoryRequest, RestoreSaveFileRequest, StatEntryRequest,
+    ReadFileRequest, ReadPickedFileRequest, ReleaseDirectoryRequest, ReleaseWritableFileRequest,
+    RemoveEntryRequest, RestoreDirectoryRequest, RestoreSaveFileRequest, StatEntryRequest,
     WritableFilePermissionRequest, WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY,
     DIRECTORY_PERMISSION, FORGET_DIRECTORY, FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY,
-    PICK_SAVE_FILE, READ_FILE, READ_PICKED_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY,
-    RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY, WRITABLE_FILE_PERMISSION, WRITE_FILE,
-    WRITE_PICKED_FILE,
+    PICK_SAVE_FILE, READ_FILE, READ_PICKED_FILE, RELEASE_DIRECTORY, RELEASE_WRITABLE_FILE,
+    REMOVE_ENTRY, RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY,
+    WRITABLE_FILE_PERMISSION, WRITE_FILE, WRITE_PICKED_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -1124,6 +1124,15 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
     /// Removes a persisted Web save-file handle without deleting the file.
     pub fn forget_save_file(self, request: ForgetSaveFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(FORGET_SAVE_FILE, request)
+    }
+
+    /// Releases a selected or restored writable file handle from the active
+    /// host session without deleting the file or forgetting a persisted key.
+    pub fn release_writable_file(
+        self,
+        request: ReleaseWritableFileRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(RELEASE_WRITABLE_FILE, request)
     }
 
     /// Queries the current write permission for a picked or restored file.
