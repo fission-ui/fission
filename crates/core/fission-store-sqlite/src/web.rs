@@ -1,23 +1,29 @@
 //! Browser SQLite provider backed by the official SQLite WASM OPFS VFS.
 
+use std::cell::Cell;
+
 use fission_store::{
     SqlError, SqlErrorKind, SqlExecuteResult, SqlMigrationResult, SqlMigrations, SqlQuery, SqlRows,
     SqlStatement, SqlStoreProvider, SqlTransaction, SqlTransactionResult, StoreBatch,
     StoreBatchResult, StoreContains, StoreEntry, StoreError, StoreErrorKind, StoreFuture, StoreGet,
     StoreListPrefix, StoreProvider, StoreRemove, StoreSet, StoreValue,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned, SeqAccess, Visitor},
+    ser::Serializer,
+    Deserialize, Serialize,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteRequest)]
-    fn sqlite_request(request: JsValue) -> Result<js_sys::Promise, JsValue>;
+const SQLITE_REQUEST_BRIDGE: &str = "__fissionSqliteRequest";
+const SQLITE_CLOSE_DATABASE_BRIDGE: &str = "__fissionSqliteCloseDatabase";
 
-    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteCloseDatabase)]
-    fn sqlite_close_database(database_name: JsValue) -> Result<bool, JsValue>;
-}
+/// Largest chunk accepted by Web SQLite snapshot readers and import writers.
+pub const MAX_WEB_SQLITE_STREAM_CHUNK_BYTES: usize = 1024 * 1024;
+
+// Resolve the host functions dynamically: wasm-bindgen's extern descriptors
+// collide when an app links this crate from two distinct Git sources.
 
 /// Browser provider. The generated Web bootstrap installs its worker bridge
 /// before starting the Fission application.
@@ -50,6 +56,83 @@ impl WebSqliteStore {
         })
     }
 
+    /// Creates an immutable, consistent snapshot of this named database.
+    ///
+    /// The worker finishes a SQLite Online Backup into a private OPFS file
+    /// before returning. It closes the source and snapshot database handles
+    /// before callers transfer chunks to another provider. Query the snapshot
+    /// before its first chunk read when metadata must match the exported image.
+    pub async fn begin_snapshot(&self) -> Result<WebSqliteSnapshot, SqlError> {
+        let begin_token = session_begin_token();
+        let promise = start_request(
+            self.database_name.as_deref(),
+            "sqlite_snapshot_begin",
+            SessionBeginRequest {
+                begin_token: begin_token.clone(),
+            },
+        )
+        .map_err(sql_error)?;
+        let rollback = PendingSessionBeginRollback {
+            database_name: self.database_name.clone(),
+            cancel_operation: "sqlite_snapshot_cancel",
+            pending_cancel_operation: "sqlite_session_cancel_pending",
+            begin_token,
+            promise: Some(promise.clone()),
+        };
+        let result: SessionBeginResponse = await_response(promise).await.map_err(sql_error)?;
+        let byte_len = result
+            .byte_len
+            .as_deref()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                SqlError::new(
+                    SqlErrorKind::InvalidParameter,
+                    "Web SQLite snapshot returned an invalid byte length",
+                )
+            })?;
+        rollback.disarm();
+        Ok(WebSqliteSnapshot {
+            database_name: self.database_name.clone(),
+            session_id: result.session_id,
+            byte_len,
+            reading_started: false,
+            closed: false,
+        })
+    }
+
+    /// Starts a bounded-memory import into a private OPFS staging file.
+    ///
+    /// Call [`WebSqliteImport::finish_stage`] after all chunks are written.
+    /// That validates SQLite integrity and returns a read-only staged database;
+    /// PersonalDB can inspect its identity and restore metadata before choosing
+    /// either an atomic whole-database install or its own transactional restore.
+    pub async fn begin_import(&self) -> Result<WebSqliteImport, SqlError> {
+        let begin_token = session_begin_token();
+        let promise = start_request(
+            self.database_name.as_deref(),
+            "sqlite_import_begin",
+            SessionBeginRequest {
+                begin_token: begin_token.clone(),
+            },
+        )
+        .map_err(sql_error)?;
+        let rollback = PendingSessionBeginRollback {
+            database_name: self.database_name.clone(),
+            cancel_operation: "sqlite_import_cancel",
+            pending_cancel_operation: "sqlite_session_cancel_pending",
+            begin_token,
+            promise: Some(promise.clone()),
+        };
+        let result: SessionBeginResponse = await_response(promise).await.map_err(sql_error)?;
+        rollback.disarm();
+        Ok(WebSqliteImport {
+            database_name: self.database_name.clone(),
+            session_id: result.session_id,
+            closed: false,
+        })
+    }
+
     /// Closes this browser context's database connection and cancels its open
     /// transaction, including when another tab owns the actual SQLite worker.
     /// If this context owns the worker, closing it also releases its writer
@@ -62,9 +145,8 @@ impl WebSqliteStore {
             .as_deref()
             .map(JsValue::from_str)
             .unwrap_or(JsValue::UNDEFINED);
-        sqlite_close_database(database_name)
+        call_sqlite_bridge(SQLITE_CLOSE_DATABASE_BRIDGE, &database_name)
             .map(|_| ())
-            .map_err(js_error)
             .map_err(sql_error)
     }
 
@@ -91,6 +173,330 @@ impl WebSqliteStore {
             closed: false,
         })
     }
+}
+
+/// Immutable worker-owned SQLite snapshot with bounded reads.
+pub struct WebSqliteSnapshot {
+    database_name: Option<String>,
+    session_id: String,
+    byte_len: u64,
+    reading_started: bool,
+    closed: bool,
+}
+
+impl WebSqliteSnapshot {
+    pub fn byte_len(&self) -> u64 {
+        self.byte_len
+    }
+
+    /// Queries the immutable snapshot before chunk reading begins.
+    pub async fn query(&mut self, query: SqlQuery) -> Result<SqlRows, SqlError> {
+        if self.closed || self.reading_started {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite snapshot queries must run before chunk reads",
+            ));
+        }
+        request(
+            self.database_name.as_deref(),
+            "sqlite_snapshot_query",
+            SnapshotQueryRequest {
+                session_id: self.session_id.clone(),
+                query,
+            },
+        )
+        .await
+        .map_err(sql_error)
+    }
+
+    /// Reads the next chunk. Requests are capped at
+    /// [`MAX_WEB_SQLITE_STREAM_CHUNK_BYTES`]. EOF removes the worker snapshot.
+    pub async fn read_chunk(&mut self, max_bytes: usize) -> Result<Option<Vec<u8>>, SqlError> {
+        if max_bytes == 0 || max_bytes > MAX_WEB_SQLITE_STREAM_CHUNK_BYTES {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                format!(
+                    "Web SQLite snapshot chunk size must be within 1..={MAX_WEB_SQLITE_STREAM_CHUNK_BYTES} bytes"
+                ),
+            ));
+        }
+        if self.closed {
+            return Ok(None);
+        }
+        self.reading_started = true;
+        let result: SnapshotChunkResponse = request(
+            self.database_name.as_deref(),
+            "sqlite_snapshot_read",
+            SnapshotChunkRequest {
+                session_id: self.session_id.clone(),
+                max_bytes: max_bytes as u32,
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        if result.done {
+            self.closed = true;
+        }
+        if result.bytes.len() > max_bytes || (result.bytes.is_empty() && !result.done) {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite snapshot worker returned an invalid chunk size",
+            ));
+        }
+        if result.bytes.is_empty() && result.done {
+            Ok(None)
+        } else {
+            Ok(Some(result.bytes))
+        }
+    }
+
+    pub async fn cancel(&mut self) -> Result<(), SqlError> {
+        if self.closed {
+            return Ok(());
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_snapshot_cancel",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed = true;
+        Ok(())
+    }
+}
+
+impl Drop for WebSqliteSnapshot {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        spawn_session_cancel(
+            self.database_name.clone(),
+            "sqlite_snapshot_cancel",
+            self.session_id.clone(),
+        );
+    }
+}
+
+/// Bounded writer for a worker-owned SQLite import staging file.
+pub struct WebSqliteImport {
+    database_name: Option<String>,
+    session_id: String,
+    closed: bool,
+}
+
+impl WebSqliteImport {
+    pub async fn write_chunk(&mut self, bytes: &[u8]) -> Result<u64, SqlError> {
+        if self.closed {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite import staging session is closed",
+            ));
+        }
+        if bytes.is_empty() || bytes.len() > MAX_WEB_SQLITE_STREAM_CHUNK_BYTES {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                format!(
+                    "Web SQLite import chunks must contain 1..={MAX_WEB_SQLITE_STREAM_CHUNK_BYTES} bytes"
+                ),
+            ));
+        }
+        let result: ImportChunkResponse = request(
+            self.database_name.as_deref(),
+            "sqlite_import_write",
+            ImportChunkRequest {
+                session_id: self.session_id.clone(),
+                bytes: bytes.to_vec(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        if result.bytes_written as usize != bytes.len() {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite import worker wrote an unexpected byte count",
+            ));
+        }
+        Ok(result.bytes_written)
+    }
+
+    /// Finishes and validates the staged database without replacing the target.
+    pub async fn finish_stage(&mut self) -> Result<WebSqliteStagedDatabase, SqlError> {
+        if self.closed {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite import staging session is closed",
+            ));
+        }
+        let result: SessionIdResponse = request(
+            self.database_name.as_deref(),
+            "sqlite_import_finish_stage",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed = true;
+        Ok(WebSqliteStagedDatabase {
+            database_name: self.database_name.clone(),
+            session_id: result.session_id,
+            closed: Cell::new(false),
+        })
+    }
+
+    pub async fn cancel(&mut self) -> Result<(), SqlError> {
+        if self.closed {
+            return Ok(());
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_import_cancel",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed = true;
+        Ok(())
+    }
+}
+
+impl Drop for WebSqliteImport {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        spawn_session_cancel(
+            self.database_name.clone(),
+            "sqlite_import_cancel",
+            self.session_id.clone(),
+        );
+    }
+}
+
+/// Read-only validated SQLite file produced by [`WebSqliteImport::finish_stage`].
+pub struct WebSqliteStagedDatabase {
+    database_name: Option<String>,
+    session_id: String,
+    closed: Cell<bool>,
+}
+
+impl WebSqliteStagedDatabase {
+    /// Queries the imported file without changing it.
+    pub async fn query(&self, query: SqlQuery) -> Result<SqlRows, SqlError> {
+        if self.closed.get() {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database is closed",
+            ));
+        }
+        request(
+            self.database_name.as_deref(),
+            "sqlite_stage_query",
+            SnapshotQueryRequest {
+                session_id: self.session_id.clone(),
+                query,
+            },
+        )
+        .await
+        .map_err(sql_error)
+    }
+
+    /// Replaces this store's named database atomically with the staged image.
+    /// Use only after application-level identity and schema validation. Existing
+    /// PersonalDB workspaces should instead attach the stage to their own restore
+    /// transaction and preserve PersonalDB's identity and restore rules.
+    pub async fn install_into_target(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database is closed",
+            ));
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_stage_install",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed.set(true);
+        Ok(())
+    }
+
+    /// Installs this image only if the named database is still empty when the
+    /// worker begins the atomic replacement. The Fission `fission` table and
+    /// SQLite-owned `sqlite_*` objects are permitted. This closes the race
+    /// between checking a new workspace and finishing a potentially long import.
+    /// If cancelled before SQLite finishes the backup, `sqlite3_backup_finish`
+    /// rolls back the destination transaction. A backup-finish error is returned
+    /// because SQLite may not have been able to complete that rollback.
+    pub async fn install_into_empty_target(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database is closed",
+            ));
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_stage_install_empty",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed.set(true);
+        Ok(())
+    }
+
+    /// Cancels this staged image, including an install currently in progress.
+    /// The install future then completes with an error after SQLite rolls back
+    /// its incomplete destination backup.
+    pub async fn cancel(&self) -> Result<(), SqlError> {
+        if self.closed.get() {
+            return Ok(());
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sqlite_stage_cancel",
+            SessionIdRequest {
+                session_id: self.session_id.clone(),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
+        self.closed.set(true);
+        Ok(())
+    }
+}
+
+impl Drop for WebSqliteStagedDatabase {
+    fn drop(&mut self) {
+        if self.closed.get() {
+            return;
+        }
+        spawn_session_cancel(
+            self.database_name.clone(),
+            "sqlite_stage_cancel",
+            self.session_id.clone(),
+        );
+    }
+}
+
+fn valid_sqlite_alias(alias: &str) -> bool {
+    let mut bytes = alias.bytes();
+    matches!(bytes.next(), Some(b'a'..=b'z' | b'A'..=b'Z' | b'_'))
+        && bytes.all(|byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_'))
+        && alias.len() <= 64
 }
 
 /// Per-transaction SQLite configuration. These values are serializable so the
@@ -371,6 +777,67 @@ impl WebSqliteTransaction {
         .map_err(sql_error)
     }
 
+    /// Attaches a validated import stage to this transaction under an opaque
+    /// SQL alias. The worker makes the attached schema read-only and detaches it
+    /// automatically after commit or rollback.
+    pub async fn attach_staged_database(
+        &mut self,
+        staged: &WebSqliteStagedDatabase,
+        alias: impl Into<String>,
+    ) -> Result<(), SqlError> {
+        self.ensure_open()?;
+        if staged.closed.get() || self.database_name != staged.database_name {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "staged database must be open in the same named Web SQLite store",
+            ));
+        }
+        let alias = alias.into();
+        if !valid_sqlite_alias(&alias) {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database aliases must be simple SQL identifiers",
+            ));
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sql_tx_stage_attach",
+            TransactionStageAttachRequest {
+                transaction_id: self.id.clone(),
+                stage_id: staged.session_id.clone(),
+                alias,
+            },
+        )
+        .await
+        .map_err(sql_error)
+    }
+
+    /// Detaches a staged database from this transaction. Commit and rollback
+    /// also detach every remaining stage.
+    pub async fn detach_staged_database(
+        &mut self,
+        alias: impl Into<String>,
+    ) -> Result<(), SqlError> {
+        self.ensure_open()?;
+        let alias = alias.into();
+        if !valid_sqlite_alias(&alias) {
+            return Err(SqlError::new(
+                SqlErrorKind::InvalidParameter,
+                "Web SQLite staged database aliases must be simple SQL identifiers",
+            ));
+        }
+        request::<_, ()>(
+            self.database_name.as_deref(),
+            "sql_tx_stage_detach",
+            TransactionStageDetachRequest {
+                transaction_id: self.id.clone(),
+                alias,
+            },
+        )
+        .await
+        .map_err(sql_error)
+    }
+
     pub async fn commit(&mut self) -> Result<(), SqlError> {
         self.ensure_open()?;
         request::<_, ()>(
@@ -544,6 +1011,191 @@ struct SessionIdResponse {
 }
 
 #[derive(Serialize)]
+struct SessionBeginRequest {
+    begin_token: String,
+}
+
+#[derive(Serialize)]
+struct SessionBeginTokenRequest {
+    begin_token: String,
+}
+
+#[derive(Deserialize)]
+struct SessionBeginResponse {
+    session_id: String,
+    #[serde(default)]
+    byte_len: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SessionIdRequest {
+    session_id: String,
+}
+
+#[derive(Serialize)]
+struct SnapshotQueryRequest {
+    session_id: String,
+    query: SqlQuery,
+}
+
+#[derive(Serialize)]
+struct SnapshotChunkRequest {
+    session_id: String,
+    max_bytes: u32,
+}
+
+#[derive(Deserialize)]
+struct SnapshotChunkResponse {
+    #[serde(with = "serde_byte_vec")]
+    bytes: Vec<u8>,
+    done: bool,
+}
+
+#[derive(Serialize)]
+struct ImportChunkRequest {
+    session_id: String,
+    #[serde(with = "serde_byte_vec")]
+    bytes: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+struct ImportChunkResponse {
+    bytes_written: u64,
+}
+
+mod serde_byte_vec {
+    use super::{SeqAccess, Serializer, Visitor};
+    use serde::de::Error;
+    use serde::Deserializer;
+    use std::fmt;
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(bytes)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ByteVecVisitor;
+
+        impl<'de> Visitor<'de> for ByteVecVisitor {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a byte buffer")
+            }
+
+            fn visit_bytes<E: Error>(self, bytes: &[u8]) -> Result<Self::Value, E> {
+                Ok(bytes.to_vec())
+            }
+
+            fn visit_byte_buf<E: Error>(self, bytes: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(bytes)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or_default());
+                while let Some(byte) = seq.next_element()? {
+                    bytes.push(byte);
+                }
+                Ok(bytes)
+            }
+        }
+
+        deserializer.deserialize_bytes(ByteVecVisitor)
+    }
+}
+
+#[derive(Serialize)]
+struct TransactionStageAttachRequest {
+    transaction_id: String,
+    stage_id: String,
+    alias: String,
+}
+
+#[derive(Serialize)]
+struct TransactionStageDetachRequest {
+    transaction_id: String,
+    alias: String,
+}
+
+/// An in-flight begin can outlive the Rust future. Retain the browser promise
+/// until the worker returns a session ID, then cancel it if the future was
+/// dropped before it could take ownership.
+struct PendingSessionBeginRollback {
+    database_name: Option<String>,
+    cancel_operation: &'static str,
+    pending_cancel_operation: &'static str,
+    begin_token: String,
+    promise: Option<js_sys::Promise>,
+}
+
+impl PendingSessionBeginRollback {
+    fn disarm(mut self) {
+        self.promise = None;
+    }
+}
+
+impl Drop for PendingSessionBeginRollback {
+    fn drop(&mut self) {
+        let Some(promise) = self.promise.take() else {
+            return;
+        };
+        let database_name = self.database_name.clone();
+        let cancel_operation = self.cancel_operation;
+        let pending_cancel_operation = self.pending_cancel_operation;
+        let begin_token = self.begin_token.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = request::<_, ()>(
+                database_name.as_deref(),
+                pending_cancel_operation,
+                SessionBeginTokenRequest {
+                    begin_token: begin_token.clone(),
+                },
+            )
+            .await;
+            if let Ok(result) = await_response::<SessionBeginResponse>(promise).await {
+                let _ = request::<_, ()>(
+                    database_name.as_deref(),
+                    cancel_operation,
+                    SessionIdRequest {
+                        session_id: result.session_id,
+                    },
+                )
+                .await;
+            }
+        });
+    }
+}
+
+fn session_begin_token() -> String {
+    format!(
+        "{:016x}-{:08x}",
+        js_sys::Date::now() as u64,
+        (js_sys::Math::random() * u32::MAX as f64) as u32
+    )
+}
+
+fn spawn_session_cancel(
+    database_name: Option<String>,
+    operation: &'static str,
+    session_id: String,
+) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let _ = request::<_, ()>(
+            database_name.as_deref(),
+            operation,
+            SessionIdRequest { session_id },
+        )
+        .await;
+    });
+}
+
+#[derive(Serialize)]
 struct SessionRequest {
     transaction_id: String,
     session_id: String,
@@ -616,7 +1268,14 @@ fn start_request<Q: Serialize>(
         request,
     })
     .map_err(|error| WebSqliteError::new("serialization", error.to_string()))?;
-    sqlite_request(value).map_err(js_error)
+    call_sqlite_bridge(SQLITE_REQUEST_BRIDGE, &value)?
+        .dyn_into::<js_sys::Promise>()
+        .map_err(|_| {
+            WebSqliteError::new(
+                "invalid_bridge",
+                "Fission Web SQLite request bridge did not return a Promise",
+            )
+        })
 }
 
 async fn await_response<R: DeserializeOwned>(
@@ -628,24 +1287,23 @@ async fn await_response<R: DeserializeOwned>(
 }
 
 fn ensure_sqlite_bridge() -> Result<(), WebSqliteError> {
-    let bridge = js_sys::Reflect::get(
-        &js_sys::global(),
-        &JsValue::from_str("__fissionSqliteRequest"),
-    )
-    .map_err(js_error)?;
-    let close = js_sys::Reflect::get(
-        &js_sys::global(),
-        &JsValue::from_str("__fissionSqliteCloseDatabase"),
-    )
-    .map_err(js_error)?;
-    if bridge.is_function() && close.is_function() {
-        Ok(())
-    } else {
-        Err(WebSqliteError::new(
-            "unavailable",
-            crate::MISSING_WEB_SQLITE_BRIDGE_ERROR,
-        ))
-    }
+    sqlite_bridge_function(SQLITE_REQUEST_BRIDGE)?;
+    sqlite_bridge_function(SQLITE_CLOSE_DATABASE_BRIDGE)?;
+    Ok(())
+}
+
+fn sqlite_bridge_function(name: &str) -> Result<js_sys::Function, WebSqliteError> {
+    let value =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str(name)).map_err(js_error)?;
+    value
+        .dyn_into::<js_sys::Function>()
+        .map_err(|_| WebSqliteError::new("unavailable", crate::MISSING_WEB_SQLITE_BRIDGE_ERROR))
+}
+
+fn call_sqlite_bridge(name: &str, argument: &JsValue) -> Result<JsValue, WebSqliteError> {
+    sqlite_bridge_function(name)?
+        .call1(&js_sys::global(), argument)
+        .map_err(js_error)
 }
 
 fn js_error(value: JsValue) -> WebSqliteError {

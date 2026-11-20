@@ -10,9 +10,10 @@ mod web;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub use web::{
     WebSqliteAuthorizerAction, WebSqliteAuthorizerDecision, WebSqliteAuthorizerPolicy,
-    WebSqliteAuthorizerRule, WebSqliteChangesetConflictPolicy, WebSqliteJobResult,
-    WebSqliteJobStep, WebSqliteOperationContext, WebSqliteSession, WebSqliteStore,
-    WebSqliteTransaction, WebSqliteTransactionOptions,
+    WebSqliteAuthorizerRule, WebSqliteChangesetConflictPolicy, WebSqliteImport, WebSqliteJobResult,
+    WebSqliteJobStep, WebSqliteOperationContext, WebSqliteSession, WebSqliteSnapshot,
+    WebSqliteStagedDatabase, WebSqliteStore, WebSqliteTransaction, WebSqliteTransactionOptions,
+    MAX_WEB_SQLITE_STREAM_CHUNK_BYTES,
 };
 
 pub const FISSION_STORE_SCHEMA: &str = r#"

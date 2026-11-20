@@ -1,0 +1,15 @@
+[package]
+name = "fission-store-sqlite-duplicate-source-link"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fission-store-sqlite-current = { package = "fission-store-sqlite", path = "../../..", features = ["web"] }
+fission-store-sqlite-previous = { package = "fission-store-sqlite", git = "https://github.com/fission-ui/fission.git", rev = "c7075c0e37c7d94d2e0ba3acd4e2963120a44c2b", features = ["web"] }
+wasm-bindgen = "0.2"
