@@ -37,14 +37,7 @@ done
 
 # Fission's vendored proxy has no whitespace on otherwise blank lines. The
 # published 3.53.0 package contains indentation on those same blank lines.
-python3 - "$OUTPUT_DIR/sqlite3-opfs-async-proxy.js" <<'PY'
-from pathlib import Path
-import sys
-
-proxy = Path(sys.argv[1])
-lines = proxy.read_text().splitlines()
-proxy.write_text("\n".join(line if line.strip() else "" for line in lines) + "\n")
-PY
+python3 "$SCRIPT_DIR/normalize_sqlite_wasm_proxy.py" "$OUTPUT_DIR/sqlite3-opfs-async-proxy.js"
 
 grep -Fq 'SQLITE_VERSION "3.53.0"' "$OUTPUT_DIR/sqlite3.mjs"
 wasm_exports="$(wasm-objdump -x "$OUTPUT_DIR/sqlite3.wasm")"
