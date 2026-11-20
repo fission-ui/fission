@@ -65,9 +65,9 @@ mod browser {
     async fn stream_snapshot(
         snapshot: &mut WebSqliteSnapshot,
         import: &mut WebSqliteImport,
+        mut copied: u64,
     ) -> Result<u64, JsValue> {
         let expected_bytes = snapshot.byte_len();
-        let mut copied = 0u64;
         while let Some(chunk) = snapshot
             .read_chunk(MAX_WEB_SQLITE_STREAM_CHUNK_BYTES)
             .await
@@ -93,7 +93,7 @@ mod browser {
     ) -> Result<WebSqliteStagedDatabase, JsValue> {
         let mut snapshot = source.begin_snapshot().await.map_err(failure)?;
         let mut import = target.begin_import().await.map_err(failure)?;
-        stream_snapshot(&mut snapshot, &mut import).await?;
+        stream_snapshot(&mut snapshot, &mut import, 0).await?;
         import.finish_stage().await.map_err(failure)
     }
 
@@ -241,7 +241,7 @@ mod browser {
             .await
             .map_err(failure)?;
         live_edit.commit().await.map_err(failure)?;
-        stream_snapshot(&mut snapshot, &mut import).await?;
+        stream_snapshot(&mut snapshot, &mut import, first_chunk.len() as u64).await?;
 
         let staged = import.finish_stage().await.map_err(failure)?;
         read_label(&staged, "before").await?;
@@ -350,7 +350,12 @@ mod browser {
             ))
             .await
             .map_err(failure)?;
-        stream_snapshot(&mut race_snapshot, &mut race_import).await?;
+        stream_snapshot(
+            &mut race_snapshot,
+            &mut race_import,
+            first_race_chunk.len() as u64,
+        )
+        .await?;
         let mut race_stage = race_import.finish_stage().await.map_err(failure)?;
         match race_stage.install_into_empty_target().await {
             Err(error) if error.kind == SqlErrorKind::Constraint => {}
