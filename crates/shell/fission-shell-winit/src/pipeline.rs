@@ -2458,6 +2458,7 @@ fn build_local_paint_list(
         }
         Op::Paint(fission_ir::PaintOp::DrawRichText {
             runs,
+            display_breaks,
             wrap,
             caret_index,
             caret_color,
@@ -2506,6 +2507,7 @@ fn build_local_paint_list(
 
             list.push(DisplayOp::DrawRichText {
                 runs: render_runs,
+                display_breaks: display_breaks.clone(),
                 position: rect.origin,
                 bounds: rect,
                 node_id: Some(node_id),
@@ -3027,6 +3029,7 @@ mod tests {
                         typography: Default::default(),
                     },
                 }],
+                display_breaks: Vec::new(),
                 wrap: true,
                 caret_index: None,
                 caret_color: None,

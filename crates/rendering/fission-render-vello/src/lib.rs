@@ -1104,15 +1104,19 @@ mod tests {
         fn apply_backdrop_filter(&mut self, _: Affine, clip: &BezPath, _: Filter) {
             self.backdrop_filters.push(clip.bounding_box());
         }
-        fn fill_glyphs(&mut self, _: Affine, _: PaintType, _: &FontData, _: f32, glyphs: &[Glyph]) {
+        fn fill_glyphs(
+            &mut self,
+            transform: Affine,
+            _: PaintType,
+            _: &FontData,
+            _: f32,
+            glyphs: &[Glyph],
+        ) {
             self.glyphs += glyphs.len();
             for glyph in glyphs {
-                if !self
-                    .glyph_rows
-                    .iter()
-                    .any(|row| (row - glyph.y).abs() < 0.5)
-                {
-                    self.glyph_rows.push(glyph.y);
+                let y = (transform * Point::new(0.0, glyph.y as f64)).y as f32;
+                if !self.glyph_rows.iter().any(|row| (row - y).abs() < 0.5) {
+                    self.glyph_rows.push(y);
                 }
             }
         }
@@ -1453,6 +1457,7 @@ mod tests {
             glyphs: Vec::new(),
             caret_stops: Vec::new(),
             selection_boxes: Vec::new(),
+            display_breaks: Vec::new(),
         };
         let mut painter = RecordingPainter::default();
         {
@@ -1482,6 +1487,43 @@ mod tests {
             "text layout wrapped onto two lines is painted on two lines, rows at {:?}",
             painter.glyph_rows
         );
+    }
+
+    #[test]
+    fn rich_text_display_break_paints_the_next_segment_after_its_gap() {
+        let gap = 28.0;
+        let text = "abécd";
+        let painter = render_ops(vec![DisplayOp::DrawRichText {
+            runs: vec![fission_render::TextRun {
+                text: text.into(),
+                style: test_style(),
+            }],
+            display_breaks: vec![fission_ir::op::TextDisplayBreak {
+                text_offset: "abé".len(),
+                gap_after: gap,
+            }],
+            position: LayoutPoint::new(0.0, 0.0),
+            bounds: LayoutRect::new(0.0, 0.0, 200.0, 120.0),
+            node_id: None,
+            wrap: false,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+            annotations: Vec::new(),
+            resolved_layout: None,
+        }]);
+        let mut rows = painter.glyph_rows;
+        rows.sort_by(f32::total_cmp);
+
+        assert_eq!(
+            rows.len(),
+            2,
+            "one baseline should be painted for each segment"
+        );
+        assert!(rows[1] - rows[0] > gap);
     }
 
     #[test]
@@ -4184,6 +4226,7 @@ impl<'a> VelloRenderer<'a> {
                 }
                 DisplayOp::DrawRichText {
                     runs,
+                    display_breaks,
                     position,
                     bounds,
                     wrap,
@@ -4212,6 +4255,145 @@ impl<'a> VelloRenderer<'a> {
                     #[cfg(target_arch = "wasm32")]
                     if let Some(started) = rich_input_started {
                         trace_web_test_stage(387, started.elapsed().as_millis() as u32);
+                    }
+                    if !display_breaks.is_empty() {
+                        let segments =
+                            fission_layout::split_text_display_segments(&rich.text, display_breaks);
+                        if segments.len() > 1 {
+                            let available_width = resolved_layout
+                                .as_ref()
+                                .and_then(|layout| layout.constraint_width)
+                                .or_else(|| {
+                                    (*wrap && bounds.size.width > 0.0).then_some(bounds.size.width)
+                                });
+                            let segment_wrap = *wrap
+                                || (caret_index.is_none()
+                                    && resolved_layout
+                                        .as_ref()
+                                        .is_some_and(|layout| layout.constraint_width.is_some()));
+                            let mut fallback_y = 0.0;
+
+                            for (segment_index, segment) in segments.iter().enumerate() {
+                                let text = &rich.text[segment.shape_byte_range.clone()];
+                                let styles = rich
+                                    .styles
+                                    .iter()
+                                    .filter_map(|(range, style)| {
+                                        let start = range.start.max(segment.shape_byte_range.start);
+                                        let end = range.end.min(segment.shape_byte_range.end);
+                                        (start < end).then(|| {
+                                            (
+                                                start - segment.shape_byte_range.start
+                                                    ..end - segment.shape_byte_range.start,
+                                                style.clone(),
+                                            )
+                                        })
+                                    })
+                                    .collect::<Vec<_>>();
+                                let inline_boxes = rich
+                                    .inline_boxes
+                                    .iter()
+                                    .filter(|inline_box| {
+                                        inline_box.index >= segment.shape_byte_range.start
+                                            && (inline_box.index < segment.shape_byte_range.end
+                                                || (inline_box.index
+                                                    == segment.shape_byte_range.end
+                                                    && (segment_index + 1 == segments.len()
+                                                        || segment.shape_byte_range.end
+                                                            < segment.byte_range.end)))
+                                    })
+                                    .map(|inline_box| crate::text::RichInlineBox {
+                                        id: inline_box.id,
+                                        index: inline_box.index - segment.shape_byte_range.start,
+                                        width: inline_box.width,
+                                        height: inline_box.height,
+                                    })
+                                    .collect::<Vec<_>>();
+                                let segment_y = if segment_index == 0 {
+                                    0.0
+                                } else {
+                                    resolved_layout
+                                        .as_ref()
+                                        .and_then(|layout| {
+                                            layout.display_breaks.iter().find(|display_break| {
+                                                display_break.text_offset
+                                                    == segment.byte_range.start
+                                            })
+                                        })
+                                        .map(|display_break| display_break.gap_rect.bottom())
+                                        .unwrap_or(fallback_y)
+                                };
+                                let resolved_segment_bottom =
+                                    resolved_layout.as_ref().map(|layout| {
+                                        segment
+                                            .break_after
+                                            .and_then(|display_break| {
+                                                layout.display_breaks.iter().find(|resolved| {
+                                                    resolved.text_offset
+                                                        == display_break.text_offset
+                                                })
+                                            })
+                                            .map(|display_break| display_break.gap_rect.y())
+                                            .unwrap_or(layout.size.height)
+                                    });
+                                let segment_height = resolved_segment_bottom
+                                    .map(|bottom| (bottom - segment_y).max(0.0))
+                                    .unwrap_or_else(|| {
+                                        let segment_layout = self.measurer.layout_rich(
+                                            text,
+                                            rich.base_size,
+                                            rich.base_color,
+                                            &styles,
+                                            &inline_boxes,
+                                            if segment_wrap { available_width } else { None },
+                                        );
+                                        VelloTextMeasurer::layout_measured_size(&segment_layout).1
+                                    });
+                                let segment_position = fission_render::LayoutPoint::new(
+                                    position.x,
+                                    position.y + segment_y,
+                                );
+                                let segment_bounds = fission_render::LayoutRect::new(
+                                    bounds.origin.x,
+                                    bounds.origin.y + segment_y,
+                                    bounds.size.width,
+                                    (bounds.origin.y + bounds.size.height
+                                        - (bounds.origin.y + segment_y))
+                                        .max(0.0),
+                                );
+                                let local_caret = caret_index.and_then(|caret| {
+                                    let is_final_segment = segment_index + 1 == segments.len();
+                                    (caret >= segment.byte_range.start
+                                        && (caret < segment.byte_range.end
+                                            || (is_final_segment
+                                                && caret == segment.byte_range.end)))
+                                        .then_some(caret - segment.byte_range.start)
+                                });
+                                self.render_text(
+                                    text,
+                                    rich.base_size,
+                                    rich.base_color,
+                                    false,
+                                    segment_wrap,
+                                    segment_position,
+                                    segment_bounds,
+                                    None,
+                                    local_caret,
+                                    *caret_color,
+                                    *caret_width,
+                                    *caret_height,
+                                    *caret_radius,
+                                    *paragraph_style,
+                                    &inline_boxes,
+                                    &styles,
+                                );
+
+                                fallback_y = segment_y + segment_height;
+                                if let Some(display_break) = segment.break_after {
+                                    fallback_y += display_break.gap_after;
+                                }
+                            }
+                            continue;
                     }
                     if let Some(first) = runs.first() {
                         if runs.iter().all(|run| run.style == first.style)

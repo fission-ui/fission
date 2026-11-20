@@ -172,6 +172,31 @@ pub struct CompositeStyle {
 
 pub type LayoutUnit = f32;
 
+/// A layout-only break in rich text, indexed by a UTF-8 byte offset at a
+/// grapheme boundary in the unchanged logical text value.
+///
+/// The break starts a new visual segment and inserts `gap_after` layout points
+/// before the following segment. It is not part of the text value, selection,
+/// accessibility value, or clipboard content.
+/// When a break follows LF or CRLF, that separator stays in the logical text
+/// but is omitted from the preceding shaped segment so it cannot add a blank
+/// line before the visual gap. Callers should place paragraph breaks just
+/// after the separator.
+///
+/// Vello-based renderers paint these breaks. The Static site and Terminal
+/// renderers currently ignore this metadata. The Static site renderer keeps
+/// native text-control values unchanged, and the Terminal renderer remains
+/// row-based, so neither can represent this layout gap in its current model.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TextDisplayBreak {
+    /// UTF-8 byte offset in the concatenated rich-text runs. The offset must
+    /// also be a grapheme boundary so shaping, selection, and caret positions
+    /// remain aligned.
+    pub text_offset: usize,
+    /// Additional visual space after the break, in layout points.
+    pub gap_after: LayoutUnit,
+}
+
 /// A declarative layout length resolved by the constraint engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Length {
@@ -2254,6 +2279,9 @@ pub enum PaintOp {
     },
     DrawRichText {
         runs: Vec<TextRun>,
+        /// Optional layout-only breaks that do not change the logical text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        display_breaks: Vec<TextDisplayBreak>,
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
@@ -2438,6 +2466,7 @@ impl std::hash::Hash for PaintOp {
             }
             Self::DrawRichText {
                 runs,
+                display_breaks,
                 wrap,
                 caret_index,
                 caret_color,
@@ -2448,6 +2477,16 @@ impl std::hash::Hash for PaintOp {
             } => {
                 3_u8.hash(state);
                 runs.hash(state);
+                display_breaks.len().hash(state);
+                for display_break in display_breaks {
+                    display_break.text_offset.hash(state);
+                    let gap_after = if display_break.gap_after == 0.0 {
+                        0.0
+                    } else {
+                        display_break.gap_after
+                    };
+                    gap_after.to_bits().hash(state);
+                }
                 wrap.hash(state);
                 caret_index.hash(state);
                 caret_color.hash(state);

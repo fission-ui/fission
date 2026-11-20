@@ -5,8 +5,8 @@ use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;
 use crate::ActionEnvelope;
 pub use fission_ir::op::{
     FontFeature, FontVariation, TextBaseline, TextDecoration, TextDecorationLines,
-    TextDecorationStyle, TextHyphenation, TextLeadingDistribution, TextLineBreakPolicy, TextShadow,
-    TextTypography,
+    TextDecorationStyle, TextDisplayBreak, TextHyphenation, TextLeadingDistribution,
+    TextLineBreakPolicy, TextShadow, TextTypography,
 };
 use fission_ir::semantics::Hyperlink;
 use fission_ir::{
@@ -906,6 +906,10 @@ pub struct Text {
     pub text_scaler: Option<TextScaler>,
     pub typography: TextTypography,
     pub wrap: bool,
+    /// Visual-only breaks in UTF-8 byte offsets at grapheme boundaries of the
+    /// resolved text. Place paragraph breaks after LF or CRLF separators.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_breaks: Vec<TextDisplayBreak>,
     pub text_align: IrTextAlign,
     pub text_direction: IrTextDirection,
     pub text_width_basis: IrTextWidthBasis,
@@ -1039,6 +1043,12 @@ impl Text {
 
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    /// Adds visual-only breaks without inserting characters into the text.
+    pub fn display_breaks(mut self, breaks: impl Into<Vec<TextDisplayBreak>>) -> Self {
+        self.display_breaks = breaks.into();
         self
     }
 
@@ -1214,6 +1224,10 @@ pub struct RichText {
     pub text_width_basis: IrTextWidthBasis,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
+    /// Visual-only breaks in UTF-8 byte offsets at grapheme boundaries of the
+    /// concatenated runs. Place paragraph breaks after LF or CRLF separators.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_breaks: Vec<TextDisplayBreak>,
     pub strut_line_height: Option<f32>,
     pub text_height_behavior: IrTextHeightBehavior,
     pub selection_range: Option<(usize, usize)>,
@@ -1385,6 +1399,12 @@ impl RichText {
 
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    /// Adds visual-only breaks without changing rich-text runs or annotations.
+    pub fn display_breaks(mut self, breaks: impl Into<Vec<TextDisplayBreak>>) -> Self {
+        self.display_breaks = breaks.into();
         self
     }
 
@@ -1853,6 +1873,7 @@ impl Lower for Text {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
+                display_breaks: self.display_breaks.clone(),
                 wrap: self.wrap,
                 caret_index: None,
                 caret_color: None,
@@ -2023,6 +2044,7 @@ impl Lower for RichText {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
+                display_breaks: self.display_breaks.clone(),
                 wrap: self.wrap,
                 caret_index: None,
                 caret_color: None,

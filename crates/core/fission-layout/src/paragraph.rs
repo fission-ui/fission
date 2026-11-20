@@ -1,5 +1,99 @@
 use crate::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
+use fission_ir::op::TextDisplayBreak;
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
+use unicode_segmentation::UnicodeSegmentation;
+
+/// A contiguous logical-text segment after applying visual-only display breaks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextDisplaySegment {
+    /// Grapheme range in the unchanged logical text.
+    pub grapheme_range: Range<usize>,
+    /// UTF-8 byte range assigned to this segment in the unchanged logical text.
+    /// It includes a trailing line separator when the break follows one.
+    pub byte_range: Range<usize>,
+    /// Range shaped and painted for this segment. A line separator immediately
+    /// before a display break remains in `byte_range` but is omitted here so
+    /// it cannot create a trailing blank line before the gap.
+    pub shape_byte_range: Range<usize>,
+    /// Break after this segment, if it is not the final segment.
+    pub break_after: Option<TextDisplayBreak>,
+}
+
+/// Split text at valid UTF-8 byte offsets that are also grapheme boundaries.
+///
+/// Breaks at the beginning or end of the value, negative/non-finite gaps, and
+/// offsets inside a grapheme or outside the value are ignored. Duplicate offsets
+/// are coalesced to their largest requested gap.
+pub fn split_text_display_segments(
+    text: &str,
+    breaks: &[TextDisplayBreak],
+) -> Vec<TextDisplaySegment> {
+    let mut grapheme_bytes = text
+        .grapheme_indices(true)
+        .map(|(byte_offset, _)| byte_offset)
+        .collect::<Vec<_>>();
+    grapheme_bytes.push(text.len());
+    let grapheme_count = grapheme_bytes.len().saturating_sub(1);
+
+    let mut breaks = breaks
+        .iter()
+        .copied()
+        .filter_map(|display_break| {
+            let grapheme_index = grapheme_bytes
+                .binary_search(&display_break.text_offset)
+                .ok()?;
+            (grapheme_index > 0
+                && grapheme_index < grapheme_count
+                && display_break.gap_after.is_finite()
+                && display_break.gap_after >= 0.0)
+                .then_some((display_break, grapheme_index))
+        })
+        .collect::<Vec<_>>();
+    breaks.sort_by_key(|(display_break, _)| display_break.text_offset);
+    let mut unique_breaks: Vec<(TextDisplayBreak, usize)> = Vec::with_capacity(breaks.len());
+    for display_break in breaks {
+        if let Some(previous) = unique_breaks.last_mut() {
+            if previous.0.text_offset == display_break.0.text_offset {
+                previous.0.gap_after = previous.0.gap_after.max(display_break.0.gap_after);
+                continue;
+            }
+        }
+        unique_breaks.push(display_break);
+    }
+
+    let mut segments = Vec::with_capacity(unique_breaks.len() + 1);
+    let mut start = 0usize;
+    for (display_break, end) in unique_breaks {
+        let byte_start = grapheme_bytes[start];
+        let byte_end = grapheme_bytes[end];
+        let shape_end = if text[..byte_end].ends_with("\r\n") {
+            byte_end - 2
+        } else if text[..byte_end].ends_with('\n') {
+            byte_end - 1
+        } else {
+            byte_end
+        };
+        segments.push(TextDisplaySegment {
+            grapheme_range: start..end,
+            byte_range: byte_start..byte_end,
+            shape_byte_range: byte_start..shape_end,
+            break_after: Some(display_break),
+        });
+        start = end;
+    }
+
+    if start < grapheme_count || segments.is_empty() {
+        segments.push(TextDisplaySegment {
+            grapheme_range: start..grapheme_count,
+            byte_range: grapheme_bytes[start]..grapheme_bytes[grapheme_count],
+            shape_byte_range: grapheme_bytes[start]..grapheme_bytes[grapheme_count],
+            break_after: None,
+        });
+    }
+
+    segments
+}
 
 /// Per-line metrics from the same shaped paragraph used for paint and hit testing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,6 +159,15 @@ pub struct ParagraphCaretStop {
     pub height: LayoutUnit,
 }
 
+/// Resolved geometry for a display-only break, in paragraph-local coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ResolvedParagraphDisplayBreak {
+    /// UTF-8 byte offset in the unchanged logical text.
+    pub text_offset: usize,
+    /// Paragraph-local rectangle reserved for the visual gap.
+    pub gap_rect: LayoutRect,
+}
+
 /// Immutable, backend-neutral summary of one resolved paragraph.
 ///
 /// The width is the exact wrapping constraint. Layout snapshots retain this
@@ -85,6 +188,9 @@ pub struct ResolvedParagraphLayout {
     pub caret_stops: Vec<ParagraphCaretStop>,
     /// Atomic boxes from which arbitrary selection geometry is formed.
     pub selection_boxes: Vec<ParagraphSelectionBox>,
+    /// Layout-only page/line gaps exposed for aligned page backgrounds.
+    #[serde(default)]
+    pub display_breaks: Vec<ResolvedParagraphDisplayBreak>,
 }
 
 impl ResolvedParagraphLayout {
@@ -98,6 +204,7 @@ impl ResolvedParagraphLayout {
             glyphs: Vec::new(),
             caret_stops: Vec::new(),
             selection_boxes: Vec::new(),
+            display_breaks: Vec::new(),
         }
     }
 

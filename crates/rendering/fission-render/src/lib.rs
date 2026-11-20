@@ -1,6 +1,6 @@
 use fission_ir::op::{
     EmbedKind, ImageAlignment, ImageBatchInstance, ImageRequest, ImageSampling, RichTextAnnotation,
-    TextParagraphStyle,
+    TextDisplayBreak, TextParagraphStyle,
 };
 use fission_ir::WidgetId;
 pub use fission_layout::{
@@ -230,6 +230,9 @@ pub enum DisplayOp {
     },
     DrawRichText {
         runs: Vec<TextRun>,
+        /// Visual-only breaks over the concatenated logical text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        display_breaks: Vec<TextDisplayBreak>,
         position: LayoutPoint,
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
