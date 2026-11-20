@@ -156,6 +156,29 @@ before opening the file and keeps it active until the stream is exhausted or
 dropped. Consumers should import selected database files into their own managed
 storage; the stream does not make the picked file a live SQLite connection.
 
+After a macOS save, `READ_PICKED_FILE` can stream the selected destination back
+through its opaque handle. macOS reactivates the retained `NSSavePanel` URL's
+security scope while the stream is consumed and never returns the URL or path to
+the app. This supports reopening the file's contents for import or validation;
+other hosts currently report this operation as unsupported.
+
+This read stream does not make a provider-backed save destination a live
+PersonalDB database. Zoffice's current Save As fork job and
+`ZofficeOfficeStore::open` require a `PathBuf`, while a stream provides only
+sequential bytes. To retarget the live database without copying it, the
+end-to-end contract must replace `ForkNativeSaveAsRequest.destination_path`
+with an opaque provider identity. The PersonalDB adapter must open a
+host-owned database-file provider and keep its lease for the full connection
+lifetime, implementing SQLite's random reads and writes, truncate, sync, and
+locking through that provider. On macOS, Fission can keep the selected URL and
+security-scope lease inside the provider; serialized app state and job payloads
+must carry only the opaque identity. The current Fission capability API does
+not yet transfer such a long-lived provider into PersonalDB, so opaque Save As
+cannot currently retarget the live database or save later in place. Copying the
+snapshot into a local database and streaming snapshots back can support
+import/export, but duplicates storage and does not provide direct live-file
+semantics.
+
 Android printing stages the PDF in the application's private cache, copies it
 to the system spooler on a bounded background writer, and honours cancellation
 during the copy. The original PDF is not rasterised. The adapter reports that

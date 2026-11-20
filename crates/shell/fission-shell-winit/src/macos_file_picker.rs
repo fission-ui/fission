@@ -1,9 +1,10 @@
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemPermission, FileWriteSource,
     FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest,
-    PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile, SaveFileDestination,
-    WritableFileHandle, WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult,
-    PICK_OPEN_FILES, PICK_SAVE_FILE, WRITE_PICKED_FILE,
+    PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
+    ReadPickedFileRequest, ReadPickedFileResult, SaveFileDestination, WritableFileHandle,
+    WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES,
+    PICK_SAVE_FILE, READ_PICKED_FILE, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -67,6 +68,58 @@ pub(crate) fn register_macos_file_picker_capabilities(async_registry: &mut Async
             Ok(WritePickedFileResult { byte_len })
         },
     );
+    async_registry.register_operation_capability(
+        READ_PICKED_FILE,
+        |request: ReadPickedFileRequest, ctx: CapabilityCtx| async move {
+            read_picked_file_with(request, &ctx)
+        },
+    );
+}
+
+fn read_picked_file_with(
+    request: ReadPickedFileRequest,
+    ctx: &CapabilityCtx,
+) -> Result<ReadPickedFileResult, FileSystemError> {
+    let file = picked_files()
+        .lock()
+        .map_err(|_| FileSystemError::new("registry_failed", "save file registry is unavailable"))?
+        .get(&request.file.id)
+        .cloned()
+        .ok_or_else(|| {
+            FileSystemError::new(
+                "invalid_handle",
+                "the macOS save destination is no longer active",
+            )
+        })?;
+    let access = file.scope.as_ref().map(|scope| scope.start_accessing());
+    let metadata = std::fs::metadata(&file.path).map_err(|error| {
+        FileSystemError::new(
+            "read_failed",
+            format!("failed to inspect selected file: {error}"),
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(FileSystemError::new(
+            "not_a_file",
+            "the selected save destination is not a regular file",
+        ));
+    }
+    let byte_len = metadata.len();
+    drop(access);
+
+    let requested_chunk_size = request
+        .preferred_chunk_bytes
+        .filter(|bytes| *bytes > 0)
+        .map(|bytes| bytes as usize)
+        .unwrap_or(DEFAULT_FILE_STREAM_CHUNK_SIZE);
+    let stream = ctx.register_data_stream(Box::pin(MacosPickedFileDataStream::new(
+        file,
+        requested_chunk_size.min(MAX_FILE_STREAM_CHUNK_SIZE),
+    )));
+    Ok(ReadPickedFileResult {
+        stream,
+        byte_len: Some(byte_len),
+    })
 }
 
 fn pick_open_files_with(
@@ -541,6 +594,7 @@ mod tests {
         register_macos_file_picker_capabilities(&mut registry);
         assert!(registry.has_operation_capability(PICK_OPEN_FILES));
         assert!(registry.has_operation_capability(PICK_SAVE_FILE));
+        assert!(registry.has_operation_capability(READ_PICKED_FILE));
         assert!(registry.has_operation_capability(WRITE_PICKED_FILE));
     }
 
@@ -669,6 +723,78 @@ mod tests {
         .unwrap();
         assert_eq!(written, 15);
         assert_eq!(std::fs::read(&path).unwrap(), b"streamed export");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn picked_save_file_round_trips_through_opaque_stream_capabilities() {
+        let path = temp_path();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
+        let result = pick_save_file_with(
+            PickSaveFileRequest {
+                suggested_name: "workspace.sqlite".into(),
+                ..Default::default()
+            },
+            |_| {
+                Ok(Some(MacosPickedFile {
+                    path: path.clone(),
+                    name: "workspace.sqlite".into(),
+                    scope: Some(Arc::new(MacosSecurityScope { url: 0 })),
+                }))
+            },
+        )
+        .unwrap();
+        let Some(SaveFileDestination::WritableFile(handle)) = result.destination else {
+            panic!("expected opaque save handle");
+        };
+        assert!(!serde_json::to_string(&handle)
+            .unwrap()
+            .contains(path.to_string_lossy().as_ref()));
+        let input = ctx.register_data_stream(single_chunk_data_stream(Bytes::from_static(
+            b"sqlite snapshot bytes",
+        )));
+        assert_eq!(
+            ready(write_picked_file(
+                FileWriteSource::Stream(input),
+                &ctx,
+                picked_files()
+                    .lock()
+                    .unwrap()
+                    .get(&handle.id)
+                    .unwrap()
+                    .clone(),
+            ))
+            .unwrap(),
+            21
+        );
+
+        let read = read_picked_file_with(
+            ReadPickedFileRequest {
+                file: handle.clone(),
+                preferred_chunk_bytes: Some(5),
+            },
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(read.byte_len, Some(21));
+        let mut stream = ctx.open_data_stream(read.stream).unwrap();
+        let mut actual = Vec::new();
+        let mut context = Context::from_waker(Waker::noop());
+        match stream.as_mut().poll_next(&mut context) {
+            Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+            Poll::Ready(Some(Err(error))) => panic!("save destination read failed: {error:?}"),
+            other => panic!("unexpected first read result: {other:?}"),
+        }
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+                Poll::Ready(Some(Err(error))) => panic!("save destination read failed: {error:?}"),
+                Poll::Ready(None) => break,
+                Poll::Pending => panic!("native file reads complete synchronously"),
+            }
+        }
+        assert_eq!(actual, b"sqlite snapshot bytes");
+        picked_files().lock().unwrap().remove(&handle.id);
         std::fs::remove_file(path).unwrap();
     }
 }

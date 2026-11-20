@@ -484,6 +484,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
         },
     );
     async_registry.register_operation_capability(
+        fission_core::READ_PICKED_FILE,
+        |_request: fission_core::ReadPickedFileRequest, _| async move {
+            Err::<fission_core::ReadPickedFileResult, _>(
+                fission_core::FileSystemError::unsupported("read_picked_file"),
+            )
+        },
+    );
+    async_registry.register_operation_capability(
         fission_core::RESTORE_SAVE_FILE,
         |_request: fission_core::RestoreSaveFileRequest, _| async move {
             Err::<fission_core::RestoreSaveFileResult, _>(

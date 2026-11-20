@@ -47,12 +47,13 @@ use crate::platform_clipboard::{
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
     ForgetSaveFileRequest, ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest,
-    ReadFileRequest, ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest,
-    RestoreSaveFileRequest, StatEntryRequest, WritableFilePermissionRequest, WriteFileRequest,
-    WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY,
-    FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
-    REMOVE_ENTRY, RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY, WRITABLE_FILE_PERMISSION,
-    WRITE_FILE, WRITE_PICKED_FILE,
+    ReadFileRequest, ReadPickedFileRequest, ReleaseDirectoryRequest, RemoveEntryRequest,
+    RestoreDirectoryRequest, RestoreSaveFileRequest, StatEntryRequest,
+    WritableFilePermissionRequest, WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY,
+    DIRECTORY_PERMISSION, FORGET_DIRECTORY, FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY,
+    PICK_SAVE_FILE, READ_FILE, READ_PICKED_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY,
+    RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY, WRITABLE_FILE_PERMISSION, WRITE_FILE,
+    WRITE_PICKED_FILE,
 };
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
@@ -1156,6 +1157,12 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
 
     pub fn read(self, request: ReadFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(READ_FILE, request)
+    }
+
+    /// Reads a user-selected save destination through its opaque host handle.
+    /// The returned stream remains under the provider's authorization scope.
+    pub fn read_picked_file(self, request: ReadPickedFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(READ_PICKED_FILE, request)
     }
 
     pub fn write(self, request: WriteFileRequest) -> EffectBuilder<'a, 'b, S> {
