@@ -3170,6 +3170,7 @@ dependencies = [
  "fission-diagnostics",
  "fission-ir",
  "serde",
+ "unicode-segmentation",
 ]
 
 [[package]]

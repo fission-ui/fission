@@ -301,6 +301,7 @@ mod tests {
             flex_grow,
             flex_shrink,
             rich_text: None,
+            display_breaks: Vec::new(),
         }
     }
 

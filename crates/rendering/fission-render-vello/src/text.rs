@@ -428,7 +428,7 @@ impl VelloTextMeasurer {
         }
     }
 
-    fn layout_measured_size(layout: &Layout<ParleyBrush>) -> (f32, f32) {
+    pub(crate) fn layout_measured_size(layout: &Layout<ParleyBrush>) -> (f32, f32) {
         let mut width = 0.0_f32;
         let height = layout.lines().fold(0.0_f32, |height, line| {
             let metrics = line.metrics();
@@ -1327,6 +1327,7 @@ impl TextMeasurer for VelloTextMeasurer {
             glyphs,
             caret_stops,
             selection_boxes,
+            display_breaks: Vec::new(),
         }
     }
 

@@ -25,8 +25,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod config;
 mod decoration;
+mod display_breaks;
 mod text_runs;
 pub use config::*;
+use display_breaks::map_display_breaks_through_preedit;
 use text_runs::{clamp_text_offset, split_runs_for_range};
 
 #[cfg(debug_assertions)]
@@ -195,6 +197,15 @@ pub struct TextInput {
     /// of the default single-colour text. The concatenated text of all runs
     /// **must** match `value` exactly.
     pub styled_runs: Option<Vec<fission_ir::op::TextRun>>,
+    /// Visual-only breaks inside the logical text value.
+    ///
+    /// Each offset is a UTF-8 byte offset at a grapheme boundary in the
+    /// concatenated logical value. Active IME replacements remap surrounding
+    /// breaks to the displayed text; breaks inside the replaced range are
+    /// hidden until composition commits. A break never changes editing or
+    /// accessibility text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_breaks: Vec<fission_ir::op::TextDisplayBreak>,
     /// When `true`, the background rect and border are omitted (for embedding
     /// in editor chrome).
     pub borderless: bool,
@@ -381,6 +392,15 @@ impl TextInput {
     pub fn editing_value(mut self, value: crate::TextEditingValue) -> Self {
         self.value = value.text.clone();
         self.editing_value = Some(value);
+        self
+    }
+
+    /// Adds visual-only line/page breaks without changing the logical text.
+    pub fn display_breaks(
+        mut self,
+        breaks: impl Into<Vec<fission_ir::op::TextDisplayBreak>>,
+    ) -> Self {
+        self.display_breaks = breaks.into();
         self
     }
 
@@ -770,6 +790,7 @@ impl Default for TextInput {
             obscuring_character: '•',
             mask: None,
             styled_runs: None,
+            display_breaks: Vec::new(),
             borderless: false,
             capture_tab: false,
             auto_indent: false,
@@ -1215,6 +1236,7 @@ impl Lower for TextInput {
         };
 
         // 2. Text Preparation
+        let displayed_preedit_range = session_display.as_ref().and_then(|(_, range)| *range);
         let (display_text, preedit_range, preedit_cursor_range, caret, anchor) =
             if self.obscure_text {
                 let mut combined = model_text.to_string();
@@ -1229,21 +1251,21 @@ impl Lower for TextInput {
                 let mapped_anchor = Self::masked_byte_offset(&combined, &masked, anchor);
                 (masked, None, None, mapped_caret, mapped_anchor)
             } else {
-                match session_display {
+                match session_display.as_ref() {
                     Some((combined, preedit_range)) => {
                         let (caret, anchor) = retained_session
                             .map(|state| (state.caret, state.anchor))
                             .unwrap_or(model_selection);
                         let cursor_range =
                             retained_session.and_then(|state| state.display_preedit_cursor_range());
-                        let preedit_range = preedit_range.or_else(|| {
+                        let preedit_range = (*preedit_range).or_else(|| {
                             retained_session.and_then(|state| {
                                 state.platform_composing.map(|range| {
                                     (range.start.utf8_offset(), range.end.utf8_offset())
                                 })
                             })
                         });
-                        (combined, preedit_range, cursor_range, caret, anchor)
+                        (combined.clone(), preedit_range, cursor_range, caret, anchor)
                     }
                     None => (
                         model_text.to_string(),
@@ -1257,6 +1279,34 @@ impl Lower for TextInput {
                     ),
                 }
             };
+        let display_breaks_for_paint = if self.obscure_text {
+            Vec::new()
+        } else {
+            retained_session
+                .and_then(|state| {
+                    let committed_text = state.committed_text();
+                    if committed_text != model_text {
+                        // The model has not caught up with a local edit, so the
+                        // caller's byte offsets no longer identify the displayed
+                        // value. Hide the layout hints until they can be mapped.
+                        return None;
+                    }
+                    let preedit = state.preedit.as_ref()?;
+                    let displayed_preedit_range = displayed_preedit_range?;
+                    Some(map_display_breaks_through_preedit(
+                        &self.display_breaks,
+                        preedit.range,
+                        displayed_preedit_range.1 - displayed_preedit_range.0,
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    if retained_session.is_some_and(|state| state.committed_text() != model_text) {
+                        Vec::new()
+                    } else {
+                        self.display_breaks.clone()
+                    }
+                })
+        };
 
         // Construct Runs
         let mut runs = Vec::new();
@@ -1461,6 +1511,7 @@ impl Lower for TextInput {
             text_input_text_node_id(input_id),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
+                display_breaks: display_breaks_for_paint,
                 wrap: self.multiline && self.wrap_mode != TextWrapMode::NoWrap,
                 caret_index: caret_idx,
                 caret_color: Some(cursor_color),

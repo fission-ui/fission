@@ -2,8 +2,10 @@ use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{Env, RuntimeState, VideoStateMap, WebStateMap};
 use fission_core::ui::{TextInput, Widget};
 use fission_core::ScrollStateMap;
+use fission_core::{TextAffinity, TextEditingValue, TextSelection};
+use fission_ir::op::TextDisplayBreak;
 use fission_ir::{CoreIR, Op, PaintOp, WidgetId};
-use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, ResolvedParagraphLayout};
+use fission_layout::{LayoutEngine, LayoutPoint, LayoutRect, LayoutSize, ResolvedParagraphLayout};
 use fission_render::{DisplayOp, RenderScene, Renderer};
 use fission_render_vello::{parley::FontContext, VelloTextMeasurer};
 use fission_shell_winit::Pipeline;
@@ -22,10 +24,25 @@ impl Renderer for CapturingRenderer {
 }
 
 fn input_ir(env: &Env, runtime: &RuntimeState, value: &str, size: f32) -> CoreIR {
+    input_ir_with_breaks(env, runtime, value, size, Vec::new(), None, false)
+}
+
+fn input_ir_with_breaks(
+    env: &Env,
+    runtime: &RuntimeState,
+    value: &str,
+    size: f32,
+    display_breaks: Vec<TextDisplayBreak>,
+    editing_value: Option<TextEditingValue>,
+    multiline: bool,
+) -> CoreIR {
     let widget: Widget = TextInput {
         id: Some(WidgetId::explicit("caret-layout")),
         value: value.into(),
         font_size: Some(size),
+        multiline,
+        display_breaks,
+        editing_value,
         ..Default::default()
     }
     .into();
@@ -38,6 +55,13 @@ fn input_ir(env: &Env, runtime: &RuntimeState, value: &str, size: f32) -> CoreIR
 fn painted_input(
     renderer: &CapturingRenderer,
 ) -> (Option<usize>, LayoutRect, ResolvedParagraphLayout) {
+    painted_input_for(renderer, "hello")
+}
+
+fn painted_input_for(
+    renderer: &CapturingRenderer,
+    expected_text: &str,
+) -> (Option<usize>, LayoutRect, ResolvedParagraphLayout) {
     renderer
         .ops
         .iter()
@@ -48,18 +72,20 @@ fn painted_input(
                 bounds,
                 resolved_layout,
                 ..
-            } if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "hello" => Some((
-                *caret_index,
-                *bounds,
-                resolved_layout.clone().expect("retained text layout"),
-            )),
+            } if runs.iter().map(|run| run.text.as_str()).collect::<String>() == expected_text => {
+                Some((
+                    *caret_index,
+                    *bounds,
+                    resolved_layout.clone().expect("retained text layout"),
+                ))
+            }
             DisplayOp::DrawText {
                 text,
                 caret_index,
                 bounds,
                 resolved_layout,
                 ..
-            } if text == "hello" => Some((
+            } if text == expected_text => Some((
                 *caret_index,
                 *bounds,
                 resolved_layout.clone().expect("retained text layout"),
@@ -168,4 +194,155 @@ fn caret_blinks_repaint_using_the_retained_paragraph() {
             "text and font edits must run layout"
         );
     }
+}
+
+#[test]
+fn text_input_display_break_keeps_byte_selection_and_moves_caret_and_hit_test() {
+    let env = Env::default();
+    let value = "abécd";
+    let selection_start = 2;
+    let page_break = "abé".len();
+    let selection_end = value.len();
+    let editing_value = TextEditingValue::new(
+        value,
+        TextSelection::new(
+            value,
+            selection_start,
+            selection_end,
+            TextAffinity::Downstream,
+        )
+        .expect("valid UTF-8 byte selection"),
+        None,
+    )
+    .expect("valid text editing value");
+    let mut runtime = RuntimeState::default();
+    runtime
+        .interaction
+        .set_focused(Some(WidgetId::explicit("caret-layout")));
+    runtime
+        .caret_visible
+        .insert(WidgetId::explicit("caret-layout"), true);
+
+    let display_break = TextDisplayBreak {
+        text_offset: page_break,
+        gap_after: 28.0,
+    };
+    let mut broken_ir = input_ir_with_breaks(
+        &env,
+        &runtime,
+        value,
+        20.0,
+        vec![display_break],
+        Some(editing_value.clone()),
+        true,
+    );
+    let semantics = broken_ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) => Some(semantics),
+            _ => None,
+        })
+        .expect("TextInput semantics");
+    assert_eq!(semantics.value.as_deref(), Some(value));
+    assert_eq!(
+        semantics.text_selection,
+        Some((selection_start, selection_end))
+    );
+
+    let mut engine = LayoutEngine::new().with_measurer(Arc::new(VelloTextMeasurer::new(Arc::new(
+        Mutex::new(FontContext::new()),
+    ))));
+    let mut renderer = CapturingRenderer::default();
+    let mut pipeline = Pipeline::new();
+    let viewport = LayoutSize::new(640.0, 480.0);
+    pipeline
+        .render(
+            broken_ir,
+            viewport,
+            &mut engine,
+            &ScrollStateMap::default(),
+            &mut renderer,
+            &VideoStateMap::default(),
+            &WebStateMap::default(),
+            &env,
+        )
+        .expect("TextInput with display break frame");
+
+    let (caret, _, paragraph) = painted_input_for(&renderer, value);
+    assert_eq!(caret, Some(selection_end));
+    let painted_value = renderer
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DisplayOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("TextInput paint runs");
+    assert_eq!(painted_value, value);
+    assert_eq!(
+        paragraph
+            .clusters
+            .iter()
+            .map(|cluster| &value[cluster.start_index..cluster.end_index])
+            .collect::<String>(),
+        value
+    );
+    let upstream = paragraph
+        .caret(page_break, true)
+        .expect("upstream caret at the page transition");
+    let downstream = paragraph
+        .caret(page_break, false)
+        .expect("downstream caret at the page transition");
+    assert!(downstream.position.y > upstream.position.y + display_break.gap_after);
+    assert_eq!(
+        paragraph.hit_test(LayoutPoint::new(
+            downstream.position.x + 0.5,
+            downstream.position.y + downstream.height * 0.5,
+        )),
+        page_break
+    );
+
+    let first_page_selection = paragraph.selection_rects(selection_start, page_break);
+    let second_page_selection = paragraph.selection_rects(page_break, selection_end);
+    let gap = paragraph
+        .display_breaks
+        .first()
+        .expect("resolved page gap geometry")
+        .gap_rect;
+    assert!(!first_page_selection.is_empty());
+    assert!(!second_page_selection.is_empty());
+    assert!(first_page_selection
+        .iter()
+        .any(|rect| rect.bottom() <= gap.y()));
+    assert!(second_page_selection
+        .iter()
+        .any(|rect| rect.y() >= gap.bottom()));
+
+    let baseline_ir = input_ir_with_breaks(
+        &env,
+        &runtime,
+        value,
+        20.0,
+        Vec::new(),
+        Some(editing_value),
+        true,
+    );
+    pipeline
+        .render(
+            baseline_ir,
+            viewport,
+            &mut engine,
+            &ScrollStateMap::default(),
+            &mut renderer,
+            &VideoStateMap::default(),
+            &WebStateMap::default(),
+            &env,
+        )
+        .expect("TextInput without display break frame");
+    let (baseline_caret, _, baseline) = painted_input_for(&renderer, value);
+    assert_eq!(baseline_caret, Some(selection_end));
+    assert!(downstream.position.y > baseline.caret(page_break, false).unwrap().position.y);
 }

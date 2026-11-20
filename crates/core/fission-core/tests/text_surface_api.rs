@@ -13,7 +13,7 @@ use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
     RichTextAnnotation, TextAlign, TextDecoration, TextDecorationLines, TextDirection,
-    TextHeightBehavior, TextOverflow, TextShadow, TextTypography, TextWidthBasis,
+    TextDisplayBreak, TextHeightBehavior, TextOverflow, TextShadow, TextTypography, TextWidthBasis,
 };
 use fission_ir::semantics::{ActionTrigger, FocusPolicy};
 use fission_ir::{CoreIR, FlexDirection};
@@ -269,6 +269,40 @@ fn rich_text_widget_lowers_multiple_runs() {
         runs[1].style.font_size,
         Env::default().theme.tokens.typography.body_medium_size * 1.25
     );
+}
+
+#[test]
+fn text_widgets_lower_display_breaks_without_changing_run_text() {
+    let text = "one\ntwo";
+    let display_break = TextDisplayBreak {
+        text_offset: "one\n".len(),
+        gap_after: 24.0,
+    };
+    let widgets: [Widget; 2] = [
+        Text::new(text).display_breaks(vec![display_break]).into(),
+        RichText::new(vec![RichTextRun::new("one\n"), RichTextRun::new("two")])
+            .display_breaks(vec![display_break])
+            .into(),
+    ];
+
+    for widget in widgets {
+        let ir = lower_node(widget);
+        let (runs, breaks) = paint_ops(&ir)
+            .find_map(|op| match op {
+                PaintOp::DrawRichText {
+                    runs,
+                    display_breaks,
+                    ..
+                } => Some((runs, display_breaks)),
+                _ => None,
+            })
+            .expect("rich text paint op");
+        assert_eq!(
+            runs.iter().map(|run| run.text.as_str()).collect::<String>(),
+            text
+        );
+        assert_eq!(breaks.as_slice(), &[display_break]);
+    }
 }
 
 #[test]

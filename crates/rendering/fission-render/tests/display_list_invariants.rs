@@ -139,6 +139,10 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                 typography: Default::default(),
             },
         }],
+        display_breaks: vec![fission_ir::op::TextDisplayBreak {
+            text_offset: 4,
+            gap_after: 24.0,
+        }],
         position: LayoutPoint::new(8.0, 12.0),
         bounds,
         node_id: None,
