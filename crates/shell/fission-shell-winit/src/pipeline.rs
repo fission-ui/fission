@@ -620,6 +620,11 @@ impl Pipeline {
                     .iter()
                     .any(transform_binding_may_change_output))
         {
+            if render_trace_enabled() {
+                eprintln!(
+                    "[pipeline] full-frame damage fallback: scroll or dynamic motion/presence changed"
+                );
+            }
             self.clear_pending_damage();
         }
         let scene = self
@@ -636,14 +641,35 @@ impl Pipeline {
             patch_texture_compositor_plans(&mut self.retained_texture_plans, scene);
         }
 
-        if self.pending_partial_damage
-            && render_viewport_size == layout_viewport_size
-            && self.video_surfaces.is_empty()
-            && self.web_surfaces.is_empty()
-            && self.native_surfaces.is_empty()
-            && !scene_has_backdrop_filter(scene)
-        {
-            stats.damage_rect = self.pending_damage_rect(scene, render_viewport_size);
+        if self.pending_partial_damage {
+            let fallback_reason = if render_viewport_size != layout_viewport_size {
+                Some("render/layout viewport mismatch")
+            } else if !self.video_surfaces.is_empty()
+                || !self.web_surfaces.is_empty()
+                || !self.native_surfaces.is_empty()
+            {
+                Some("dynamic surface present")
+            } else if scene_has_backdrop_filter(scene) {
+                Some("backdrop filter present")
+            } else {
+                stats.damage_rect = self.pending_damage_rect(scene, render_viewport_size);
+                stats
+                    .damage_rect
+                    .is_none()
+                    .then_some(
+                        "no conservative damage rect (unsupported op/transform, missing target, or over 72% of viewport)",
+                    )
+            };
+            if render_trace_enabled() {
+                if let Some(rect) = stats.damage_rect {
+                    eprintln!("[pipeline] bounded damage region: {rect:?}");
+                } else {
+                    eprintln!(
+                        "[pipeline] full-frame damage fallback: {}",
+                        fallback_reason.unwrap_or("no pending damage candidate")
+                    );
+                }
+            }
         }
         let paint_ops_total = count_render_paint_ops(scene) as u32;
         self.clear_pending_damage();
@@ -2302,7 +2328,8 @@ fn scene_damage_for_nodes(
 ) -> Option<LayoutRect> {
     fn add_op_bounds(
         op: &DisplayOp,
-        transform: Option<[f32; 16]>,
+        transform: &mut Option<[f32; 16]>,
+        transform_stack: &mut Vec<Option<[f32; 16]>>,
         targets: &HashSet<WidgetId>,
         found: &mut HashSet<WidgetId>,
         damage: &mut Option<LayoutRect>,
@@ -2310,15 +2337,40 @@ fn scene_damage_for_nodes(
         match op {
             DisplayOp::CachedScene { list, .. } => {
                 for nested in &list.ops {
-                    if !add_op_bounds(nested, transform, targets, found, damage) {
+                    if !add_op_bounds(nested, transform, transform_stack, targets, found, damage) {
                         return false;
                     }
                 }
                 true
             }
-            DisplayOp::BackdropFilter { .. }
-            | DisplayOp::Translate(_)
-            | DisplayOp::Transform(_) => false,
+            DisplayOp::Save => {
+                transform_stack.push(*transform);
+                true
+            }
+            DisplayOp::Restore => {
+                let Some(saved_transform) = transform_stack.pop() else {
+                    return false;
+                };
+                *transform = saved_transform;
+                true
+            }
+            DisplayOp::Translate(offset) => {
+                let Some(next) =
+                    append_damage_transform(*transform, translation_matrix(offset.x, offset.y))
+                else {
+                    return false;
+                };
+                *transform = Some(next);
+                true
+            }
+            DisplayOp::Transform(next) => {
+                let Some(next) = append_damage_transform(*transform, *next) else {
+                    return false;
+                };
+                *transform = Some(next);
+                true
+            }
+            DisplayOp::BackdropFilter { .. } => false,
             DisplayOp::DrawText {
                 bounds,
                 position,
@@ -2340,7 +2392,9 @@ fn scene_damage_for_nodes(
                 ..
             } if targets.contains(node_id) => {
                 found.insert(*node_id);
-                let mut bounds = transform_rect_bounds(*bounds, transform);
+                let Some(mut bounds) = transformed_damage_rect(*bounds, *transform) else {
+                    return false;
+                };
                 let Some(caret) = resolved_layout.caret(*caret_index, false) else {
                     // The renderer falls back to its own text-layout engine when no resolved
                     // caret stop exists. Its exact pixels cannot be bounded here safely.
@@ -2355,7 +2409,9 @@ fn scene_damage_for_nodes(
                     caret_width.unwrap_or(2.0).max(1.0),
                     height,
                 );
-                let caret_bounds = transform_rect_bounds(caret_bounds, transform);
+                let Some(caret_bounds) = transformed_damage_rect(caret_bounds, *transform) else {
+                    return false;
+                };
                 bounds = union_rects(bounds, caret_bounds);
                 *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
                 true
@@ -2413,12 +2469,38 @@ fn scene_damage_for_nodes(
                 ..
             } if targets.contains(node_id) => {
                 found.insert(*node_id);
-                let bounds = transform_rect_bounds(*bounds, transform);
+                let Some(bounds) = transformed_damage_rect(*bounds, *transform) else {
+                    return false;
+                };
                 *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
                 true
             }
             _ => true,
         }
+    }
+
+    fn visit_list(
+        list: &DisplayList,
+        initial_transform: Option<[f32; 16]>,
+        targets: &HashSet<WidgetId>,
+        found: &mut HashSet<WidgetId>,
+        damage: &mut Option<LayoutRect>,
+    ) -> bool {
+        let mut transform = initial_transform;
+        let mut transform_stack = Vec::new();
+        for op in &list.ops {
+            if !add_op_bounds(
+                op,
+                &mut transform,
+                &mut transform_stack,
+                targets,
+                found,
+                damage,
+            ) {
+                return false;
+            }
+        }
+        transform_stack.is_empty() && transform == initial_transform
     }
 
     fn visit_node(
@@ -2429,19 +2511,20 @@ fn scene_damage_for_nodes(
         damage: &mut Option<LayoutRect>,
     ) -> bool {
         match node {
-            RenderNode::Paint(list) => list
-                .ops
-                .iter()
-                .all(|op| add_op_bounds(op, transform, targets, found, damage)),
+            RenderNode::Paint(list) => visit_list(list, transform, targets, found, damage),
             RenderNode::Layer(layer) => {
                 if !layer.style.blend_mode.is_normal() {
                     return false;
                 }
-                let transform = layer
-                    .style
-                    .transform
-                    .map(|next| append_transform(transform, next).expect("transform exists"))
-                    .or(transform);
+                let transform = match layer.style.transform {
+                    Some(next) => {
+                        let Some(transform) = append_damage_transform(transform, next) else {
+                            return false;
+                        };
+                        Some(transform)
+                    }
+                    None => transform,
+                };
                 layer
                     .children
                     .iter()
@@ -2460,6 +2543,47 @@ fn scene_damage_for_nodes(
         }
     }
     damage
+}
+
+fn append_damage_transform(current: Option<[f32; 16]>, next: [f32; 16]) -> Option<[f32; 16]> {
+    if !is_damage_transform_supported(&next) {
+        return None;
+    }
+    let combined = match current {
+        Some(current) => multiply_matrix(current, next),
+        None => next,
+    };
+    is_damage_transform_supported(&combined).then_some(combined)
+}
+
+fn is_damage_transform_supported(matrix: &[f32; 16]) -> bool {
+    const EPSILON: f32 = 0.0001;
+    let close_to =
+        |value: f32, expected: f32| value.is_finite() && (value - expected).abs() <= EPSILON;
+    matrix.iter().all(|value| value.is_finite())
+        && [2, 3, 6, 7, 8, 9, 11, 14]
+            .into_iter()
+            .all(|index| close_to(matrix[index], 0.0))
+        && close_to(matrix[10], 1.0)
+        && close_to(matrix[15], 1.0)
+}
+
+fn transformed_damage_rect(rect: LayoutRect, transform: Option<[f32; 16]>) -> Option<LayoutRect> {
+    let rect_is_finite = |rect: LayoutRect| {
+        rect.origin.x.is_finite()
+            && rect.origin.y.is_finite()
+            && rect.size.width.is_finite()
+            && rect.size.height.is_finite()
+            && rect.size.width >= 0.0
+            && rect.size.height >= 0.0
+    };
+    if !rect_is_finite(rect)
+        || transform.is_some_and(|matrix| !is_damage_transform_supported(&matrix))
+    {
+        return None;
+    }
+    let bounds = transform_rect_bounds(rect, transform);
+    rect_is_finite(bounds).then_some(bounds)
 }
 
 fn transform_rect_bounds(rect: LayoutRect, transform: Option<[f32; 16]>) -> LayoutRect {
@@ -3674,6 +3798,108 @@ mod tests {
         assert!(
             updated.damage_rect.is_some(),
             "button repaint should be local"
+        );
+    }
+
+    #[test]
+    fn balanced_display_list_transforms_keep_local_damage_bounded() {
+        fn scene(transform_ops: &[DisplayOp], balance_save: bool, color: Color) -> RenderScene {
+            let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
+            let mut list = fission_render::DisplayList::new(viewport);
+            if !transform_ops.is_empty() {
+                list.push(DisplayOp::Save);
+                list.ops.extend_from_slice(transform_ops);
+            }
+            list.push(DisplayOp::DrawRect {
+                rect: LayoutRect::new(10.0, 12.0, 16.0, 12.0),
+                fill: Some(Fill::Solid(color)),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+                bounds: LayoutRect::new(10.0, 12.0, 16.0, 12.0),
+                node_id: Some(WidgetId::explicit("pipeline.damage.translated-target")),
+                corner_radii: None,
+                border_sides: None,
+            });
+            if balance_save && !transform_ops.is_empty() {
+                list.push(DisplayOp::Restore);
+            }
+            RenderScene::from_display_list(list)
+        }
+
+        let target = WidgetId::explicit("pipeline.damage.translated-target");
+        let mut pipeline = Pipeline::new();
+        pipeline.pending_previous_scene = Some(scene(
+            &[DisplayOp::Translate(LayoutPoint::new(40.0, 30.0))],
+            true,
+            Color {
+                r: 10,
+                g: 20,
+                b: 30,
+                a: 255,
+            },
+        ));
+        pipeline.pending_damage_nodes.insert(target);
+        pipeline.pending_required_damage_nodes.insert(target);
+
+        let translated = scene(
+            &[
+                DisplayOp::Translate(LayoutPoint::new(25.0, 10.0)),
+                DisplayOp::Transform(translation_matrix(20.0, 20.0)),
+            ],
+            true,
+            Color {
+                r: 30,
+                g: 40,
+                b: 50,
+                a: 255,
+            },
+        );
+        let viewport = LayoutSize::new(320.0, 240.0);
+        let damage = pipeline
+            .pending_damage_rect(&translated, viewport)
+            .expect("balanced Translate and Transform ops should be bounded");
+        assert_eq!(
+            damage,
+            LayoutRect::new(50.0, 42.0, 21.0, 12.0),
+            "damage should cover the old and new accumulated transform bounds"
+        );
+        assert!(damage.width() < viewport.width && damage.height() < viewport.height);
+
+        let mut unsupported = translation_matrix(40.0, 30.0);
+        unsupported[2] = 0.25;
+        let unsupported = scene(
+            &[DisplayOp::Transform(unsupported)],
+            true,
+            Color {
+                r: 50,
+                g: 60,
+                b: 70,
+                a: 255,
+            },
+        );
+        assert!(
+            pipeline
+                .pending_damage_rect(&unsupported, viewport)
+                .is_none(),
+            "unsupported 3D terms must keep the full-frame fallback"
+        );
+
+        let unbalanced = scene(
+            &[DisplayOp::Translate(LayoutPoint::new(40.0, 30.0))],
+            false,
+            Color {
+                r: 70,
+                g: 80,
+                b: 90,
+                a: 255,
+            },
+        );
+        assert!(
+            pipeline
+                .pending_damage_rect(&unbalanced, viewport)
+                .is_none(),
+            "an unbalanced transform stack must keep the full-frame fallback"
         );
     }
 
