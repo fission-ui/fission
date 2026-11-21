@@ -220,6 +220,7 @@ pub struct Pipeline {
     active_scrollbar_nodes: HashSet<WidgetId>,
     last_motion_values: HashMap<(WidgetId, MotionPropertyId), fission_core::MotionValue>,
     last_presence_state: HashMap<WidgetId, fission_core::motion::PresencePhase>,
+    last_motion_had_active_output: bool,
 }
 
 pub struct PipelineStats {
@@ -267,6 +268,7 @@ impl Pipeline {
             active_scrollbar_nodes: HashSet::new(),
             last_motion_values: HashMap::new(),
             last_presence_state: HashMap::new(),
+            last_motion_had_active_output: false,
         }
     }
 
@@ -602,6 +604,7 @@ impl Pipeline {
         if self.pending_partial_damage
             && (self.scroll_offsets_changed(scroll_map)
                 || motion_state_may_change_output(
+                    self.last_motion_had_active_output,
                     &self.last_motion_values,
                     &self.last_presence_state,
                     animation_map,
@@ -661,6 +664,7 @@ impl Pipeline {
             .collect();
         self.last_motion_values.clone_from(&animation_map.values);
         self.last_presence_state.clone_from(&animation_map.presence);
+        self.last_motion_had_active_output = motion_state_has_active_output(animation_map);
 
         Ok(stats)
     }
@@ -3066,7 +3070,11 @@ fn resolve_scalar_value(
 }
 
 fn scroll_offsets_changed(prev: &HashMap<WidgetId, u32>, scroll_map: &ScrollStateMap) -> bool {
-    if prev.len() != scroll_map.offsets.len() {
+    if prev.len() != scroll_map.offsets.len()
+        || prev
+            .keys()
+            .any(|node_id| !scroll_map.offsets.contains_key(node_id))
+    {
         return true;
     }
 
@@ -3088,19 +3096,13 @@ fn viewport_render_transform_changed(
 }
 
 fn motion_state_may_change_output(
+    previous_had_active_output: bool,
     previous_values: &HashMap<(WidgetId, MotionPropertyId), fission_core::MotionValue>,
     previous_presence: &HashMap<WidgetId, fission_core::motion::PresencePhase>,
     animation_map: &MotionStateMap,
 ) -> bool {
-    !animation_map.active.is_empty()
-        || !animation_map.ripples.is_empty()
-        || animation_map.presence.values().any(|phase| {
-            matches!(
-                phase,
-                fission_core::motion::PresencePhase::Entering
-                    | fission_core::motion::PresencePhase::Exiting
-            )
-        })
+    previous_had_active_output
+        || motion_state_has_active_output(animation_map)
         || previous_values.len() != animation_map.values.len()
         || animation_map
             .values
@@ -3111,6 +3113,18 @@ fn motion_state_may_change_output(
             .presence
             .iter()
             .any(|(id, phase)| previous_presence.get(id) != Some(phase))
+}
+
+fn motion_state_has_active_output(animation_map: &MotionStateMap) -> bool {
+    !animation_map.active.is_empty()
+        || !animation_map.ripples.is_empty()
+        || animation_map.presence.values().any(|phase| {
+            matches!(
+                phase,
+                fission_core::motion::PresencePhase::Entering
+                    | fission_core::motion::PresencePhase::Exiting
+            )
+        })
 }
 
 fn transform_binding_may_change_output(binding: &TransformBinding) -> bool {
@@ -3241,8 +3255,9 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 mod tests {
     use super::{
         InvalidationSet, Pipeline, build_local_paint_list, composite_transform_matrix,
-        motion_state_may_change_output, scroll_offsets_changed, transform_rect_bounds,
-        translation_matrix, viewport_render_transform_changed, viewport_transform_matrix,
+        motion_state_has_active_output, motion_state_may_change_output, scroll_offsets_changed,
+        transform_rect_bounds, translation_matrix, viewport_render_transform_changed,
+        viewport_transform_matrix,
     };
     use fission_core::ScrollStateMap;
     use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
@@ -3711,6 +3726,20 @@ mod tests {
     }
 
     #[test]
+    fn removed_and_reset_scroll_offsets_invalidate_cache() {
+        let id = WidgetId::derived(3, &[0]);
+        let mut prev = HashMap::new();
+        prev.insert(id, 12.0f32.to_bits());
+
+        let removed = ScrollStateMap::default();
+        assert!(scroll_offsets_changed(&prev, &removed));
+
+        let mut reset = ScrollStateMap::default();
+        reset.set_offset(id, 0.0);
+        assert!(scroll_offsets_changed(&prev, &reset));
+    }
+
+    #[test]
     fn changed_viewport_transform_invalidates_pending_damage() {
         let viewport = WidgetId::explicit("pipeline.partial-damage.viewport");
         let mut ir = CoreIR::new();
@@ -3768,6 +3797,7 @@ mod tests {
         let previous_presence = HashMap::new();
         let mut motion = MotionStateMap::default();
         assert!(!motion_state_may_change_output(
+            false,
             &previous_values,
             &previous_presence,
             &motion
@@ -3778,6 +3808,7 @@ mod tests {
             fission_core::MotionValue::Scalar(0.5),
         );
         assert!(motion_state_may_change_output(
+            false,
             &previous_values,
             &previous_presence,
             &motion
@@ -3797,16 +3828,26 @@ mod tests {
             }],
         );
         assert!(motion_state_may_change_output(
+            false,
             &previous_values,
             &previous_presence,
             &motion
         ));
 
         motion.ripples.clear();
+        assert!(motion_state_may_change_output(
+            true,
+            &previous_values,
+            &previous_presence,
+            &motion
+        ));
+        assert!(!motion_state_has_active_output(&motion));
+
         motion
             .presence
             .insert(id, fission_core::motion::PresencePhase::Entering);
         assert!(motion_state_may_change_output(
+            false,
             &previous_values,
             &previous_presence,
             &motion
