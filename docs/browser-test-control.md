@@ -146,3 +146,21 @@ FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
   webgpu_renderer_resizes_without_recreating_mapped_config_buffer \
   -- --ignored --nocapture
 ```
+
+The Web shell accessibility projection has an opt-in browser test against the
+existing `examples/web-smoke` Fission app. Build and serve that app with Web test
+control enabled, then set `FISSION_ACCESSIBILITY_WEB_URL` to its URL and run:
+
+```sh
+FISSION_WEB_TEST_CONTROL=1 examples/web-smoke/platforms/web/build-wasm.sh
+python3 -m http.server 8123 --bind 127.0.0.1
+# In another terminal from the repository root:
+FISSION_ACCESSIBILITY_WEB_URL=http://127.0.0.1:8123/examples/web-smoke/platforms/web/ \
+cargo test -p fission-test-driver --test browser_accessibility -- --ignored --nocapture
+```
+
+The test checks that the canvas is hidden from the accessibility tree, semantic
+controls are projected without painting over the canvas, DOM activation reaches
+the Fission action handler, native text and slider input reach their Fission
+update handlers, and Shift+Tab uses the runtime focus order. Set
+`FISSION_ACCESSIBILITY_OUTPUT` to retain the initial PNG for visual review.

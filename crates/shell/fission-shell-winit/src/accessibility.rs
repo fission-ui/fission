@@ -1592,7 +1592,9 @@ mod imp {
     use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
     use winit::window::Window;
 
-    use crate::web_accessibility::{WebAccessibilityEvent, WebAccessibilityProjection};
+    use crate::web_accessibility::{
+        NativeInputValue, WebAccessibilityEvent, WebAccessibilityProjection,
+    };
 
     pub struct AccessibilityBridge {
         proxy: EventLoopProxy<TestEvent>,
@@ -1709,9 +1711,222 @@ mod imp {
                                 .unwrap_or(false);
                         }
                     }
+                    WebAccessibilityEvent::NativeInput(input) => {
+                        changed |= apply_native_input(runtime, ir, _layout, input);
+                    }
+                    WebAccessibilityEvent::TraverseFocus { reverse } => {
+                        let next = fission_core::hit_test::find_next_focus_node(
+                            ir,
+                            runtime.runtime_state.interaction.focused,
+                            reverse,
+                        );
+                        if let Some(target) = next
+                            && !fission_core::hit_test::is_interaction_inert(ir, target)
+                            && let Some(fission_ir::Op::Semantics(semantics)) =
+                                ir.nodes.get(&target).map(|node| &node.op)
+                            && !semantics.disabled
+                        {
+                            changed |= runtime
+                                .set_focused_widget(
+                                    ir,
+                                    Some(target),
+                                    fission_core::TextEditSource::Keyboard,
+                                )
+                                .unwrap_or(false);
+                        }
+                    }
                 }
             }
             changed
+        }
+    }
+
+    fn apply_native_input(
+        runtime: &mut Runtime,
+        ir: &CoreIR,
+        layout: Option<&LayoutSnapshot>,
+        input: NativeInputValue,
+    ) -> bool {
+        let Some(fission_ir::Op::Semantics(semantics)) =
+            ir.nodes.get(&input.widget_id).map(|node| &node.op)
+        else {
+            return false;
+        };
+        if semantics.disabled || semantics.read_only {
+            return false;
+        }
+        if semantics.role == fission_ir::Role::Slider {
+            let Ok(value) = input.value.parse::<f32>() else {
+                return false;
+            };
+            let Some((target, action, action_input)) =
+                fission_core::input::slider::prepare_slider_change(ir, input.widget_id, value)
+            else {
+                return false;
+            };
+            return runtime
+                .dispatch_with_input(action, target, &action_input)
+                .is_ok();
+        }
+        if !semantics.supports_text_editing()
+            || !semantics
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.trigger == fission_ir::ActionTrigger::TextChanged)
+        {
+            return false;
+        }
+        let Some(layout) = layout else {
+            return false;
+        };
+        let Some(command) = native_text_edit_command(&input) else {
+            return false;
+        };
+        runtime
+            .apply_text_edit_command_to(ir, layout, input.widget_id, command)
+            .unwrap_or(false)
+    }
+
+    fn native_text_edit_command(input: &NativeInputValue) -> Option<fission_core::TextEditCommand> {
+        if input.is_composing || input.input_type == "insertCompositionText" {
+            return None;
+        }
+        let end = fission_core::TextPosition::at_end(&input.value);
+        let start = input
+            .selection_start
+            .map(|offset| fission_core::TextPosition::from_utf16(&input.value, offset as usize))
+            .transpose()
+            .ok()?
+            .unwrap_or(end);
+        let extent = input
+            .selection_end
+            .map(|offset| fission_core::TextPosition::from_utf16(&input.value, offset as usize))
+            .transpose()
+            .ok()?
+            .unwrap_or(start);
+        let (base, extent) = match input.selection_direction.as_deref() {
+            Some("backward") => (extent, start),
+            _ => (start, extent),
+        };
+        let Ok(value) = fission_core::TextEditingValue::new(
+            input.value,
+            fission_core::TextSelection {
+                base,
+                extent,
+                affinity: fission_core::TextAffinity::Downstream,
+            },
+            None,
+        ) else {
+            return None;
+        };
+        let (source, phase) = crate::classify_web_text_value(&input.input_type);
+        Some(fission_core::TextEditCommand::SetValue {
+            value,
+            source,
+            phase,
+        })
+    }
+
+    #[cfg(test)]
+    mod web_tests {
+        use super::native_text_edit_command;
+        use crate::web_accessibility::NativeInputValue;
+        use fission_core::{
+            TextEditCommand, TextEditSource, TextPosition, TextSelection, TextValuePhase,
+        };
+        use fission_ir::WidgetId;
+
+        fn input(
+            value: &str,
+            start: Option<u32>,
+            end: Option<u32>,
+            direction: Option<&str>,
+            input_type: &str,
+            is_composing: bool,
+        ) -> NativeInputValue {
+            NativeInputValue {
+                widget_id: WidgetId::from_u128(1),
+                value: value.to_owned(),
+                selection_start: start,
+                selection_end: end,
+                selection_direction: direction.map(str::to_owned),
+                input_type: input_type.to_owned(),
+                is_composing,
+            }
+        }
+
+        #[test]
+        fn native_input_preserves_utf16_selection_direction() {
+            let command = native_text_edit_command(&input(
+                "a🙂b",
+                Some(1),
+                Some(3),
+                Some("backward"),
+                "insertText",
+                false,
+            ));
+            let Some(TextEditCommand::SetValue {
+                value,
+                source,
+                phase,
+            }) = command
+            else {
+                panic!("native input should produce a complete text edit");
+            };
+            assert_eq!(value.text, "a🙂b");
+            assert_eq!(source, TextEditSource::Keyboard);
+            assert_eq!(phase, TextValuePhase::Committed);
+            assert_eq!(
+                value.selection,
+                TextSelection {
+                    base: TextPosition::from_utf16("a🙂b", 3).unwrap(),
+                    extent: TextPosition::from_utf16("a🙂b", 1).unwrap(),
+                    affinity: fission_core::TextAffinity::Downstream,
+                }
+            );
+        }
+
+        #[test]
+        fn native_input_skips_composition_updates_and_commits_final_composition() {
+            assert!(
+                native_text_edit_command(&input(
+                    "に",
+                    Some(1),
+                    Some(1),
+                    None,
+                    "insertCompositionText",
+                    true,
+                ))
+                .is_none()
+            );
+
+            let command = native_text_edit_command(&input(
+                "日本語",
+                Some(3),
+                Some(3),
+                None,
+                "insertFromComposition",
+                false,
+            ));
+            assert!(matches!(
+                command,
+                Some(TextEditCommand::SetValue {
+                    source: TextEditSource::Ime,
+                    phase: TextValuePhase::CompositionCommitted,
+                    ..
+                })
+            ));
+        }
+
+        #[test]
+        fn native_input_rejects_utf16_offsets_inside_surrogate_pairs() {
+            assert!(
+                native_text_edit_command(
+                    &input("🙂", Some(1), Some(1), None, "insertText", false,)
+                )
+                .is_none()
+            );
         }
     }
 

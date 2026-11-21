@@ -22,7 +22,7 @@ use fission_test_driver::TestEvent;
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{
     Element, Event, HtmlCanvasElement, HtmlElement, HtmlInputElement, HtmlTextAreaElement,
-    MouseEvent,
+    InputEvent, KeyboardEvent, MouseEvent,
 };
 use winit::event_loop::EventLoopProxy;
 
@@ -41,6 +41,7 @@ struct NodeDescription {
     native_value: Option<String>,
     intercept_click: Option<bool>,
     pointer_interactive: bool,
+    captures_native_input: bool,
 }
 
 struct ActivationListener {
@@ -53,11 +54,26 @@ struct FocusListeners {
     focus_out: Closure<dyn FnMut(Event)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativeInputListeners {
+    input: Closure<dyn FnMut(InputEvent)>,
+}
+
 pub(crate) enum WebAccessibilityEvent {
     Activate(WidgetId),
     Focus(WidgetId),
     Blur(WidgetId),
+    NativeInput(NativeInputValue),
+    TraverseFocus { reverse: bool },
+}
+
+pub(crate) struct NativeInputValue {
+    pub(crate) widget_id: WidgetId,
+    pub(crate) value: String,
+    pub(crate) selection_start: Option<u32>,
+    pub(crate) selection_end: Option<u32>,
+    pub(crate) selection_direction: Option<String>,
+    pub(crate) input_type: String,
+    pub(crate) is_composing: bool,
 }
 
 struct MountedNode {
@@ -70,6 +86,7 @@ struct MountedNode {
     native_value: Option<String>,
     activation: Option<ActivationListener>,
     focus: Option<FocusListeners>,
+    native_input: Option<NativeInputListeners>,
 }
 
 /// Keyed DOM projection for one Fission canvas.
@@ -87,6 +104,7 @@ pub(crate) struct WebAccessibilityProjection {
     proxy: EventLoopProxy<TestEvent>,
     original_canvas_aria_hidden: Option<String>,
     original_canvas_role: Option<String>,
+    keydown: Closure<dyn FnMut(KeyboardEvent)>,
 }
 
 impl WebAccessibilityProjection {
@@ -108,6 +126,23 @@ impl WebAccessibilityProjection {
             .map_err(crate::js_error_to_string)?;
         root.set_attribute("style", ROOT_STYLE)
             .map_err(crate::js_error_to_string)?;
+        let events = Rc::new(std::cell::RefCell::new(VecDeque::new()));
+        let keydown_events = events.clone();
+        let keydown_proxy = proxy.clone();
+        let keydown = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+            if event.key() != "Tab" || event.default_prevented() {
+                return;
+            }
+            event.prevent_default();
+            keydown_events
+                .borrow_mut()
+                .push_back(WebAccessibilityEvent::TraverseFocus {
+                    reverse: event.shift_key(),
+                });
+            crate::send_wake_event(&keydown_proxy);
+        }) as Box<dyn FnMut(_)>);
+        root.add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
+            .map_err(crate::js_error_to_string)?;
         document
             .body()
             .ok_or_else(|| "browser document has no body".to_string())?
@@ -127,11 +162,12 @@ impl WebAccessibilityProjection {
             canvas,
             root,
             nodes: HashMap::new(),
-            events: Rc::new(std::cell::RefCell::new(VecDeque::new())),
+            events,
             suppress_focus_events: Rc::new(Cell::new(false)),
             proxy,
             original_canvas_aria_hidden,
             original_canvas_role,
+            keydown,
         })
     }
 
@@ -336,6 +372,12 @@ impl WebAccessibilityProjection {
             &self.proxy,
             &self.suppress_focus_events,
         )?;
+        update_native_input_listeners(
+            mounted,
+            description.captures_native_input,
+            &self.events,
+            &self.proxy,
+        )?;
         mounted.parent = description.parent;
         mounted.attributes.clone_from(&description.attributes);
         mounted.text_content.clone_from(&description.text_content);
@@ -394,6 +436,9 @@ impl Drop for WebAccessibilityProjection {
         if let Some(parent) = self.root.parent_node() {
             let _ = parent.remove_child(&self.root);
         }
+        let _ = self
+            .root
+            .remove_event_listener_with_callback("keydown", self.keydown.as_ref().unchecked_ref());
         restore_attribute(
             &self.canvas,
             "aria-hidden",
@@ -440,6 +485,12 @@ fn remove_mounted_node(mut mounted: MountedNode) -> Result<(), String> {
             )
             .map_err(crate::js_error_to_string)?;
     }
+    if let Some(listeners) = mounted.native_input.take() {
+        mounted
+            .element
+            .remove_event_listener_with_callback("input", listeners.input.as_ref().unchecked_ref())
+            .map_err(crate::js_error_to_string)?;
+    }
     if let Some(parent) = mounted.element.parent_node() {
         parent
             .remove_child(&mounted.element)
@@ -482,6 +533,7 @@ fn mount_node(
         native_value: description.native_value.clone(),
         activation: None,
         focus: None,
+        native_input: None,
     };
     sync_native_properties(&mounted.element, description, None, false)?;
     update_activation_listener(&mut mounted, description.intercept_click, events, proxy)?;
@@ -492,7 +544,98 @@ fn mount_node(
         proxy,
         suppress_focus_events,
     )?;
+    update_native_input_listeners(
+        &mut mounted,
+        description.captures_native_input,
+        events,
+        proxy,
+    )?;
     Ok(mounted)
+}
+
+fn update_native_input_listeners(
+    mounted: &mut MountedNode,
+    enabled: bool,
+    events: &Rc<std::cell::RefCell<VecDeque<WebAccessibilityEvent>>>,
+    proxy: &EventLoopProxy<TestEvent>,
+) -> Result<(), String> {
+    match (mounted.native_input.as_ref(), enabled) {
+        (Some(_), true) | (None, false) => return Ok(()),
+        _ => {}
+    }
+    if let Some(listeners) = mounted.native_input.take() {
+        mounted
+            .element
+            .remove_event_listener_with_callback("input", listeners.input.as_ref().unchecked_ref())
+            .map_err(crate::js_error_to_string)?;
+    }
+    if !enabled {
+        return Ok(());
+    }
+
+    let events_for_input = events.clone();
+    let proxy_for_input = proxy.clone();
+    let element_for_input = mounted.element.clone();
+    let widget_id = mounted.widget_id;
+    let input = Closure::wrap(Box::new(move |event: InputEvent| {
+        let Some(value) = read_native_input_value(
+            widget_id,
+            &element_for_input,
+            event.input_type(),
+            event.is_composing(),
+        ) else {
+            return;
+        };
+        events_for_input
+            .borrow_mut()
+            .push_back(WebAccessibilityEvent::NativeInput(value));
+        crate::send_wake_event(&proxy_for_input);
+    }) as Box<dyn FnMut(_)>);
+    mounted
+        .element
+        .add_event_listener_with_callback("input", input.as_ref().unchecked_ref())
+        .map_err(crate::js_error_to_string)?;
+    mounted.native_input = Some(NativeInputListeners { input });
+    Ok(())
+}
+
+fn read_native_input_value(
+    widget_id: WidgetId,
+    element: &Element,
+    input_type: String,
+    is_composing: bool,
+) -> Option<NativeInputValue> {
+    let (value, selection_start, selection_end, selection_direction) =
+        match element.tag_name().as_str() {
+            "INPUT" => {
+                let input = element.clone().dyn_into::<HtmlInputElement>().ok()?;
+                (
+                    input.value(),
+                    input.selection_start().ok().flatten(),
+                    input.selection_end().ok().flatten(),
+                    input.selection_direction().ok().flatten(),
+                )
+            }
+            "TEXTAREA" => {
+                let textarea = element.clone().dyn_into::<HtmlTextAreaElement>().ok()?;
+                (
+                    textarea.value(),
+                    textarea.selection_start().ok().flatten(),
+                    textarea.selection_end().ok().flatten(),
+                    textarea.selection_direction().ok().flatten(),
+                )
+            }
+            _ => return None,
+        };
+    Some(NativeInputValue {
+        widget_id,
+        value,
+        selection_start,
+        selection_end,
+        selection_direction,
+        input_type,
+        is_composing,
+    })
 }
 
 fn update_activation_listener(
@@ -924,6 +1067,7 @@ fn describe_semantics(
         native_value,
         intercept_click,
         pointer_interactive: is_link || tag == "button" || matches!(tag, "input" | "textarea"),
+        captures_native_input: matches!(tag, "input" | "textarea"),
     }
 }
 
@@ -1272,7 +1416,7 @@ fn geometry_style(
 ) -> String {
     let pointer_events = if pointer_interactive { "auto" } else { "none" };
     format!(
-        "position:absolute;left:{:.3}px;top:{:.3}px;width:{:.3}px;height:{:.3}px;display:block;pointer-events:{};color:transparent;background:transparent;outline-offset:2px;white-space:pre-wrap;",
+        "position:absolute;left:{:.3}px;top:{:.3}px;width:{:.3}px;height:{:.3}px;display:block;box-sizing:border-box;margin:0;padding:0;border:0;appearance:none;pointer-events:{};color:transparent;background:transparent;caret-color:transparent;outline:none;box-shadow:none;font:inherit;line-height:inherit;white-space:pre-wrap;",
         canvas_left + x * scale_x,
         canvas_top + y * scale_y,
         width * scale_x,

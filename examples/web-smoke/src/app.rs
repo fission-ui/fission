@@ -17,6 +17,7 @@ const VERIFICATION_LABEL: &str = "Verification code";
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
     pub count: i32,
+    pub slider_value: f32,
     pub primary_text: String,
     pub secondary_text: String,
     pub password: String,
@@ -30,6 +31,11 @@ impl GlobalState for CounterState {}
 #[fission_reducer(Increment)]
 fn on_increment(state: &mut CounterState) {
     state.count += 1;
+}
+
+#[fission_reducer(SetSlider, no_eq)]
+fn set_slider(state: &mut CounterState, value: f32) {
+    state.slider_value = value;
 }
 
 #[fission_reducer(EditPrimary)]
@@ -169,6 +175,16 @@ fission_component! {
                     child: Text("Increment"),
                 )
                 .semantics_identifier("web-smoke.increment"),
+                Slider(
+                    id: WidgetId::explicit("web-smoke.slider"),
+                    semantics_identifier: "web-smoke.slider".to_string(),
+                    label: Some("Smoke test slider".into()),
+                    value: state.slider_value,
+                    min: 0.0_f32,
+                    max: 100.0_f32,
+                    on_change: with_reducer!(cx.build, SetSlider(0.0), set_slider),
+                ),
+                Text(format!("Slider value: {:.0}", state.slider_value)),
             ],
         )
 }
