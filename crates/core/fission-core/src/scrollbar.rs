@@ -1,5 +1,5 @@
 use crate::env::ScrollStateMap;
-use fission_ir::{op::Color, CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId, op::Color};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 
 pub const SCROLLBAR_INSET: f32 = 2.0;
@@ -93,9 +93,13 @@ pub struct ScrollbarPalette {
 
 impl ScrollbarPalette {
     /// Resolves both states from a theme, keeping the active set.
-    pub fn set_theme(&mut self, tokens: &fission_theme::Tokens) {
-        self.resting = ScrollbarStyle::from_tokens(tokens, false);
-        self.active = ScrollbarStyle::from_tokens(tokens, true);
+    pub fn set_theme(&mut self, tokens: &fission_theme::Tokens) -> bool {
+        let resting = ScrollbarStyle::from_tokens(tokens, false);
+        let active = ScrollbarStyle::from_tokens(tokens, true);
+        let changed = self.resting != resting || self.active != active;
+        self.resting = resting;
+        self.active = active;
+        changed
     }
 
     /// Names the scroll views whose bar should come forward.
@@ -430,9 +434,9 @@ fn point_axis(axis: ScrollbarAxis, point: LayoutPoint) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
+        SCROLLBAR_INSET, SCROLLBAR_THICKNESS, ScrollbarAxis, ScrollbarHitKind,
         scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
-        scrollbar_hit_test, scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
-        SCROLLBAR_INSET, SCROLLBAR_THICKNESS,
+        scrollbar_hit_test, scrollbar_point_for_node,
     };
     use crate::env::ScrollStateMap;
     use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
