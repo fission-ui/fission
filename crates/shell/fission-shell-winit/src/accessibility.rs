@@ -12,9 +12,9 @@ mod imp {
         TreeUpdate,
     };
     #[cfg(test)]
-    use fission_core::event::ImeEvent;
-    #[cfg(test)]
     use fission_core::InputEvent;
+    #[cfg(test)]
+    use fission_core::event::ImeEvent;
     use fission_core::{
         ActionEnvelope, ActionId, ActionInput, Runtime, SelectionRegionController, TextAffinity,
         TextPosition as EditingTextPosition,
@@ -1592,11 +1592,24 @@ mod imp {
     use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
     use winit::window::Window;
 
-    pub struct AccessibilityBridge;
+    use crate::web_accessibility::{WebAccessibilityEvent, WebAccessibilityProjection};
+
+    pub struct AccessibilityBridge {
+        proxy: EventLoopProxy<TestEvent>,
+        projection: Option<WebAccessibilityProjection>,
+    }
 
     impl AccessibilityBridge {
-        pub fn new(_proxy: EventLoopProxy<TestEvent>) -> Self {
-            Self
+        pub fn new(proxy: EventLoopProxy<TestEvent>) -> Self {
+            Self {
+                proxy,
+                projection: None,
+            }
+        }
+
+        pub fn attach_canvas(&mut self, canvas: web_sys::HtmlCanvasElement) -> Result<(), String> {
+            self.projection = Some(WebAccessibilityProjection::new(canvas, self.proxy.clone())?);
+            Ok(())
         }
 
         pub fn ensure_adapter(&mut self, _event_loop: &ActiveEventLoop, _window: &Window) {}
@@ -1605,20 +1618,100 @@ mod imp {
 
         pub fn update_tree(
             &mut self,
-            _ir: &CoreIR,
-            _layout: &LayoutSnapshot,
-            _runtime: &Runtime,
+            ir: &CoreIR,
+            layout: &LayoutSnapshot,
+            runtime: &Runtime,
             _scale_factor: f64,
         ) {
+            let Some(projection) = self.projection.as_mut() else {
+                return;
+            };
+            let records = crate::semantic_records::collect_semantic_records(
+                ir,
+                layout,
+                &runtime.runtime_state.scroll,
+            );
+            if let Err(error) = projection.sync(
+                ir,
+                &records,
+                layout.viewport_size,
+                runtime.runtime_state.interaction.focused,
+            ) {
+                eprintln!("fission-shell-winit: accessibility DOM projection failed: {error}");
+            }
         }
 
         pub fn drain_events(
             &mut self,
-            _runtime: &mut Runtime,
-            _ir: Option<&CoreIR>,
+            runtime: &mut Runtime,
+            ir: Option<&CoreIR>,
             _layout: Option<&LayoutSnapshot>,
         ) -> bool {
-            false
+            let Some(projection) = self.projection.as_ref() else {
+                return false;
+            };
+            let mut changed = false;
+            for event in projection.drain_events() {
+                let Some(ir) = ir else {
+                    continue;
+                };
+                match event {
+                    WebAccessibilityEvent::Activate(target) => {
+                        if fission_core::hit_test::is_interaction_inert(ir, target) {
+                            continue;
+                        }
+                        let Some(node) = ir.nodes.get(&target) else {
+                            continue;
+                        };
+                        let fission_ir::Op::Semantics(semantics) = &node.op else {
+                            continue;
+                        };
+                        if semantics.disabled {
+                            continue;
+                        }
+                        changed |= crate::dispatch_semantics_action(
+                            ir,
+                            runtime,
+                            target,
+                            semantics,
+                            fission_ir::ActionTrigger::Default,
+                            fission_core::ActionInput::None,
+                        );
+                    }
+                    WebAccessibilityEvent::Focus(target) => {
+                        if fission_core::hit_test::is_interaction_inert(ir, target) {
+                            continue;
+                        }
+                        let Some(fission_ir::Op::Semantics(semantics)) =
+                            ir.nodes.get(&target).map(|node| &node.op)
+                        else {
+                            continue;
+                        };
+                        if semantics.disabled {
+                            continue;
+                        }
+                        changed |= runtime
+                            .set_focused_widget(
+                                ir,
+                                Some(target),
+                                fission_core::TextEditSource::Accessibility,
+                            )
+                            .unwrap_or(false);
+                    }
+                    WebAccessibilityEvent::Blur(target) => {
+                        if runtime.runtime_state.interaction.focused == Some(target) {
+                            changed |= runtime
+                                .set_focused_widget(
+                                    ir,
+                                    None,
+                                    fission_core::TextEditSource::Accessibility,
+                                )
+                                .unwrap_or(false);
+                        }
+                    }
+                }
+            }
+            changed
         }
     }
 
@@ -1627,4 +1720,4 @@ mod imp {
     }
 }
 
-pub use imp::{window_must_start_hidden, AccessibilityBridge};
+pub use imp::{AccessibilityBridge, window_must_start_hidden};

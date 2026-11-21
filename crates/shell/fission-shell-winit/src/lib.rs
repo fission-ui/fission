@@ -199,7 +199,7 @@ mod web_file_picker;
 mod web_file_system;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
-mod web_links;
+mod web_accessibility;
 #[cfg(target_arch = "wasm32")]
 mod web_print;
 use native_surface::NativeSurfaceRegistry;
@@ -5680,8 +5680,6 @@ where
         #[cfg(target_arch = "wasm32")]
         let browser_route_queue = Rc::new(RefCell::new(VecDeque::new()));
         #[cfg(target_arch = "wasm32")]
-        let web_link_activation_queue = Rc::new(RefCell::new(VecDeque::new()));
-        #[cfg(target_arch = "wasm32")]
         let (initial_browser_route, initial_browser_strategy) =
             navigation::current_browser_location(&web_navigation_config)
                 .map_err(anyhow::Error::msg)?;
@@ -5781,11 +5779,11 @@ where
         #[cfg(not(target_os = "android"))]
         ime_handler.set_window(Some(platform_window.clone()));
         #[cfg(target_arch = "wasm32")]
-        let mut web_link_overlay = platform_window
-            .canvas()
-            .map(web_links::WebLinkOverlay::new)
-            .transpose()
-            .map_err(anyhow::Error::msg)?;
+        if let Some(canvas) = platform_window.canvas() {
+            accessibility_bridge
+                .attach_canvas(canvas)
+                .map_err(anyhow::Error::msg)?;
+        }
         #[cfg(target_os = "android")]
         let mut platform_window: Option<Arc<Window>> = None;
 
@@ -7403,32 +7401,6 @@ where
                         {
                             if web_motion_preference_changed.replace(false) {
                                 invalidations.mark_build();
-                            }
-                            let activations = web_link_activation_queue
-                                .borrow_mut()
-                                .drain(..)
-                                .collect::<Vec<_>>();
-                            for target in activations {
-                                let semantics = pipeline.prev_ir.as_ref().and_then(|ir| {
-                                    ir.nodes.get(&target).and_then(|node| match &node.op {
-                                        Op::Semantics(semantics) => Some(semantics.clone()),
-                                        _ => None,
-                                    })
-                                });
-                                if let (Some(ir), Some(semantics)) =
-                                    (pipeline.prev_ir.as_ref(), semantics)
-                                {
-                                    if dispatch_semantics_action(
-                                        ir,
-                                        &mut runtime,
-                                        target,
-                                        &semantics,
-                                        ActionTrigger::Default,
-                                        ActionInput::None,
-                                    ) {
-                                        invalidations.mark_build();
-                                    }
-                                }
                             }
                             let mut newest_route = None;
                             while let Some(location) = browser_route_queue.borrow_mut().pop_front()
@@ -9687,28 +9659,6 @@ where
                                                 &active_renderer,
                                                 input_at.elapsed().as_secs_f64() * 1000.0,
                                             );
-                                        }
-
-                                        if let (Some(overlay), Some(ir), Some(layout)) = (
-                                            web_link_overlay.as_mut(),
-                                            pipeline.prev_ir.as_ref(),
-                                            pipeline.last_snapshot.as_ref(),
-                                        ) {
-                                            let records = collect_semantic_records(
-                                                ir,
-                                                layout,
-                                                &runtime.runtime_state.scroll,
-                                            );
-                                            if let Err(error) = overlay.sync(
-                                                &records,
-                                                target_viewport,
-                                                &web_link_activation_queue,
-                                                &event_proxy,
-                                            ) {
-                                                eprintln!(
-                                                    "fission-shell-winit: link DOM projection failed: {error}"
-                                                );
-                                            }
                                         }
 
                                         diag::end_frame(diag::FrameStats::default());
