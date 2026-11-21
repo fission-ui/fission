@@ -3596,11 +3596,15 @@ name = "fission-vello-cpu"
 version = "0.2.0-fission.1"
 dependencies = [
  "bytemuck",
+ "crossbeam-channel",
  "fission-glifo",
  "fission-vello-common",
  "hashbrown 0.17.1",
  "log",
+ "ordered-channel",
  "png 0.18.1",
+ "rayon",
+ "thread_local",
 ]
 
 [[package]]
@@ -6757,6 +6761,15 @@ checksum = "5df339f526ea9a60e371768d50efc2f2508c7203290731565d1f7a6f71d21747"
 dependencies = [
  "libc",
  "libredox",
+]
+
+[[package]]
+name = "ordered-channel"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95be4d57809897b5a7539fc15a7dfe0e84141bc3dfaa2e9b1b27caa90acf61ab"
+dependencies = [
+ "crossbeam-channel",
 ]
 
 [[package]]

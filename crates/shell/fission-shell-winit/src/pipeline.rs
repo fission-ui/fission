@@ -5,7 +5,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
-use fission_core::scrollbar::{scrollbar_geometry_for_node, ScrollbarPalette, ScrollbarStyle};
+use fission_core::scrollbar::{ScrollbarPalette, ScrollbarStyle, scrollbar_geometry_for_node};
 use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
@@ -15,8 +15,8 @@ use fission_ir::{
 };
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
-    embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
-    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
+    RenderNode, RenderScene, Renderer, Stroke, embed_surface_id,
 };
 use fission_shell::{NativeSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
@@ -3591,13 +3591,13 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_local_paint_list, composite_transform_matrix, motion_state_fallback,
-        scene_damage_for_nodes, scroll_offsets_changed, transform_rect_bounds, translation_matrix,
-        viewport_render_transform_changed, viewport_transform_matrix, DamageFallback,
-        InvalidationSet, Pipeline,
+        DamageFallback, InvalidationSet, Pipeline, build_local_paint_list,
+        composite_transform_matrix, motion_state_fallback, scene_damage_for_nodes,
+        scroll_offsets_changed, transform_rect_bounds, translation_matrix,
+        viewport_render_transform_changed, viewport_transform_matrix,
     };
-    use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::ScrollStateMap;
+    use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::{MotionPropertyId, MotionStateMap, ViewportStateMap};
     use fission_ir::op::{
         Color, Fill, ImageAlignment, ImageFit, ImageRequest, ImageSource, RichTextAnnotation,
@@ -3610,10 +3610,17 @@ mod tests {
     };
     use fission_layout::{LayoutEngine, LayoutPoint, LayoutRect, LayoutSize};
     use fission_render::{DisplayOp, RenderScene, Renderer};
+    use fission_render_vello::{VelloTextMeasurer, parley::FontContext};
     use std::collections::{HashMap, HashSet};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     struct NullRenderer;
+
+    fn layout_engine_with_text_measurer() -> LayoutEngine {
+        let font_context = Arc::new(Mutex::new(FontContext::new()));
+        let measurer = Arc::new(VelloTextMeasurer::new(font_context));
+        LayoutEngine::new().with_measurer(measurer)
+    }
 
     fn transform_point(matrix: [f32; 16], x: f32, y: f32) -> (f32, f32) {
         (
@@ -4088,7 +4095,7 @@ mod tests {
         }
 
         let mut pipeline = Pipeline::new();
-        let mut layout_engine = LayoutEngine::new();
+        let mut layout_engine = layout_engine_with_text_measurer();
         let scroll = ScrollStateMap::default();
         let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
         let render_size = LayoutSize::new(320.0, 240.0);
@@ -4240,7 +4247,7 @@ mod tests {
             }
             list.push(DisplayOp::DrawRect {
                 rect: LayoutRect::new(10.0, 12.0, 16.0, 12.0),
-                fill: Some(Fill::Solid(color)),
+                fill: Some(fission_render::Fill::Solid(super::render_color(color))),
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
@@ -4332,7 +4339,7 @@ mod tests {
     #[test]
     fn text_reflow_damage_covers_old_and_new_text_and_displaced_paint() {
         let mut pipeline = Pipeline::new();
-        let mut layout_engine = LayoutEngine::new();
+        let mut layout_engine = layout_engine_with_text_measurer();
         let scroll = ScrollStateMap::default();
         let viewport = LayoutRect::new(0.0, 0.0, 120.0, 120.0);
         let render_size = LayoutSize::new(120.0, 120.0);
