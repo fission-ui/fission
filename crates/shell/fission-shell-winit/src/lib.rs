@@ -894,7 +894,7 @@ impl WebCanvasPresenter {
 
     fn present(
         &mut self,
-        rgba: &[u8],
+        update: &fission_render_vello::cpu::CpuFrameUpdate,
         width: u32,
         height: u32,
         scale_factor: f64,
@@ -913,11 +913,14 @@ impl WebCanvasPresenter {
         self.report.width = width.max(1);
         self.report.height = height.max(1);
         self.report.scale_factor = scale_factor;
-        let image =
-            ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), width.max(1), height.max(1))
-                .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
+        let image = ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(update.rgba.as_slice()),
+            update.rect.width.max(1),
+            update.rect.height.max(1),
+        )
+        .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
         self.context
-            .put_image_data(&image, 0.0, 0.0)
+            .put_image_data(&image, f64::from(update.rect.x), f64::from(update.rect.y))
             .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
         Ok(())
     }
@@ -9358,9 +9361,9 @@ where
                                                 );
                                                 record_web_test_diagnostic(367, 1);
                                                 let software_render_started = Instant::now();
-                                                let Ok((rgba, timings)) = presenter
+                                                let Ok((update, timings)) = presenter
                                                     .cpu_renderer
-                                                    .render_to_rgba8_with_timings(
+                                                    .render_to_rgba8_update_with_timings(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -9372,6 +9375,7 @@ where
                                                         },
                                                         scale_factor,
                                                         measurer.clone(),
+                                                        stats.damage_rect,
                                                     )
                                                     .inspect_err(|error| {
                                                         report_frame_failure(
@@ -9396,7 +9400,7 @@ where
 
                                                 let canvas_upload_started = Instant::now();
                                                 if let Err(err) = presenter.present(
-                                                    &rgba,
+                                                    &update,
                                                     render_target_size.0,
                                                     render_target_size.1,
                                                     scale_factor,
@@ -10048,8 +10052,11 @@ where
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
-                                                    let Ok((rgba, cpu_timings)) = cpu_renderer
-                                                        .render_to_rgba8_with_timings(
+                                                    let damage = software_frame_valid
+                                                        .then_some(stats.damage_rect)
+                                                        .flatten();
+                                                    let Ok((update, cpu_timings)) = cpu_renderer
+                                                        .render_to_rgba8_update_with_timings(
                                                             retained_scene,
                                                             render_target_size.0,
                                                             render_target_size.1,
@@ -10081,6 +10088,7 @@ where
                                                             },
                                                             scale_factor,
                                                             measurer.clone(),
+                                                            damage,
                                                         )
                                                         .inspect_err(|error| {
                                                             report_frame_failure(
@@ -10099,22 +10107,26 @@ where
                                                                 .surface
                                                                 .target_texture,
                                                             mip_level: 0,
-                                                            origin: wgpu::Origin3d::ZERO,
+                                                            origin: wgpu::Origin3d {
+                                                                x: update.rect.x,
+                                                                y: update.rect.y,
+                                                                z: 0,
+                                                            },
                                                             aspect: wgpu::TextureAspect::All,
                                                         },
-                                                        &rgba,
+                                                        &update.rgba,
                                                         wgpu::TexelCopyBufferLayout {
                                                             offset: 0,
                                                             bytes_per_row: Some(
-                                                                render_target_size.0 * 4,
+                                                                update.rect.width * 4,
                                                             ),
                                                             rows_per_image: Some(
-                                                                render_target_size.1,
+                                                                update.rect.height,
                                                             ),
                                                         },
                                                         wgpu::Extent3d {
-                                                            width: render_target_size.0,
-                                                            height: render_target_size.1,
+                                                            width: update.rect.width,
+                                                            height: update.rect.height,
                                                             depth_or_array_layers: 1,
                                                         },
                                                     );
@@ -10127,6 +10139,12 @@ where
                                                         diag::DiagEventKind::SoftwareRenderPerformance {
                                                             width: render_target_size.0,
                                                             height: render_target_size.1,
+                                                            updated_pixels: u64::from(update.rect.width)
+                                                                * u64::from(update.rect.height),
+                                                            update_x: update.rect.x,
+                                                            update_y: update.rect.y,
+                                                            update_width: update.rect.width,
+                                                            update_height: update.rect.height,
                                                             scene_recording_ms: cpu_timings
                                                                 .scene_recording
                                                                 .as_secs_f64()

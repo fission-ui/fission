@@ -223,6 +223,11 @@ pub enum DiagEventKind {
     SoftwareRenderPerformance {
         width: u32,
         height: u32,
+        updated_pixels: u64,
+        update_x: u32,
+        update_y: u32,
+        update_width: u32,
+        update_height: u32,
         scene_recording_ms: f64,
         rasterization_ms: f64,
         output_copy_ms: f64,

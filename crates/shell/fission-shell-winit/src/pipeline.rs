@@ -10,7 +10,9 @@ use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
-use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, WidgetId};
+use fission_ir::{
+    CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, PaintOp, WidgetId,
+};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
     BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
@@ -198,6 +200,10 @@ pub struct Pipeline {
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
     retained_scene: Option<RenderScene>,
+    pending_previous_scene: Option<RenderScene>,
+    pending_damage_nodes: HashSet<WidgetId>,
+    pending_required_damage_nodes: HashSet<WidgetId>,
+    pending_partial_damage: bool,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
     pending_layout_dirty_nodes: HashSet<WidgetId>,
@@ -219,6 +225,8 @@ pub struct PipelineStats {
     pub paint_misses: usize,
     pub paint_hits: usize,
     pub video_surfaces: usize,
+    /// Safe screen-space damage for retained software rendering.
+    pub damage_rect: Option<LayoutRect>,
 }
 
 impl Pipeline {
@@ -236,6 +244,10 @@ impl Pipeline {
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
             retained_scene: None,
+            pending_previous_scene: None,
+            pending_damage_nodes: HashSet::new(),
+            pending_required_damage_nodes: HashSet::new(),
+            pending_partial_damage: false,
             retained_dynamic_ops: RetainedDynamicOps::default(),
             layout_input_nodes: Vec::new(),
             pending_layout_dirty_nodes: HashSet::new(),
@@ -285,8 +297,10 @@ impl Pipeline {
             .retain(|node_id, _| next_ir.nodes.contains_key(node_id));
         let mut rebuild_layout_tree = self.prev_ir.is_none();
 
+        let mut damage_targets = None;
         if let Some(prev_ir) = &self.prev_ir {
             let diff = diff_ir(prev_ir, &next_ir);
+            damage_targets = partial_damage_targets(prev_ir, &next_ir, &diff);
             if !diff.dirty_layout.is_empty() {
                 invalidation.mark_layout();
                 self.pending_layout_invalidated = true;
@@ -303,6 +317,26 @@ impl Pipeline {
             invalidation.mark_build();
             self.pending_layout_full = true;
             self.pending_layout_dirty_nodes.clear();
+        }
+
+        if let Some(targets) = damage_targets.filter(|targets| !targets.is_empty()) {
+            let old_scene_safe = self
+                .retained_scene
+                .as_ref()
+                .is_some_and(|scene| !scene_has_backdrop_filter(scene));
+            if old_scene_safe {
+                self.pending_partial_damage = true;
+                self.pending_required_damage_nodes
+                    .extend(targets.iter().copied());
+                self.pending_damage_nodes.extend(targets);
+                if self.pending_previous_scene.is_none() {
+                    self.pending_previous_scene = self.retained_scene.take();
+                }
+            } else {
+                self.clear_pending_damage();
+            }
+        } else if invalidation.any() {
+            self.clear_pending_damage();
         }
 
         if rebuild_layout_tree {
@@ -360,6 +394,7 @@ impl Pipeline {
         } else {
             self.pending_layout_dirty_nodes.len()
         };
+        let previous_snapshot = self.last_snapshot.as_ref();
         let (snapshot, full_rebuild) = if needs_full {
             self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
             let root_id = self
@@ -396,6 +431,21 @@ impl Pipeline {
                 false,
             )
         };
+        if self.pending_partial_damage {
+            if needs_full {
+                self.clear_pending_damage();
+            } else if let Some(previous) = previous_snapshot {
+                for (node_id, geometry) in &snapshot.nodes {
+                    if previous
+                        .nodes
+                        .get(node_id)
+                        .is_some_and(|old| old.rect != geometry.rect)
+                    {
+                        self.pending_damage_nodes.insert(*node_id);
+                    }
+                }
+            }
+        }
         self.last_snapshot = Some(snapshot);
         self.last_viewport = Some(viewport);
         self.pending_layout_dirty_nodes.clear();
@@ -448,6 +498,7 @@ impl Pipeline {
             paint_misses: 0,
             paint_hits: 0,
             video_surfaces: 0,
+            damage_rect: None,
         };
 
         let ir = self.prev_ir.as_ref().expect("ir missing before render");
@@ -542,6 +593,17 @@ impl Pipeline {
         } else {
             patch_texture_compositor_plans(&mut self.retained_texture_plans, scene);
         }
+
+        if self.pending_partial_damage
+            && render_viewport_size == layout_viewport_size
+            && self.video_surfaces.is_empty()
+            && self.web_surfaces.is_empty()
+            && self.native_surfaces.is_empty()
+            && !scene_has_backdrop_filter(scene)
+        {
+            stats.damage_rect = self.pending_damage_rect(scene, render_viewport_size);
+        }
+        self.clear_pending_damage();
 
         diag::emit(
             diag::DiagCategory::Layout,
@@ -792,6 +854,40 @@ impl Pipeline {
         self.retained_dynamic_ops = RetainedDynamicOps::default();
         self.retained_texture_plans.clear();
         self.retained_texture_root_transform = None;
+    }
+
+    fn clear_pending_damage(&mut self) {
+        self.pending_previous_scene = None;
+        self.pending_damage_nodes.clear();
+        self.pending_required_damage_nodes.clear();
+        self.pending_partial_damage = false;
+    }
+
+    fn pending_damage_rect(&self, scene: &RenderScene, viewport: LayoutSize) -> Option<LayoutRect> {
+        let old_scene = self.pending_previous_scene.as_ref()?;
+        let mut required_old = HashSet::new();
+        let old_damage =
+            scene_damage_for_nodes(old_scene, &self.pending_damage_nodes, &mut required_old)?;
+        let mut required_new = HashSet::new();
+        let new_damage =
+            scene_damage_for_nodes(scene, &self.pending_damage_nodes, &mut required_new)?;
+        if !self
+            .pending_required_damage_nodes
+            .iter()
+            .all(|node_id| required_old.contains(node_id) && required_new.contains(node_id))
+        {
+            return None;
+        }
+        let damage = union_rects(old_damage, new_damage);
+        let viewport = LayoutRect::new(0.0, 0.0, viewport.width, viewport.height);
+        let damage = intersect_rects(damage, viewport)?;
+        let viewport_area = viewport.width() * viewport.height();
+        let damage_area = damage.width() * damage.height();
+        if !viewport_area.is_finite() || viewport_area <= 0.0 || damage_area >= viewport_area * 0.72
+        {
+            return None;
+        }
+        Some(damage)
     }
 
     fn patch_retained_scene(
@@ -2063,6 +2159,210 @@ fn intersect_rects(a: LayoutRect, b: LayoutRect) -> Option<LayoutRect> {
     }
 }
 
+fn union_rects(a: LayoutRect, b: LayoutRect) -> LayoutRect {
+    let x = a.x().min(b.x());
+    let y = a.y().min(b.y());
+    let right = a.right().max(b.right());
+    let bottom = a.bottom().max(b.bottom());
+    LayoutRect::new(x, y, right - x, bottom - y)
+}
+
+fn partial_damage_targets(
+    previous: &CoreIR,
+    next: &CoreIR,
+    diff: &fission_core::diff::FrameDiff,
+) -> Option<HashSet<WidgetId>> {
+    if previous.root != next.root || !diff.dirty_composite.is_empty() {
+        return None;
+    }
+    let mut targets = HashSet::new();
+    targets.extend(diff.dirty_layout.iter().copied());
+    targets.extend(diff.dirty_paint.iter().copied());
+    if targets.is_empty() {
+        return None;
+    }
+
+    for node_id in &diff.dirty_layout {
+        let old = previous.nodes.get(node_id)?;
+        let new = next.nodes.get(node_id)?;
+        if old.parent != new.parent
+            || old.children != new.children
+            || !matches!(
+                (&old.op, &new.op),
+                (
+                    Op::Paint(PaintOp::DrawText { .. }),
+                    Op::Paint(PaintOp::DrawText { .. })
+                ) | (
+                    Op::Paint(PaintOp::DrawRichText { .. }),
+                    Op::Paint(PaintOp::DrawRichText { .. })
+                )
+            )
+        {
+            return None;
+        }
+    }
+
+    for node_id in &diff.dirty_paint {
+        let old = previous.nodes.get(node_id)?;
+        let new = next.nodes.get(node_id)?;
+        if old.parent != new.parent
+            || old.children != new.children
+            || !matches!(
+                &old.op,
+                Op::Paint(
+                    PaintOp::DrawRect { .. }
+                        | PaintOp::DrawText { .. }
+                        | PaintOp::DrawRichText { .. }
+                )
+            )
+            || !matches!(
+                &new.op,
+                Op::Paint(
+                    PaintOp::DrawRect { .. }
+                        | PaintOp::DrawText { .. }
+                        | PaintOp::DrawRichText { .. }
+                )
+            )
+        {
+            return None;
+        }
+    }
+    Some(targets)
+}
+
+fn scene_has_backdrop_filter(scene: &RenderScene) -> bool {
+    fn list_has_backdrop_filter(list: &DisplayList) -> bool {
+        list.ops.iter().any(|op| match op {
+            DisplayOp::BackdropFilter { .. } => true,
+            DisplayOp::CachedScene { list, .. } => list_has_backdrop_filter(list),
+            _ => false,
+        })
+    }
+
+    fn node_has_backdrop_filter(node: &RenderNode) -> bool {
+        match node {
+            RenderNode::Paint(list) => list_has_backdrop_filter(list),
+            RenderNode::Layer(layer) => layer.children.iter().any(node_has_backdrop_filter),
+        }
+    }
+
+    scene.roots.iter().any(node_has_backdrop_filter)
+}
+
+fn scene_damage_for_nodes(
+    scene: &RenderScene,
+    targets: &HashSet<WidgetId>,
+    found: &mut HashSet<WidgetId>,
+) -> Option<LayoutRect> {
+    fn add_op_bounds(
+        op: &DisplayOp,
+        transform: Option<[f32; 16]>,
+        targets: &HashSet<WidgetId>,
+        found: &mut HashSet<WidgetId>,
+        damage: &mut Option<LayoutRect>,
+    ) -> bool {
+        match op {
+            DisplayOp::CachedScene { list, .. } => {
+                for nested in &list.ops {
+                    if !add_op_bounds(nested, transform, targets, found, damage) {
+                        return false;
+                    }
+                }
+                true
+            }
+            DisplayOp::BackdropFilter { .. }
+            | DisplayOp::Translate(_)
+            | DisplayOp::Transform(_) => false,
+            DisplayOp::DrawRect {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawText {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawRichText {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawImage {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawImageBatch {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawPath {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawSvg {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            }
+            | DisplayOp::DrawSurface {
+                bounds,
+                node_id: Some(node_id),
+                ..
+            } if targets.contains(node_id) => {
+                found.insert(*node_id);
+                let bounds = transform_rect_bounds(*bounds, transform);
+                *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn visit_node(
+        node: &RenderNode,
+        transform: Option<[f32; 16]>,
+        targets: &HashSet<WidgetId>,
+        found: &mut HashSet<WidgetId>,
+        damage: &mut Option<LayoutRect>,
+    ) -> bool {
+        match node {
+            RenderNode::Paint(list) => list
+                .ops
+                .iter()
+                .all(|op| add_op_bounds(op, transform, targets, found, damage)),
+            RenderNode::Layer(layer) => {
+                if !layer.style.blend_mode.is_normal() {
+                    return false;
+                }
+                let transform = layer
+                    .style
+                    .transform
+                    .map(|next| append_transform(transform, next).expect("transform exists"))
+                    .or(transform);
+                layer
+                    .children
+                    .iter()
+                    .all(|child| visit_node(child, transform, targets, found, damage))
+            }
+        }
+    }
+
+    if scene_has_backdrop_filter(scene) {
+        return None;
+    }
+    let mut damage = None;
+    for root in &scene.roots {
+        if !visit_node(root, None, targets, found, &mut damage) {
+            return None;
+        }
+    }
+    damage
+}
+
 fn transform_rect_bounds(rect: LayoutRect, transform: Option<[f32; 16]>) -> LayoutRect {
     let Some(matrix) = transform else {
         return rect;
@@ -2988,6 +3288,104 @@ mod tests {
         ir
     }
 
+    fn text_reflow_ir(text: &str) -> CoreIR {
+        let root = WidgetId::derived(71, &[0]);
+        let text_box = WidgetId::derived(71, &[1]);
+        let text_node = WidgetId::derived(71, &[2]);
+        let follower_box = WidgetId::derived(71, &[3]);
+        let follower_node = WidgetId::derived(71, &[4]);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text_node,
+            Op::Paint(PaintOp::DrawText {
+                text: text.to_string(),
+                size: 12.0,
+                color: Color {
+                    r: 24,
+                    g: 32,
+                    b: 48,
+                    a: 255,
+                },
+                underline: false,
+                locale: None,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            text_box,
+            Op::Layout(LayoutOp::Box {
+                width: Some(48.0),
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![text_node],
+        );
+        ir.add_node(
+            follower_node,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 80,
+                    g: 120,
+                    b: 180,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            follower_box,
+            Op::Layout(LayoutOp::Box {
+                width: Some(24.0),
+                height: Some(10.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![follower_node],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: Some(4.0),
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
+            vec![text_box, follower_box],
+        );
+        ir.set_root(root);
+        ir
+    }
+
     fn two_child_layout_ir(second_width: f32) -> CoreIR {
         let root = WidgetId::derived(50, &[0]);
         let first = WidgetId::derived(50, &[1]);
@@ -3103,6 +3501,92 @@ mod tests {
 
         assert_eq!(updated.paint_misses, 1);
         assert_eq!(updated.paint_hits, 1);
+        assert!(
+            updated.damage_rect.is_some(),
+            "button repaint should be local"
+        );
+    }
+
+    #[test]
+    fn text_reflow_damage_covers_old_and_new_text_and_displaced_paint() {
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        let viewport = LayoutRect::new(0.0, 0.0, 120.0, 120.0);
+        let render_size = LayoutSize::new(120.0, 120.0);
+        let text_node = WidgetId::derived(71, &[2]);
+        let follower_node = WidgetId::derived(71, &[4]);
+
+        pipeline.replace_ir(text_reflow_ir("short"), &Env::default());
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("initial text layout");
+        pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("initial text scene");
+        let old_snapshot = pipeline.last_snapshot.as_ref().expect("old layout");
+        let old_text = old_snapshot
+            .get_node_rect(text_node)
+            .expect("old text rect");
+        let old_follower = old_snapshot
+            .get_node_rect(follower_node)
+            .expect("old follower rect");
+
+        let invalidation = pipeline.replace_ir(
+            text_reflow_ir("first line\nsecond line\nthird line"),
+            &Env::default(),
+        );
+        assert!(
+            invalidation.layout,
+            "text content must use incremental layout"
+        );
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("text reflow layout");
+        let new_snapshot = pipeline.last_snapshot.as_ref().expect("new layout");
+        let new_text = new_snapshot
+            .get_node_rect(text_node)
+            .expect("new text rect");
+        let new_follower = new_snapshot
+            .get_node_rect(follower_node)
+            .expect("new follower rect");
+        assert!(
+            new_text.height() > old_text.height(),
+            "test text should wrap"
+        );
+        assert!(
+            new_follower.y() > old_follower.y(),
+            "following content should be displaced by text reflow"
+        );
+
+        let updated = pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("updated text scene");
+        let damage = updated
+            .damage_rect
+            .expect("text reflow should use bounded damage");
+        assert!(damage.y() <= old_text.y() && damage.y() <= new_text.y());
+        assert!(damage.bottom() >= old_text.bottom());
+        assert!(damage.bottom() >= new_text.bottom());
+        assert!(damage.bottom() >= old_follower.bottom());
+        assert!(damage.bottom() >= new_follower.bottom());
+        assert!(damage.height() < viewport.height());
     }
 
     #[test]

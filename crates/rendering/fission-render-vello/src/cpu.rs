@@ -12,8 +12,11 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use anyhow::{anyhow, Result};
-use fission_render::{Color as RenderColor, RenderScene, Renderer};
+use anyhow::{Result, anyhow};
+use fission_layout::LayoutRect;
+use fission_render::{
+    Color as RenderColor, LayerClip, RenderLayer, RenderNode, RenderScene, Renderer,
+};
 use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{Color, ImageAlphaType};
 use vello_cpu::{PaintType, Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
@@ -29,8 +32,27 @@ pub struct CpuRenderer {
     context: Option<RenderContext>,
     context_size: Option<(u16, u16)>,
     resources: Resources,
+    retained_target: Option<Pixmap>,
     backdrop_filters_enabled: bool,
     exact_root_clip_elision: bool,
+}
+
+/// Pixel rectangle updated by one CPU render pass.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CpuUpdateRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Pixels emitted for a full or damage-limited CPU frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CpuFrameUpdate {
+    /// Premultiplied RGBA8 pixel rows for `rect`.
+    pub rgba: Vec<u8>,
+    /// Updated area in the full render target.
+    pub rect: CpuUpdateRect,
 }
 
 /// Time spent in the main software-rendering stages for one frame.
@@ -51,6 +73,7 @@ impl CpuRenderer {
             context: None,
             context_size: None,
             resources: Resources::new(),
+            retained_target: None,
             backdrop_filters_enabled: true,
             exact_root_clip_elision: false,
         }
@@ -137,6 +160,241 @@ impl CpuRenderer {
         }
         Ok((rgba, timings))
     }
+
+    /// Render a frame, updating only `damage` when the previous target has the same size.
+    ///
+    /// The retained target is cleared and rerasterized inside the damage rectangle only; the
+    /// returned pixel rows can therefore be uploaded to the matching texture subregion. A
+    /// missing damage rectangle, target resize, or invalid damage falls back to a full frame.
+    pub fn render_to_rgba8_update_with_timings(
+        &mut self,
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f64,
+        measurer: Arc<VelloTextMeasurer>,
+        damage: Option<LayoutRect>,
+    ) -> Result<(CpuFrameUpdate, CpuRenderTimings)> {
+        let width = pixmap_dimension(width, "width")?;
+        let height = pixmap_dimension(height, "height")?;
+        let dimensions = (width, height);
+        let trace_web = crate::web_test_trace_enabled();
+
+        match self.context.as_mut() {
+            Some(context) if self.context_size == Some(dimensions) => context.reset(),
+            Some(context) => context.reset_and_resize(width, height),
+            None => self.context = Some(RenderContext::new(width, height)),
+        }
+        self.context_size = Some(dimensions);
+        self.resources.clear_images();
+
+        let partial = damage
+            .filter(|_| self.context_size == Some(dimensions))
+            .filter(|_| {
+                self.retained_target
+                    .as_ref()
+                    .is_some_and(|target| target.width() == width && target.height() == height)
+            })
+            .and_then(|rect| pixel_damage_rect(rect, scale_factor, width, height));
+
+        if let Some((pixel_rect, logical_clip)) = partial {
+            let target = self
+                .retained_target
+                .as_mut()
+                .expect("partial rendering requires a retained target");
+            clear_pixmap_rect(target, pixel_rect, background);
+            let clipped_scene = scene_with_clip(scene, logical_clip);
+            let recording_started = Instant::now();
+            if trace_web {
+                crate::trace_web_test_stage(370, 0);
+            }
+            {
+                let mut painter = CpuPainter {
+                    ctx: self.context.as_mut().expect("context initialized above"),
+                    resources: &mut self.resources,
+                };
+                VelloRenderer::new(&mut painter, measurer, scale_factor)
+                    .with_backdrop_filters(self.backdrop_filters_enabled)
+                    .render_scene(&clipped_scene)?;
+            }
+            let scene_recording = recording_started.elapsed();
+            if trace_web {
+                crate::trace_web_test_stage(371, scene_recording.as_millis() as u32);
+                crate::trace_web_test_stage(372, 0);
+            }
+
+            let raster_started = Instant::now();
+            self.context
+                .as_mut()
+                .expect("context initialized above")
+                .flush();
+            if trace_web {
+                crate::trace_web_test_stage(373, raster_started.elapsed().as_millis() as u32);
+                crate::trace_web_test_stage(374, 0);
+            }
+            self.context
+                .as_ref()
+                .expect("context initialized above")
+                .render_with(
+                    target,
+                    &mut self.resources,
+                    RasterizerSettings {
+                        target_init: TargetInit::SrcOver,
+                        ..RasterizerSettings::default()
+                    },
+                );
+            let rasterization = raster_started.elapsed();
+            if trace_web {
+                crate::trace_web_test_stage(375, rasterization.as_millis() as u32);
+            }
+
+            let copy_started = Instant::now();
+            let rgba = copy_pixmap_rect(target, pixel_rect);
+            let output_copy = copy_started.elapsed();
+            if trace_web {
+                crate::trace_web_test_stage(376, 0);
+                crate::trace_web_test_stage(377, output_copy.as_millis() as u32);
+            }
+            return Ok((
+                CpuFrameUpdate {
+                    rgba,
+                    rect: CpuUpdateRect {
+                        x: u32::from(pixel_rect.x),
+                        y: u32::from(pixel_rect.y),
+                        width: u32::from(pixel_rect.width),
+                        height: u32::from(pixel_rect.height),
+                    },
+                },
+                CpuRenderTimings {
+                    scene_recording,
+                    rasterization,
+                    output_copy,
+                },
+            ));
+        }
+
+        let (target, mut timings) = render_scene_to_pixmap(
+            self.context.as_mut().expect("context initialized above"),
+            &mut self.resources,
+            scene,
+            width,
+            height,
+            background,
+            scale_factor,
+            measurer,
+            self.backdrop_filters_enabled,
+            self.exact_root_clip_elision
+                && !self.backdrop_filters_enabled
+                && target_matches_scene_bounds(scene, width, height, scale_factor),
+        )?;
+        let copy_started = Instant::now();
+        if trace_web {
+            crate::trace_web_test_stage(376, 0);
+        }
+        let rgba = target.data_as_u8_slice().to_vec();
+        timings.output_copy = copy_started.elapsed();
+        if trace_web {
+            crate::trace_web_test_stage(377, timings.output_copy.as_millis() as u32);
+        }
+        self.retained_target = Some(target);
+        Ok((
+            CpuFrameUpdate {
+                rgba,
+                rect: CpuUpdateRect {
+                    x: 0,
+                    y: 0,
+                    width: u32::from(width),
+                    height: u32::from(height),
+                },
+            },
+            timings,
+        ))
+    }
+}
+
+fn pixel_damage_rect(
+    damage: LayoutRect,
+    scale_factor: f64,
+    width: u16,
+    height: u16,
+) -> Option<((u16, u16, u16, u16), LayoutRect)> {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return None;
+    }
+    let x0 = (f64::from(damage.x()) * scale_factor).floor() as i64;
+    let y0 = (f64::from(damage.y()) * scale_factor).floor() as i64;
+    let x1 = (f64::from(damage.right()) * scale_factor).ceil() as i64;
+    let y1 = (f64::from(damage.bottom()) * scale_factor).ceil() as i64;
+    let max_x = i64::from(width);
+    let max_y = i64::from(height);
+    let left = x0.saturating_sub(1).clamp(0, max_x);
+    let top = y0.saturating_sub(1).clamp(0, max_y);
+    let right = x1.saturating_add(1).clamp(0, max_x);
+    let bottom = y1.saturating_add(1).clamp(0, max_y);
+    if right <= left || bottom <= top {
+        return None;
+    }
+
+    let rect = (
+        u16::try_from(left).ok()?,
+        u16::try_from(top).ok()?,
+        u16::try_from(right - left).ok()?,
+        u16::try_from(bottom - top).ok()?,
+    );
+    let inverse_scale = 1.0 / scale_factor;
+    let clip = LayoutRect::new(
+        (left as f64 * inverse_scale) as f32,
+        (top as f64 * inverse_scale) as f32,
+        (f64::from(rect.2) * inverse_scale) as f32,
+        (f64::from(rect.3) * inverse_scale) as f32,
+    );
+    Some((rect, clip))
+}
+
+fn clear_pixmap_rect(target: &mut Pixmap, rect: (u16, u16, u16, u16), background: RenderColor) {
+    let (x, y, width, height) = rect;
+    let row_stride = usize::from(target.width()) * 4;
+    let left = usize::from(x) * 4;
+    let right = left + usize::from(width) * 4;
+    let alpha = u16::from(background.a);
+    let color = [
+        ((u16::from(background.r) * alpha + 127) / 255) as u8,
+        ((u16::from(background.g) * alpha + 127) / 255) as u8,
+        ((u16::from(background.b) * alpha + 127) / 255) as u8,
+        background.a,
+    ];
+    let bytes = target.data_as_u8_slice_mut();
+    for row in usize::from(y)..usize::from(y + height) {
+        let row = &mut bytes[row * row_stride + left..row * row_stride + right];
+        for pixel in row.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&color);
+        }
+    }
+}
+
+fn copy_pixmap_rect(target: &Pixmap, rect: (u16, u16, u16, u16)) -> Vec<u8> {
+    let (x, y, width, height) = rect;
+    let row_stride = usize::from(target.width()) * 4;
+    let left = usize::from(x) * 4;
+    let row_width = usize::from(width) * 4;
+    let mut rgba = Vec::with_capacity(row_width * usize::from(height));
+    let bytes = target.data_as_u8_slice();
+    for row in usize::from(y)..usize::from(y + height) {
+        rgba.extend_from_slice(
+            &bytes[row * row_stride + left..row * row_stride + left + row_width],
+        );
+    }
+    rgba
+}
+
+fn scene_with_clip(scene: &RenderScene, clip: LayoutRect) -> RenderScene {
+    let mut root = RenderLayer::new(scene.bounds);
+    root.style.clip = Some(LayerClip::Rect(clip));
+    root.children.clone_from(&scene.roots);
+    let mut clipped = RenderScene::new(scene.bounds);
+    clipped.roots.push(RenderNode::Layer(root));
+    clipped
 }
 
 impl Default for CpuRenderer {
@@ -323,6 +581,101 @@ mod tests {
 
             assert_eq!(reused, one_shot);
         }
+    }
+
+    #[test]
+    fn partial_render_matches_full_render_and_returns_only_the_rounded_damage() {
+        fn scene(changed: &str) -> RenderScene {
+            let bounds = LayoutRect::new(0.0, 0.0, 64.0, 48.0);
+            let mut list = fission_render::DisplayList::new(bounds);
+            list.push(fission_render::DisplayOp::DrawRect {
+                rect: LayoutRect::new(3.0, 5.0, 12.0, 9.0),
+                fill: Some(fission_render::Fill::Solid(RenderColor {
+                    r: 20,
+                    g: 40,
+                    b: 60,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+                bounds: LayoutRect::new(3.0, 5.0, 12.0, 9.0),
+                node_id: Some(fission_ir::WidgetId::derived(61, &[1])),
+                corner_radii: None,
+                border_sides: None,
+            });
+            list.push(fission_render::DisplayOp::DrawText {
+                text: changed.to_string(),
+                position: fission_render::LayoutPoint::new(25.3, 12.2),
+                size: 12.0,
+                color: RenderColor {
+                    r: 24,
+                    g: 32,
+                    b: 48,
+                    a: 255,
+                },
+                bounds: LayoutRect::new(25.3, 12.2, 15.1, 10.3),
+                node_id: Some(fission_ir::WidgetId::derived(61, &[2])),
+                underline: false,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+                resolved_layout: None,
+            });
+            RenderScene::from_display_list(list)
+        }
+
+        let background = RenderColor {
+            r: 248,
+            g: 249,
+            b: 252,
+            a: 255,
+        };
+        let before = scene("short");
+        let after = scene("typing update");
+        let mut renderer = CpuRenderer::new();
+        let (initial, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &before,
+                80,
+                60,
+                background,
+                1.25,
+                measurer(),
+                None,
+            )
+            .unwrap();
+        let (partial, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &after,
+                80,
+                60,
+                background,
+                1.25,
+                measurer(),
+                Some(LayoutRect::new(25.3, 12.2, 15.1, 10.3)),
+            )
+            .unwrap();
+        let full_after = CpuRenderer::new()
+            .render_to_rgba8(&after, 80, 60, background, 1.25, measurer())
+            .unwrap();
+
+        assert!(partial.rect.x > 0 && partial.rect.y > 0);
+        assert!(partial.rect.width < 80 && partial.rect.height < 60);
+        assert!(partial.rgba.len() < initial.rgba.len());
+        let mut composed = initial.rgba;
+        for row in 0..partial.rect.height as usize {
+            let source = row * partial.rect.width as usize * 4;
+            let destination = ((partial.rect.y as usize + row) * 80 + partial.rect.x as usize) * 4;
+            let row_bytes = partial.rect.width as usize * 4;
+            composed[destination..destination + row_bytes]
+                .copy_from_slice(&partial.rgba[source..source + row_bytes]);
+        }
+        assert_eq!(composed, full_after, "partial update left stale pixels");
     }
 
     #[test]
