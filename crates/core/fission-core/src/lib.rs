@@ -424,7 +424,8 @@ pub mod public {
     };
     pub use crate::effect::{
         ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
-        ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+        ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest, TextEntryInput,
+        TextEntryPhase,
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -648,7 +649,8 @@ pub use data_stream::{
 };
 pub use effect::{
     ActionInput, ActionInputCodecError, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect,
-    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest, TextEntryInput,
+    TextEntryPhase,
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,

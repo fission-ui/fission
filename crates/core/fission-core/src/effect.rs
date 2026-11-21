@@ -39,6 +39,35 @@ pub struct KeyPressInput {
     pub text: Option<String>,
 }
 
+/// Lifecycle phase for platform-produced text delivered to a non-editing control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextEntryPhase {
+    /// A platform keyboard event committed text.
+    Committed,
+    /// An IME supplied or updated its active preedit text.
+    CompositionPreedit,
+    /// An IME committed its composition.
+    CompositionCommitted,
+    /// An IME cancelled its active composition.
+    CompositionCancelled,
+}
+
+/// Platform-produced text delivered to a focused non-TextInput control.
+///
+/// `cursor` is an optional byte range inside `text`, as reported by the IME;
+/// it is populated for `CompositionPreedit` and absent for other phases.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextEntryInput {
+    /// Complete platform-produced text, without splitting Unicode sequences.
+    pub text: String,
+    /// Input method that produced this event.
+    pub source: crate::TextEditSource,
+    /// Commit, preedit update, or cancellation phase.
+    pub phase: TextEntryPhase,
+    /// Optional marked range supplied by the IME, measured in UTF-8 bytes.
+    pub cursor: Option<(usize, usize)>,
+}
+
 /// An opaque handle to a platform-managed resource (e.g. a large binary blob).
 ///
 /// Resources live outside the action pipeline to avoid copying large payloads.
@@ -361,6 +390,8 @@ pub enum ActionInput {
         target: WidgetId,
         input: Box<ActionInput>,
     },
+    /// Platform-produced text and IME composition for an opted-in non-editing control.
+    TextEntry(TextEntryInput),
 }
 
 impl ActionInput {
@@ -434,6 +465,16 @@ impl ActionInput {
     pub fn key_press(&self) -> Option<&KeyPressInput> {
         match self.unscoped() {
             ActionInput::KeyPress(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Returns committed text or IME composition for a non-editing control.
+    ///
+    /// Scoped actions are unwrapped automatically.
+    pub fn text_entry(&self) -> Option<&TextEntryInput> {
+        match self.unscoped() {
+            ActionInput::TextEntry(input) => Some(input),
             _ => None,
         }
     }
@@ -812,6 +853,25 @@ mod action_input_codec_tests {
     };
     use fission_ir::{CanvasSelectionPolicy, SceneDimension, ViewportTransform};
     use fission_layout::{LayoutPoint, LayoutRect};
+
+    #[test]
+    fn opaque_codec_round_trips_scoped_text_entry() {
+        let input = ActionInput::scoped_raw(
+            99,
+            WidgetId::from_u128(100),
+            ActionInput::TextEntry(TextEntryInput {
+                text: "👩‍💻".into(),
+                source: crate::TextEditSource::Ime,
+                phase: TextEntryPhase::CompositionPreedit,
+                cursor: Some((0, "👩‍💻".len())),
+            }),
+        );
+
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
+        assert_eq!(decoded.text_entry().unwrap().text, "👩‍💻");
+    }
 
     #[test]
     fn opaque_codec_round_trips_full_width_scope_ids() {

@@ -896,6 +896,45 @@ impl TextInputController {
         None
     }
 
+    fn dispatch_text_entry(ctx: &mut ControllerContext, input: crate::TextEntryInput) -> bool {
+        let Some(focused_id) = ctx.interaction.focused else {
+            return false;
+        };
+        if crate::hit_test::is_interaction_inert(ctx.ir, focused_id)
+            || Self::text_input_semantics(ctx, focused_id).is_some()
+        {
+            return false;
+        }
+
+        let mut current_id = Some(focused_id);
+        while let Some(node_id) = current_id {
+            let Some(node) = ctx.ir.nodes.get(&node_id) else {
+                return false;
+            };
+            if let Op::Semantics(semantics) = &node.op {
+                if !semantics.disabled {
+                    if let Some(entry) = semantics.actions.entries.iter().find(|entry| {
+                        entry.trigger == fission_ir::semantics::ActionTrigger::TextEntry
+                    }) {
+                        let envelope = ActionEnvelope {
+                            id: ActionId::from_u128(entry.action_id),
+                            payload: entry.payload_data.clone().unwrap_or_default(),
+                        };
+                        let input = crate::input::scoped_action_input(
+                            ctx.ir,
+                            node_id,
+                            crate::ActionInput::TextEntry(input),
+                        );
+                        ctx.dispatched_actions.push((node_id, envelope, input));
+                        return true;
+                    }
+                }
+            }
+            current_id = node.parent;
+        }
+        false
+    }
+
     fn handle_key_with_produced_text(
         &mut self,
         ctx: &mut ControllerContext,
@@ -917,7 +956,15 @@ impl TextInputController {
             return false;
         };
         let Some(semantics) = Self::text_input_semantics(ctx, focused_id) else {
-            return false;
+            return Self::dispatch_text_entry(
+                ctx,
+                crate::TextEntryInput {
+                    text: text.to_owned(),
+                    source: crate::TextEditSource::Keyboard,
+                    phase: crate::TextEntryPhase::Committed,
+                    cursor: None,
+                },
+            );
         };
         if semantics.disabled || semantics.read_only {
             return true;
@@ -969,6 +1016,17 @@ impl TextInputController {
         let semantics = if let Some(s) = semantics_node {
             s
         } else {
+            if key_code == KeyCode::Space && modifiers == 0 {
+                return Self::dispatch_text_entry(
+                    ctx,
+                    crate::TextEntryInput {
+                        text: " ".into(),
+                        source: crate::TextEditSource::Keyboard,
+                        phase: crate::TextEntryPhase::Committed,
+                        cursor: None,
+                    },
+                );
+            }
             return false;
         };
 
@@ -1611,6 +1669,22 @@ impl TextInputController {
     fn handle_ime(&mut self, ctx: &mut ControllerContext, ime: &crate::event::ImeEvent) -> bool {
         match ime {
             crate::event::ImeEvent::Commit { text } => {
+                if ctx
+                    .interaction
+                    .focused
+                    .is_some_and(|focused_id| Self::text_input_semantics(ctx, focused_id).is_none())
+                    && Self::dispatch_text_entry(
+                        ctx,
+                        crate::TextEntryInput {
+                            text: text.clone(),
+                            source: crate::TextEditSource::Ime,
+                            phase: crate::TextEntryPhase::CompositionCommitted,
+                            cursor: None,
+                        },
+                    )
+                {
+                    return true;
+                }
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
@@ -1679,6 +1753,23 @@ impl TextInputController {
             }
             crate::event::ImeEvent::Preedit { text, cursor } => {
                 if let Some(focused_id) = ctx.interaction.focused {
+                    if Self::dispatch_text_entry(
+                        ctx,
+                        crate::TextEntryInput {
+                            text: text.clone(),
+                            source: crate::TextEditSource::Ime,
+                            phase: crate::TextEntryPhase::CompositionPreedit,
+                            cursor: *cursor,
+                        },
+                    ) {
+                        return true;
+                    }
+                    if crate::hit_test::is_interaction_inert(ctx.ir, focused_id) {
+                        return true;
+                    }
+                    if Self::text_input_semantics(ctx, focused_id).is_none() {
+                        return false;
+                    }
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
                             if semantics.disabled || semantics.read_only {
@@ -1700,6 +1791,23 @@ impl TextInputController {
             }
             crate::event::ImeEvent::Cancel => {
                 if let Some(focused_id) = ctx.interaction.focused {
+                    if Self::dispatch_text_entry(
+                        ctx,
+                        crate::TextEntryInput {
+                            text: String::new(),
+                            source: crate::TextEditSource::Ime,
+                            phase: crate::TextEntryPhase::CompositionCancelled,
+                            cursor: None,
+                        },
+                    ) {
+                        return true;
+                    }
+                    if crate::hit_test::is_interaction_inert(ctx.ir, focused_id) {
+                        return true;
+                    }
+                    if Self::text_input_semantics(ctx, focused_id).is_none() {
+                        return false;
+                    }
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
                             if semantics.disabled || semantics.read_only {
