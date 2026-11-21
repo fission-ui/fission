@@ -12,7 +12,7 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use fission_layout::LayoutRect;
 use fission_render::{
     Color as RenderColor, LayerClip, RenderLayer, RenderNode, RenderScene, Renderer,
@@ -732,6 +732,141 @@ mod tests {
             "invalidating a failed presentation sink must force a full update"
         );
         assert_eq!(recovered.rgba, full_after);
+    }
+
+    #[test]
+    fn right_edge_caret_insert_remove_matches_fresh_full_frames() {
+        fn scene(caret_index: Option<usize>) -> RenderScene {
+            let scene_bounds = LayoutRect::new(0.0, 0.0, 80.0, 40.0);
+            let mut list = fission_render::DisplayList::new(scene_bounds);
+            list.push(fission_render::DisplayOp::DrawText {
+                text: "MMMM".into(),
+                position: fission_render::LayoutPoint::new(10.0, 8.0),
+                size: 12.0,
+                color: RenderColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                bounds: LayoutRect::new(10.0, 8.0, 15.0, 14.0),
+                node_id: Some(fission_ir::WidgetId::derived(62, &[2])),
+                underline: false,
+                wrap: false,
+                caret_index,
+                caret_color: Some(RenderColor {
+                    r: 220,
+                    g: 20,
+                    b: 60,
+                    a: 255,
+                }),
+                caret_width: Some(2.0),
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+                resolved_layout: Some(fission_render::ResolvedParagraphLayout {
+                    constraint_width: Some(15.0),
+                    size: fission_layout::LayoutSize::new(15.0, 14.0),
+                    lines: Vec::new(),
+                    inline_boxes: Vec::new(),
+                    clusters: Vec::new(),
+                    glyphs: Vec::new(),
+                    caret_stops: vec![fission_layout::ParagraphCaretStop {
+                        index: 4,
+                        upstream: false,
+                        position: fission_render::LayoutPoint::new(16.0, 1.0),
+                        height: 12.0,
+                    }],
+                    selection_boxes: Vec::new(),
+                    display_breaks: Vec::new(),
+                }),
+            });
+            RenderScene::from_display_list(list)
+        }
+
+        fn compose(base: &mut [u8], update: &CpuFrameUpdate, target_width: usize) {
+            let row_bytes = update.rect.width as usize * 4;
+            for row in 0..update.rect.height as usize {
+                let source = row * row_bytes;
+                let destination =
+                    ((update.rect.y as usize + row) * target_width + update.rect.x as usize) * 4;
+                base[destination..destination + row_bytes]
+                    .copy_from_slice(&update.rgba[source..source + row_bytes]);
+            }
+        }
+
+        let background = RenderColor {
+            r: 248,
+            g: 249,
+            b: 252,
+            a: 255,
+        };
+        let no_caret = scene(None);
+        let with_caret = scene(Some(4));
+        // The caret begins at x=26, outside the text op's right edge at x=25.
+        let damage = LayoutRect::new(10.0, 8.0, 18.0, 14.0);
+        let mut renderer = CpuRenderer::new();
+        let (initial, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &no_caret,
+                80,
+                40,
+                background,
+                1.0,
+                measurer(),
+                None,
+            )
+            .unwrap();
+        let (inserted, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &with_caret,
+                80,
+                40,
+                background,
+                1.0,
+                measurer(),
+                Some(damage),
+            )
+            .unwrap();
+        let full_with_caret = CpuRenderer::new()
+            .render_to_rgba8(&with_caret, 80, 40, background, 1.0, measurer())
+            .unwrap();
+        assert!(inserted.rect.width < 80 && inserted.rect.height < 40);
+        let mut inserted_composed = initial.rgba.clone();
+        compose(&mut inserted_composed, &inserted, 80);
+        assert!(
+            (26..29).any(|x| (8..22).any(|y| {
+                let pixel = (y * 80 + x) * 4;
+                initial.rgba[pixel..pixel + 4] != full_with_caret[pixel..pixel + 4]
+            })),
+            "caret insertion must paint beyond the text op bounds"
+        );
+        assert_eq!(
+            inserted_composed, full_with_caret,
+            "caret insertion left stale pixels"
+        );
+
+        let (removed, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &no_caret,
+                80,
+                40,
+                background,
+                1.0,
+                measurer(),
+                Some(damage),
+            )
+            .unwrap();
+        let full_without_caret = CpuRenderer::new()
+            .render_to_rgba8(&no_caret, 80, 40, background, 1.0, measurer())
+            .unwrap();
+        assert!(removed.rect.width < 80 && removed.rect.height < 40);
+        let mut removed_composed = full_with_caret;
+        compose(&mut removed_composed, &removed, 80);
+        assert_eq!(
+            removed_composed, full_without_caret,
+            "caret removal left stale pixels"
+        );
     }
 
     #[test]

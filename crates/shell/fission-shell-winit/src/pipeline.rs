@@ -5,7 +5,7 @@ use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
-use fission_core::scrollbar::{ScrollbarPalette, ScrollbarStyle, scrollbar_geometry_for_node};
+use fission_core::scrollbar::{scrollbar_geometry_for_node, ScrollbarPalette, ScrollbarStyle};
 use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
@@ -15,8 +15,8 @@ use fission_ir::{
 };
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
-    RenderNode, RenderScene, Renderer, Stroke, embed_surface_id,
+    embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
+    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
 use fission_shell::{NativeSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
@@ -2318,6 +2318,59 @@ fn scene_damage_for_nodes(
             DisplayOp::BackdropFilter { .. }
             | DisplayOp::Translate(_)
             | DisplayOp::Transform(_) => false,
+            DisplayOp::DrawText {
+                bounds,
+                position,
+                node_id: Some(node_id),
+                caret_index: Some(caret_index),
+                caret_width,
+                caret_height,
+                resolved_layout: Some(resolved_layout),
+                ..
+            }
+            | DisplayOp::DrawRichText {
+                bounds,
+                position,
+                node_id: Some(node_id),
+                caret_index: Some(caret_index),
+                caret_width,
+                caret_height,
+                resolved_layout: Some(resolved_layout),
+                ..
+            } if targets.contains(node_id) => {
+                found.insert(*node_id);
+                let mut bounds = transform_rect_bounds(*bounds, transform);
+                let Some(caret) = resolved_layout.caret(*caret_index, false) else {
+                    // The renderer falls back to its own text-layout engine when no resolved
+                    // caret stop exists. Its exact pixels cannot be bounded here safely.
+                    return false;
+                };
+                let height = caret_height
+                    .unwrap_or(caret.height)
+                    .clamp(1.0, caret.height.max(1.0));
+                let caret_bounds = LayoutRect::new(
+                    position.x + caret.position.x,
+                    position.y + caret.position.y + (caret.height - height) * 0.5,
+                    caret_width.unwrap_or(2.0).max(1.0),
+                    height,
+                );
+                let caret_bounds = transform_rect_bounds(caret_bounds, transform);
+                bounds = union_rects(bounds, caret_bounds);
+                *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
+                true
+            }
+            DisplayOp::DrawText {
+                node_id: Some(node_id),
+                caret_index: Some(_),
+                resolved_layout: None,
+                ..
+            }
+            | DisplayOp::DrawRichText {
+                node_id: Some(node_id),
+                caret_index: Some(_),
+                resolved_layout: None,
+                ..
+            } if targets.contains(node_id) => false,
             DisplayOp::DrawRect {
                 bounds,
                 node_id: Some(node_id),
@@ -3254,13 +3307,13 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        InvalidationSet, Pipeline, build_local_paint_list, composite_transform_matrix,
-        motion_state_has_active_output, motion_state_may_change_output, scroll_offsets_changed,
+        build_local_paint_list, composite_transform_matrix, motion_state_has_active_output,
+        motion_state_may_change_output, scene_damage_for_nodes, scroll_offsets_changed,
         transform_rect_bounds, translation_matrix, viewport_render_transform_changed,
-        viewport_transform_matrix,
+        viewport_transform_matrix, InvalidationSet, Pipeline,
     };
-    use fission_core::ScrollStateMap;
     use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
+    use fission_core::ScrollStateMap;
     use fission_core::{MotionPropertyId, MotionStateMap, ViewportStateMap};
     use fission_ir::op::{
         Color, Fill, ImageAlignment, ImageFit, ImageRequest, ImageSource, RichTextAnnotation,
@@ -3703,6 +3756,127 @@ mod tests {
         assert!(damage.bottom() >= old_follower.bottom());
         assert!(damage.bottom() >= new_follower.bottom());
         assert!(damage.height() < viewport.height());
+    }
+
+    #[test]
+    fn right_edge_caret_damage_covers_inserted_and_removed_caret_pixels() {
+        fn scene(caret_index: Option<usize>) -> RenderScene {
+            let viewport = LayoutRect::new(0.0, 0.0, 80.0, 40.0);
+            let node_id = WidgetId::explicit("pipeline.partial-damage.right-edge-caret");
+            let mut list = fission_render::DisplayList::new(viewport);
+            list.push(DisplayOp::DrawText {
+                text: "MMMM".into(),
+                position: LayoutPoint::new(10.0, 8.0),
+                size: 12.0,
+                color: fission_render::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                bounds: LayoutRect::new(10.0, 8.0, 15.0, 14.0),
+                node_id: Some(node_id),
+                underline: false,
+                wrap: false,
+                caret_index,
+                caret_color: Some(fission_render::Color {
+                    r: 220,
+                    g: 20,
+                    b: 60,
+                    a: 255,
+                }),
+                caret_width: Some(2.0),
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+                resolved_layout: Some(fission_render::ResolvedParagraphLayout {
+                    constraint_width: Some(15.0),
+                    size: fission_layout::LayoutSize::new(15.0, 14.0),
+                    lines: Vec::new(),
+                    inline_boxes: Vec::new(),
+                    clusters: Vec::new(),
+                    glyphs: Vec::new(),
+                    caret_stops: vec![fission_layout::ParagraphCaretStop {
+                        index: 4,
+                        upstream: false,
+                        position: LayoutPoint::new(16.0, 1.0),
+                        height: 12.0,
+                    }],
+                    selection_boxes: Vec::new(),
+                    display_breaks: Vec::new(),
+                }),
+            });
+            RenderScene::from_display_list(list)
+        }
+
+        let node_id = WidgetId::explicit("pipeline.partial-damage.right-edge-caret");
+        let targets = HashSet::from([node_id]);
+        let mut old_found = HashSet::new();
+        let old_bounds = scene_damage_for_nodes(&scene(None), &targets, &mut old_found)
+            .expect("text bounds are damageable");
+        let mut inserted_found = HashSet::new();
+        let inserted_bounds =
+            scene_damage_for_nodes(&scene(Some(4)), &targets, &mut inserted_found)
+                .expect("resolved caret bounds are damageable");
+        let mut removed_found = HashSet::new();
+        let removed_bounds = scene_damage_for_nodes(&scene(None), &targets, &mut removed_found)
+            .expect("text bounds remain damageable after caret removal");
+
+        assert!(old_found.contains(&node_id));
+        assert!(inserted_found.contains(&node_id));
+        assert!(removed_found.contains(&node_id));
+        assert_eq!(old_bounds.right(), 25.0);
+        assert!(
+            inserted_bounds.right() >= 28.0,
+            "caret extends past text bounds"
+        );
+        let insertion_damage = super::union_rects(old_bounds, inserted_bounds);
+        let removal_damage = super::union_rects(inserted_bounds, removed_bounds);
+        assert!(insertion_damage.right() >= 28.0);
+        assert!(removal_damage.right() >= 28.0);
+    }
+
+    #[test]
+    fn caret_without_resolved_geometry_forces_full_damage() {
+        let node_id = WidgetId::explicit("pipeline.partial-damage.right-edge-caret");
+        let targets = HashSet::from([node_id]);
+        let mut scene = {
+            let viewport = LayoutRect::new(0.0, 0.0, 80.0, 40.0);
+            let mut list = fission_render::DisplayList::new(viewport);
+            list.push(DisplayOp::DrawText {
+                text: "MMMM".into(),
+                position: LayoutPoint::new(10.0, 8.0),
+                size: 12.0,
+                color: fission_render::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                bounds: LayoutRect::new(10.0, 8.0, 15.0, 14.0),
+                node_id: Some(node_id),
+                underline: false,
+                wrap: false,
+                caret_index: Some(4),
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+                resolved_layout: None,
+            });
+            RenderScene::from_display_list(list)
+        };
+        let mut found = HashSet::new();
+        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_none());
+
+        if let fission_render::RenderNode::Paint(list) = &mut scene.roots[0] {
+            if let DisplayOp::DrawText { caret_index, .. } = &mut list.ops[0] {
+                *caret_index = None;
+            }
+        }
+        found.clear();
+        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_some());
     }
 
     #[test]
