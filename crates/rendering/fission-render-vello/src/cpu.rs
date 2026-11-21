@@ -99,6 +99,9 @@ impl CpuRenderer {
     /// the same dimensions. This is intended for software fallbacks that render
     /// directly to their final viewport-sized target.
     pub fn with_exact_root_clip_elision(mut self, enabled: bool) -> Self {
+        if self.exact_root_clip_elision != enabled {
+            self.invalidate_retained_target();
+        }
         self.exact_root_clip_elision = enabled;
         self
     }
