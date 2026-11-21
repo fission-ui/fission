@@ -1088,7 +1088,7 @@ function transactionFor(clientId, request) {
 
 async function beginTransaction(clientId, request) {
   if (activeTransaction) {
-    const error = new Error("Another browser context currently owns a SQLite transaction.");
+    const error = new Error("SQLite already has an active transaction for this database.");
     error.code = "busy";
     throw error;
   }

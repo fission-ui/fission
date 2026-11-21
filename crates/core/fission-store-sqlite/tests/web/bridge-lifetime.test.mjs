@@ -52,6 +52,21 @@ test("closing a different client does not abort the transaction owner", async (t
   await warm(owner);
 });
 
+test("a second transaction from the same client reports database contention", async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  const client = await harness.page("single client");
+  const transaction = await deadline(client.request("sql_tx_begin"));
+
+  await assert.rejects(client.request("sql_tx_begin"), (error) => {
+    assert.equal(error.code, "busy");
+    assert.equal(error.message, "SQLite already has an active transaction for this database.");
+    return true;
+  });
+
+  await deadline(client.request("sql_tx_rollback", transaction));
+});
+
 test("closing while BEGIN is in flight cannot strand a transaction", async (t) => {
   const harness = createHarness();
   t.after(() => harness.close());
