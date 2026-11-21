@@ -645,6 +645,7 @@ impl Pipeline {
         {
             stats.damage_rect = self.pending_damage_rect(scene, render_viewport_size);
         }
+        let paint_ops_total = count_render_paint_ops(scene) as u32;
         self.clear_pending_damage();
 
         diag::emit(
@@ -653,7 +654,7 @@ impl Pipeline {
             diag::DiagEventKind::PaintSummary {
                 segments_reused: stats.paint_hits as u32,
                 segments_regenerated: stats.paint_misses as u32,
-                paint_ops_total: count_render_paint_ops(scene) as u32,
+                paint_ops_total,
             },
         );
 
