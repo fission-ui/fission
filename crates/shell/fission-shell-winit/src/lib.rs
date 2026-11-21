@@ -9314,6 +9314,13 @@ where
                             let post_layout_ms =
                                 post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
+                            if pending_screenshot_path
+                                .as_deref()
+                                .is_some_and(|path| path != "__pump__")
+                            {
+                                pipeline.force_full_damage_for_screenshot();
+                            }
+
                             let prepare_started = Instant::now();
                             record_web_test_diagnostic(340, 0);
                             match pipeline.prepare_current(

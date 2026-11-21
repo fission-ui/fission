@@ -110,6 +110,43 @@ impl InvalidationSet {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DamageFallback {
+    reason: &'static str,
+    node_id: Option<WidgetId>,
+}
+
+impl DamageFallback {
+    fn new(reason: &'static str) -> Self {
+        Self {
+            reason,
+            node_id: None,
+        }
+    }
+
+    fn for_node(reason: &'static str, node_id: WidgetId) -> Self {
+        Self {
+            reason,
+            node_id: Some(node_id),
+        }
+    }
+}
+
+fn trace_full_frame_damage_fallback(fallback: DamageFallback) {
+    if !render_trace_enabled() {
+        return;
+    }
+
+    if let Some(node_id) = fallback.node_id {
+        eprintln!(
+            "[pipeline] full-frame damage fallback: {} (node={node_id:?})",
+            fallback.reason
+        );
+    } else {
+        eprintln!("[pipeline] full-frame damage fallback: {}", fallback.reason);
+    }
+}
+
 pub(crate) fn software_frame_needs_raster(
     frame_valid: bool,
     invalidations: InvalidationSet,
@@ -218,9 +255,10 @@ pub struct Pipeline {
     viewport_state: ViewportStateMap,
     scrollbar_paint: ScrollbarPalette,
     active_scrollbar_nodes: HashSet<WidgetId>,
+    last_active_motion_keys: HashSet<(WidgetId, MotionPropertyId)>,
     last_motion_values: HashMap<(WidgetId, MotionPropertyId), fission_core::MotionValue>,
     last_presence_state: HashMap<WidgetId, fission_core::motion::PresencePhase>,
-    last_motion_had_active_output: bool,
+    last_motion_ripple_ids: HashSet<WidgetId>,
 }
 
 pub struct PipelineStats {
@@ -266,9 +304,10 @@ impl Pipeline {
             viewport_state: ViewportStateMap::default(),
             scrollbar_paint: ScrollbarPalette::default(),
             active_scrollbar_nodes: HashSet::new(),
+            last_active_motion_keys: HashSet::new(),
             last_motion_values: HashMap::new(),
             last_presence_state: HashMap::new(),
-            last_motion_had_active_output: false,
+            last_motion_ripple_ids: HashSet::new(),
         }
     }
 
@@ -277,19 +316,23 @@ impl Pipeline {
             viewport_render_transform_changed(ir, &self.viewport_state, viewport_state)
         });
         if viewport_transform_changed {
-            self.clear_pending_damage();
+            self.clear_pending_damage_with_fallback(DamageFallback::new(
+                "interactive viewport transform changed",
+            ));
         }
         self.viewport_state = viewport_state.clone();
     }
 
     pub fn scroll_offsets_changed(&self, scroll_map: &ScrollStateMap) -> bool {
-        scroll_offsets_changed(&self.last_scroll_offsets, scroll_map)
+        changed_scroll_node(&self.last_scroll_offsets, scroll_map).is_some()
     }
 
     /// Names the scroll views whose bar should be drawn forward.
     pub fn set_active_scrollbars(&mut self, active: HashSet<WidgetId>) {
         if self.active_scrollbar_nodes != active {
-            self.clear_pending_damage();
+            self.clear_pending_damage_with_fallback(DamageFallback::new(
+                "active scrollbar set changed",
+            ));
             self.active_scrollbar_nodes.clone_from(&active);
         }
         self.scrollbar_paint.set_active_nodes(active);
@@ -312,16 +355,20 @@ impl Pipeline {
         let mut invalidation = InvalidationSet::default();
         let scrollbar_theme_changed = self.scrollbar_paint.set_theme(&env.theme.tokens);
         if scrollbar_theme_changed {
-            self.clear_pending_damage();
+            self.clear_pending_damage_with_fallback(DamageFallback::new("scrollbar theme changed"));
         }
         self.paint_cache
             .retain(|node_id, _| next_ir.nodes.contains_key(node_id));
         let mut rebuild_layout_tree = self.prev_ir.is_none();
 
         let mut damage_targets = None;
+        let mut damage_fallback = None;
         if let Some(prev_ir) = &self.prev_ir {
             let diff = diff_ir(prev_ir, &next_ir);
-            damage_targets = partial_damage_targets(prev_ir, &next_ir, &diff);
+            match partial_damage_targets(prev_ir, &next_ir, &diff) {
+                Ok(targets) => damage_targets = Some(targets),
+                Err(fallback) => damage_fallback = Some(fallback),
+            }
             if !diff.dirty_layout.is_empty() {
                 invalidation.mark_layout();
                 self.pending_layout_invalidated = true;
@@ -341,11 +388,15 @@ impl Pipeline {
         }
 
         if let Some(targets) = damage_targets.filter(|targets| !targets.is_empty()) {
-            let old_scene_safe = self
-                .retained_scene
-                .as_ref()
-                .is_some_and(|scene| !scene_has_backdrop_filter(scene));
-            if old_scene_safe && !scrollbar_theme_changed {
+            let fallback = if scrollbar_theme_changed {
+                Some(DamageFallback::new("scrollbar theme changed"))
+            } else if let Some(scene) = self.retained_scene.as_ref() {
+                scene_has_backdrop_filter(scene)
+                    .then(|| DamageFallback::new("backdrop filter in previous retained scene"))
+            } else {
+                Some(DamageFallback::new("previous retained scene unavailable"))
+            };
+            if fallback.is_none() {
                 self.pending_partial_damage = true;
                 self.pending_required_damage_nodes
                     .extend(targets.iter().copied());
@@ -354,9 +405,21 @@ impl Pipeline {
                     self.pending_previous_scene = self.retained_scene.take();
                 }
             } else {
+                if let Some(fallback) = fallback {
+                    trace_full_frame_damage_fallback(fallback);
+                }
                 self.clear_pending_damage();
             }
         } else if invalidation.any() {
+            if !scrollbar_theme_changed {
+                if let Some(fallback) = damage_fallback {
+                    trace_full_frame_damage_fallback(fallback);
+                } else {
+                    trace_full_frame_damage_fallback(DamageFallback::new(
+                        "invalidation has no local paint target",
+                    ));
+                }
+            }
             self.clear_pending_damage();
         }
 
@@ -454,7 +517,9 @@ impl Pipeline {
         };
         if self.pending_partial_damage {
             if needs_full {
-                self.clear_pending_damage();
+                self.clear_pending_damage_with_fallback(DamageFallback::new(
+                    "full layout rebuild required",
+                ));
             } else if let Some(previous) = previous_snapshot {
                 for (node_id, geometry) in &snapshot.nodes {
                     if previous
@@ -601,30 +666,25 @@ impl Pipeline {
             scroll_map,
             animation_map,
         );
-        if self.pending_partial_damage
-            && (self.scroll_offsets_changed(scroll_map)
-                || motion_state_may_change_output(
-                    self.last_motion_had_active_output,
-                    &self.last_motion_values,
-                    &self.last_presence_state,
-                    animation_map,
-                )
-                || self
-                    .retained_dynamic_ops
-                    .opacity
-                    .iter()
-                    .any(|binding| binding.scalar.motion_target.is_some())
-                || self
-                    .retained_dynamic_ops
-                    .transform
-                    .iter()
-                    .any(transform_binding_may_change_output))
-        {
-            if render_trace_enabled() {
-                eprintln!(
-                    "[pipeline] full-frame damage fallback: scroll or dynamic motion/presence changed"
-                );
+        let runtime_fallback = if self.pending_partial_damage {
+            if let Some(node_id) = changed_scroll_node(&self.last_scroll_offsets, scroll_map) {
+                Some(DamageFallback::for_node("scroll offsets changed", node_id))
+            } else if let Some(fallback) = motion_state_fallback(
+                &self.last_active_motion_keys,
+                &self.last_motion_values,
+                &self.last_presence_state,
+                &self.last_motion_ripple_ids,
+                animation_map,
+            ) {
+                Some(fallback)
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(fallback) = runtime_fallback {
+            trace_full_frame_damage_fallback(fallback);
             self.clear_pending_damage();
         }
         let scene = self
@@ -642,33 +702,28 @@ impl Pipeline {
         }
 
         if self.pending_partial_damage {
-            let fallback_reason = if render_viewport_size != layout_viewport_size {
-                Some("render/layout viewport mismatch")
+            let damage = if render_viewport_size != layout_viewport_size {
+                Err(DamageFallback::new("render/layout viewport mismatch"))
             } else if !self.video_surfaces.is_empty()
                 || !self.web_surfaces.is_empty()
                 || !self.native_surfaces.is_empty()
             {
-                Some("dynamic surface present")
+                Err(DamageFallback::new("dynamic surface present"))
             } else if scene_has_backdrop_filter(scene) {
-                Some("backdrop filter present")
+                Err(DamageFallback::new(
+                    "backdrop filter in current retained scene",
+                ))
             } else {
-                stats.damage_rect = self.pending_damage_rect(scene, render_viewport_size);
-                stats
-                    .damage_rect
-                    .is_none()
-                    .then_some(
-                        "no conservative damage rect (unsupported op/transform, missing target, or over 72% of viewport)",
-                    )
+                self.pending_damage_rect(scene, render_viewport_size)
             };
-            if render_trace_enabled() {
-                if let Some(rect) = stats.damage_rect {
-                    eprintln!("[pipeline] bounded damage region: {rect:?}");
-                } else {
-                    eprintln!(
-                        "[pipeline] full-frame damage fallback: {}",
-                        fallback_reason.unwrap_or("no pending damage candidate")
-                    );
+            match damage {
+                Ok(rect) => {
+                    stats.damage_rect = Some(rect);
+                    if render_trace_enabled() {
+                        eprintln!("[pipeline] bounded damage region: {rect:?}");
+                    }
                 }
+                Err(fallback) => trace_full_frame_damage_fallback(fallback),
             }
         }
         let paint_ops_total = count_render_paint_ops(scene) as u32;
@@ -691,7 +746,8 @@ impl Pipeline {
             .collect();
         self.last_motion_values.clone_from(&animation_map.values);
         self.last_presence_state.clone_from(&animation_map.presence);
-        self.last_motion_had_active_output = motion_state_has_active_output(animation_map);
+        self.last_active_motion_keys = animation_map.active.keys().cloned().collect();
+        self.last_motion_ripple_ids = animation_map.ripples.keys().copied().collect();
 
         Ok(stats)
     }
@@ -935,31 +991,60 @@ impl Pipeline {
         self.pending_partial_damage = false;
     }
 
-    fn pending_damage_rect(&self, scene: &RenderScene, viewport: LayoutSize) -> Option<LayoutRect> {
-        let old_scene = self.pending_previous_scene.as_ref()?;
+    fn clear_pending_damage_with_fallback(&mut self, fallback: DamageFallback) {
+        if self.pending_partial_damage {
+            trace_full_frame_damage_fallback(fallback);
+        }
+        self.clear_pending_damage();
+    }
+
+    /// Forces a requested screenshot to use the retained full frame instead of a local update.
+    pub fn force_full_damage_for_screenshot(&mut self) {
+        self.clear_pending_damage_with_fallback(DamageFallback::new("screenshot requested"));
+    }
+
+    fn pending_damage_rect(
+        &self,
+        scene: &RenderScene,
+        viewport: LayoutSize,
+    ) -> Result<LayoutRect, DamageFallback> {
+        let old_scene = self
+            .pending_previous_scene
+            .as_ref()
+            .ok_or_else(|| DamageFallback::new("previous damage scene unavailable"))?;
         let mut required_old = HashSet::new();
         let old_damage =
             scene_damage_for_nodes(old_scene, &self.pending_damage_nodes, &mut required_old)?;
         let mut required_new = HashSet::new();
         let new_damage =
             scene_damage_for_nodes(scene, &self.pending_damage_nodes, &mut required_new)?;
-        if !self
+        if let Some(node_id) = self
             .pending_required_damage_nodes
             .iter()
-            .all(|node_id| required_old.contains(node_id) && required_new.contains(node_id))
+            .find(|node_id| !required_old.contains(node_id) || !required_new.contains(node_id))
         {
-            return None;
+            return Err(DamageFallback::for_node(
+                "required damage target missing from old or new scene",
+                *node_id,
+            ));
         }
         let damage = union_rects(old_damage, new_damage);
         let viewport = LayoutRect::new(0.0, 0.0, viewport.width, viewport.height);
-        let damage = intersect_rects(damage, viewport)?;
+        let damage = intersect_rects(damage, viewport)
+            .ok_or_else(|| DamageFallback::new("damage bounds outside viewport"))?;
         let viewport_area = viewport.width() * viewport.height();
         let damage_area = damage.width() * damage.height();
         if !viewport_area.is_finite() || viewport_area <= 0.0 || damage_area >= viewport_area * 0.72
         {
-            return None;
+            return Err(DamageFallback::new(
+                if !viewport_area.is_finite() || viewport_area <= 0.0 {
+                    "invalid render viewport"
+                } else {
+                    "damage region covers at least 72% of viewport"
+                },
+            ));
         }
-        Some(damage)
+        Ok(damage)
     }
 
     fn patch_retained_scene(
@@ -2243,63 +2328,99 @@ fn partial_damage_targets(
     previous: &CoreIR,
     next: &CoreIR,
     diff: &fission_core::diff::FrameDiff,
-) -> Option<HashSet<WidgetId>> {
-    if previous.root != next.root || !diff.dirty_composite.is_empty() {
-        return None;
+) -> Result<HashSet<WidgetId>, DamageFallback> {
+    if previous.root != next.root {
+        return Err(DamageFallback::new("root identity changed"));
+    }
+    if let Some(node_id) = diff.dirty_composite.iter().next().copied() {
+        let reason = if !previous.nodes.contains_key(&node_id) || !next.nodes.contains_key(&node_id)
+        {
+            "node added or removed"
+        } else {
+            "composite state changed"
+        };
+        return Err(DamageFallback::for_node(reason, node_id));
     }
     let mut targets = HashSet::new();
     targets.extend(diff.dirty_layout.iter().copied());
     targets.extend(diff.dirty_paint.iter().copied());
     if targets.is_empty() {
-        return None;
+        return Err(DamageFallback::new("no dirty paint target"));
     }
 
     for node_id in &diff.dirty_layout {
-        let old = previous.nodes.get(node_id)?;
-        let new = next.nodes.get(node_id)?;
-        if old.parent != new.parent
-            || old.children != new.children
-            || !matches!(
-                (&old.op, &new.op),
-                (
-                    Op::Paint(PaintOp::DrawText { .. }),
-                    Op::Paint(PaintOp::DrawText { .. })
-                ) | (
-                    Op::Paint(PaintOp::DrawRichText { .. }),
-                    Op::Paint(PaintOp::DrawRichText { .. })
-                )
+        let Some(old) = previous.nodes.get(node_id) else {
+            return Err(DamageFallback::for_node(
+                "dirty layout target absent from previous IR",
+                *node_id,
+            ));
+        };
+        let Some(new) = next.nodes.get(node_id) else {
+            return Err(DamageFallback::for_node(
+                "dirty layout target absent from current IR",
+                *node_id,
+            ));
+        };
+        if old.parent != new.parent || old.children != new.children {
+            return Err(DamageFallback::for_node(
+                "text target parent or children changed",
+                *node_id,
+            ));
+        }
+        if !matches!(
+            (&old.op, &new.op),
+            (
+                Op::Paint(PaintOp::DrawText { .. }),
+                Op::Paint(PaintOp::DrawText { .. })
+            ) | (
+                Op::Paint(PaintOp::DrawRichText { .. }),
+                Op::Paint(PaintOp::DrawRichText { .. })
             )
-        {
-            return None;
+        ) {
+            return Err(DamageFallback::for_node(
+                "layout invalidation is not a text paint update",
+                *node_id,
+            ));
         }
     }
 
     for node_id in &diff.dirty_paint {
-        let old = previous.nodes.get(node_id)?;
-        let new = next.nodes.get(node_id)?;
-        if old.parent != new.parent
-            || old.children != new.children
-            || !matches!(
-                &old.op,
-                Op::Paint(
-                    PaintOp::DrawRect { .. }
-                        | PaintOp::DrawText { .. }
-                        | PaintOp::DrawRichText { .. }
-                )
+        let Some(old) = previous.nodes.get(node_id) else {
+            return Err(DamageFallback::for_node(
+                "dirty paint target absent from previous IR",
+                *node_id,
+            ));
+        };
+        let Some(new) = next.nodes.get(node_id) else {
+            return Err(DamageFallback::for_node(
+                "dirty paint target absent from current IR",
+                *node_id,
+            ));
+        };
+        if old.parent != new.parent || old.children != new.children {
+            return Err(DamageFallback::for_node(
+                "paint target parent or children changed",
+                *node_id,
+            ));
+        }
+        if !matches!(
+            &old.op,
+            Op::Paint(
+                PaintOp::DrawRect { .. } | PaintOp::DrawText { .. } | PaintOp::DrawRichText { .. }
             )
-            || !matches!(
-                &new.op,
-                Op::Paint(
-                    PaintOp::DrawRect { .. }
-                        | PaintOp::DrawText { .. }
-                        | PaintOp::DrawRichText { .. }
-                )
+        ) || !matches!(
+            &new.op,
+            Op::Paint(
+                PaintOp::DrawRect { .. } | PaintOp::DrawText { .. } | PaintOp::DrawRichText { .. }
             )
-        {
-            return None;
+        ) {
+            return Err(DamageFallback::for_node(
+                "paint update uses an unsupported operation",
+                *node_id,
+            ));
         }
     }
-    Some(targets)
+    Ok(targets)
 }
 
 fn scene_has_backdrop_filter(scene: &RenderScene) -> bool {
@@ -2325,7 +2446,7 @@ fn scene_damage_for_nodes(
     scene: &RenderScene,
     targets: &HashSet<WidgetId>,
     found: &mut HashSet<WidgetId>,
-) -> Option<LayoutRect> {
+) -> Result<LayoutRect, DamageFallback> {
     fn add_op_bounds(
         op: &DisplayOp,
         transform: &mut Option<[f32; 16]>,
@@ -2333,44 +2454,44 @@ fn scene_damage_for_nodes(
         targets: &HashSet<WidgetId>,
         found: &mut HashSet<WidgetId>,
         damage: &mut Option<LayoutRect>,
-    ) -> bool {
+    ) -> Result<(), DamageFallback> {
         match op {
             DisplayOp::CachedScene { list, .. } => {
                 for nested in &list.ops {
-                    if !add_op_bounds(nested, transform, transform_stack, targets, found, damage) {
-                        return false;
-                    }
+                    add_op_bounds(nested, transform, transform_stack, targets, found, damage)?;
                 }
-                true
+                Ok(())
             }
             DisplayOp::Save => {
                 transform_stack.push(*transform);
-                true
+                Ok(())
             }
             DisplayOp::Restore => {
                 let Some(saved_transform) = transform_stack.pop() else {
-                    return false;
+                    return Err(DamageFallback::new("unbalanced display-list restore"));
                 };
                 *transform = saved_transform;
-                true
+                Ok(())
             }
             DisplayOp::Translate(offset) => {
                 let Some(next) =
                     append_damage_transform(*transform, translation_matrix(offset.x, offset.y))
                 else {
-                    return false;
+                    return Err(DamageFallback::new("unsupported display-list translation"));
                 };
                 *transform = Some(next);
-                true
+                Ok(())
             }
             DisplayOp::Transform(next) => {
                 let Some(next) = append_damage_transform(*transform, *next) else {
-                    return false;
+                    return Err(DamageFallback::new("unsupported display-list transform"));
                 };
                 *transform = Some(next);
-                true
+                Ok(())
             }
-            DisplayOp::BackdropFilter { .. } => false,
+            DisplayOp::BackdropFilter { .. } => {
+                Err(DamageFallback::new("backdrop filter in display list"))
+            }
             DisplayOp::DrawText {
                 bounds,
                 position,
@@ -2393,12 +2514,18 @@ fn scene_damage_for_nodes(
             } if targets.contains(node_id) => {
                 found.insert(*node_id);
                 let Some(mut bounds) = transformed_damage_rect(*bounds, *transform) else {
-                    return false;
+                    return Err(DamageFallback::for_node(
+                        "text bounds or transform cannot be bounded",
+                        *node_id,
+                    ));
                 };
                 let Some(caret) = resolved_layout.caret(*caret_index, false) else {
                     // The renderer falls back to its own text-layout engine when no resolved
                     // caret stop exists. Its exact pixels cannot be bounded here safely.
-                    return false;
+                    return Err(DamageFallback::for_node(
+                        "caret missing from resolved paragraph layout",
+                        *node_id,
+                    ));
                 };
                 let height = caret_height
                     .unwrap_or(caret.height)
@@ -2410,11 +2537,14 @@ fn scene_damage_for_nodes(
                     height,
                 );
                 let Some(caret_bounds) = transformed_damage_rect(caret_bounds, *transform) else {
-                    return false;
+                    return Err(DamageFallback::for_node(
+                        "caret bounds or transform cannot be bounded",
+                        *node_id,
+                    ));
                 };
                 bounds = union_rects(bounds, caret_bounds);
                 *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
-                true
+                Ok(())
             }
             DisplayOp::DrawText {
                 node_id: Some(node_id),
@@ -2427,7 +2557,10 @@ fn scene_damage_for_nodes(
                 caret_index: Some(_),
                 resolved_layout: None,
                 ..
-            } if targets.contains(node_id) => false,
+            } if targets.contains(node_id) => Err(DamageFallback::for_node(
+                "text target has no resolved paragraph layout",
+                *node_id,
+            )),
             DisplayOp::DrawRect {
                 bounds,
                 node_id: Some(node_id),
@@ -2470,12 +2603,15 @@ fn scene_damage_for_nodes(
             } if targets.contains(node_id) => {
                 found.insert(*node_id);
                 let Some(bounds) = transformed_damage_rect(*bounds, *transform) else {
-                    return false;
+                    return Err(DamageFallback::for_node(
+                        "paint bounds or transform cannot be bounded",
+                        *node_id,
+                    ));
                 };
                 *damage = Some(damage.map_or(bounds, |current| union_rects(current, bounds)));
-                true
+                Ok(())
             }
-            _ => true,
+            _ => Ok(()),
         }
     }
 
@@ -2485,22 +2621,30 @@ fn scene_damage_for_nodes(
         targets: &HashSet<WidgetId>,
         found: &mut HashSet<WidgetId>,
         damage: &mut Option<LayoutRect>,
-    ) -> bool {
+    ) -> Result<(), DamageFallback> {
         let mut transform = initial_transform;
         let mut transform_stack = Vec::new();
         for op in &list.ops {
-            if !add_op_bounds(
+            add_op_bounds(
                 op,
                 &mut transform,
                 &mut transform_stack,
                 targets,
                 found,
                 damage,
-            ) {
-                return false;
-            }
+            )?;
         }
-        transform_stack.is_empty() && transform == initial_transform
+        if !transform_stack.is_empty() {
+            return Err(DamageFallback::new(
+                "unbalanced display-list transform stack",
+            ));
+        }
+        if transform != initial_transform {
+            return Err(DamageFallback::new(
+                "display-list transform was not restored",
+            ));
+        }
+        Ok(())
     }
 
     fn visit_node(
@@ -2509,40 +2653,38 @@ fn scene_damage_for_nodes(
         targets: &HashSet<WidgetId>,
         found: &mut HashSet<WidgetId>,
         damage: &mut Option<LayoutRect>,
-    ) -> bool {
+    ) -> Result<(), DamageFallback> {
         match node {
             RenderNode::Paint(list) => visit_list(list, transform, targets, found, damage),
             RenderNode::Layer(layer) => {
                 if !layer.style.blend_mode.is_normal() {
-                    return false;
+                    return Err(DamageFallback::new("non-normal layer blend mode"));
                 }
                 let transform = match layer.style.transform {
                     Some(next) => {
                         let Some(transform) = append_damage_transform(transform, next) else {
-                            return false;
+                            return Err(DamageFallback::new("unsupported render-layer transform"));
                         };
                         Some(transform)
                     }
                     None => transform,
                 };
-                layer
-                    .children
-                    .iter()
-                    .all(|child| visit_node(child, transform, targets, found, damage))
+                for child in &layer.children {
+                    visit_node(child, transform, targets, found, damage)?;
+                }
+                Ok(())
             }
         }
     }
 
     if scene_has_backdrop_filter(scene) {
-        return None;
+        return Err(DamageFallback::new("backdrop filter in retained scene"));
     }
     let mut damage = None;
     for root in &scene.roots {
-        if !visit_node(root, None, targets, found, &mut damage) {
-            return None;
-        }
+        visit_node(root, None, targets, found, &mut damage)?;
     }
-    damage
+    damage.ok_or_else(|| DamageFallback::new("no paint bounds found for damage targets"))
 }
 
 fn append_damage_transform(current: Option<[f32; 16]>, next: [f32; 16]) -> Option<[f32; 16]> {
@@ -3247,19 +3389,24 @@ fn resolve_scalar_value(
         .unwrap_or(scalar.base)
 }
 
-fn scroll_offsets_changed(prev: &HashMap<WidgetId, u32>, scroll_map: &ScrollStateMap) -> bool {
-    if prev.len() != scroll_map.offsets.len()
-        || prev
-            .keys()
-            .any(|node_id| !scroll_map.offsets.contains_key(node_id))
-    {
-        return true;
-    }
-
+fn changed_scroll_node(
+    prev: &HashMap<WidgetId, u32>,
+    scroll_map: &ScrollStateMap,
+) -> Option<WidgetId> {
     scroll_map
         .offsets
         .iter()
-        .any(|(id, offset)| prev.get(id).copied() != Some(offset.to_bits()))
+        .find(|(id, offset)| prev.get(id).copied() != Some(offset.to_bits()))
+        .map(|(id, _)| *id)
+        .or_else(|| {
+            prev.keys()
+                .find(|node_id| !scroll_map.offsets.contains_key(*node_id))
+                .copied()
+        })
+}
+
+fn scroll_offsets_changed(prev: &HashMap<WidgetId, u32>, scroll_map: &ScrollStateMap) -> bool {
+    changed_scroll_node(prev, scroll_map).is_some()
 }
 
 fn viewport_render_transform_changed(
@@ -3273,59 +3420,71 @@ fn viewport_render_transform_changed(
     })
 }
 
-fn motion_state_may_change_output(
-    previous_had_active_output: bool,
+fn motion_state_fallback(
+    previous_active_keys: &HashSet<(WidgetId, MotionPropertyId)>,
     previous_values: &HashMap<(WidgetId, MotionPropertyId), fission_core::MotionValue>,
     previous_presence: &HashMap<WidgetId, fission_core::motion::PresencePhase>,
+    previous_ripple_ids: &HashSet<WidgetId>,
     animation_map: &MotionStateMap,
-) -> bool {
-    previous_had_active_output
-        || motion_state_has_active_output(animation_map)
-        || previous_values.len() != animation_map.values.len()
-        || animation_map
-            .values
-            .iter()
-            .any(|(key, value)| previous_values.get(key) != Some(value))
-        || previous_presence.len() != animation_map.presence.len()
-        || animation_map
-            .presence
-            .iter()
-            .any(|(id, phase)| previous_presence.get(id) != Some(phase))
-}
-
-fn motion_state_has_active_output(animation_map: &MotionStateMap) -> bool {
-    !animation_map.active.is_empty()
-        || !animation_map.ripples.is_empty()
-        || animation_map.presence.values().any(|phase| {
-            matches!(
-                phase,
-                fission_core::motion::PresencePhase::Entering
-                    | fission_core::motion::PresencePhase::Exiting
-            )
+) -> Option<DamageFallback> {
+    let changed_motion_id = animation_map
+        .active
+        .keys()
+        .find(|key| !previous_active_keys.contains(*key))
+        .or_else(|| {
+            previous_active_keys
+                .iter()
+                .find(|key| !animation_map.active.contains_key(*key))
         })
-}
+        .map(|key| key.0);
+    if let Some(node_id) = changed_motion_id {
+        return Some(DamageFallback::for_node(
+            "active motion set changed",
+            node_id,
+        ));
+    }
 
-fn transform_binding_may_change_output(binding: &TransformBinding) -> bool {
-    binding
-        .path_offset
-        .as_ref()
-        .is_some_and(|offset| offset.distance.motion_target.is_some())
-        || binding
-            .translate_x
-            .as_ref()
-            .is_some_and(|value| value.motion_target.is_some())
-        || binding
-            .translate_y
-            .as_ref()
-            .is_some_and(|value| value.motion_target.is_some())
-        || binding
-            .scale
-            .as_ref()
-            .is_some_and(|value| value.motion_target.is_some())
-        || binding
-            .rotation
-            .as_ref()
-            .is_some_and(|value| value.motion_target.is_some())
+    let changed_value_id = animation_map
+        .values
+        .iter()
+        .find(|(key, value)| previous_values.get(*key) != Some(*value))
+        .map(|((node_id, _), _)| *node_id)
+        .or_else(|| {
+            previous_values
+                .keys()
+                .find(|key| !animation_map.values.contains_key(*key))
+                .map(|(node_id, _)| *node_id)
+        });
+    if let Some(node_id) = changed_value_id {
+        return Some(DamageFallback::for_node("motion value changed", node_id));
+    }
+
+    let changed_presence_id = animation_map
+        .presence
+        .iter()
+        .find(|(node_id, phase)| previous_presence.get(*node_id) != Some(*phase))
+        .map(|(node_id, _)| *node_id)
+        .or_else(|| {
+            previous_presence
+                .keys()
+                .find(|node_id| !animation_map.presence.contains_key(*node_id))
+                .copied()
+        });
+    if let Some(node_id) = changed_presence_id {
+        return Some(DamageFallback::for_node("presence phase changed", node_id));
+    }
+
+    if let Some(node_id) = animation_map.ripples.keys().next().copied() {
+        return Some(DamageFallback::for_node("ripple animation active", node_id));
+    }
+    if let Some(node_id) = previous_ripple_ids
+        .iter()
+        .find(|node_id| !animation_map.ripples.contains_key(*node_id))
+        .copied()
+    {
+        return Some(DamageFallback::for_node("ripple animation ended", node_id));
+    }
+    None
 }
 
 impl SnapshotProvider for Pipeline {
@@ -3432,10 +3591,10 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_local_paint_list, composite_transform_matrix, motion_state_has_active_output,
-        motion_state_may_change_output, scene_damage_for_nodes, scroll_offsets_changed,
-        transform_rect_bounds, translation_matrix, viewport_render_transform_changed,
-        viewport_transform_matrix, InvalidationSet, Pipeline,
+        build_local_paint_list, composite_transform_matrix, motion_state_fallback,
+        scene_damage_for_nodes, scroll_offsets_changed, transform_rect_bounds, translation_matrix,
+        viewport_render_transform_changed, viewport_transform_matrix, DamageFallback,
+        InvalidationSet, Pipeline,
     };
     use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::ScrollStateMap;
@@ -3680,6 +3839,122 @@ mod tests {
         ir
     }
 
+    fn stable_text_input_ir(
+        text: &str,
+        caret_index: usize,
+        selection: Option<(usize, usize)>,
+    ) -> CoreIR {
+        fn style(background_color: Option<Color>) -> TextStyle {
+            TextStyle {
+                font_size: 14.0,
+                color: Color {
+                    r: 24,
+                    g: 32,
+                    b: 48,
+                    a: 255,
+                },
+                underline: false,
+                font_family: None,
+                locale: None,
+                font_weight: 400,
+                font_style: Default::default(),
+                line_height: None,
+                letter_spacing: 0.0,
+                background_color,
+                typography: Default::default(),
+            }
+        }
+
+        let root = WidgetId::explicit("pipeline.partial-damage.text-input.root");
+        let field = WidgetId::explicit("pipeline.partial-damage.text-input.field");
+        let text_node = WidgetId::explicit("pipeline.partial-damage.text-input.text");
+        let mut runs = Vec::new();
+        if let Some((selection_start, selection_end)) = selection {
+            if selection_start > 0 {
+                runs.push(TextRun {
+                    text: text[..selection_start].to_owned(),
+                    style: style(None),
+                });
+            }
+            runs.push(TextRun {
+                text: text[selection_start..selection_end].to_owned(),
+                style: style(Some(Color {
+                    r: 40,
+                    g: 112,
+                    b: 220,
+                    a: 96,
+                })),
+            });
+            if selection_end < text.len() {
+                runs.push(TextRun {
+                    text: text[selection_end..].to_owned(),
+                    style: style(None),
+                });
+            }
+        } else {
+            runs.push(TextRun {
+                text: text.to_owned(),
+                style: style(None),
+            });
+        }
+
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text_node,
+            Op::Paint(PaintOp::DrawRichText {
+                runs,
+                display_breaks: Vec::new(),
+                wrap: true,
+                caret_index: Some(caret_index),
+                caret_color: Some(Color {
+                    r: 220,
+                    g: 20,
+                    b: 60,
+                    a: 255,
+                }),
+                caret_width: Some(2.0),
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            field,
+            Op::Layout(LayoutOp::Box {
+                width: Some(180.0),
+                height: Some(36.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![text_node],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![field],
+        );
+        ir.set_root(root);
+        ir
+    }
+
     fn two_child_layout_ir(second_width: f32) -> CoreIR {
         let root = WidgetId::derived(50, &[0]);
         let first = WidgetId::derived(50, &[1]);
@@ -3802,6 +4077,159 @@ mod tests {
     }
 
     #[test]
+    fn stable_text_entry_caret_and_selection_updates_use_bounded_damage() {
+        fn with_idle_opacity_motion(mut ir: CoreIR, field: WidgetId, motion: WidgetId) -> CoreIR {
+            ir.nodes
+                .get_mut(&field)
+                .expect("field node")
+                .composite
+                .opacity = Some(CompositeScalar::new(1.0).motion(motion));
+            ir
+        }
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
+        let render_size = LayoutSize::new(320.0, 240.0);
+        let field = WidgetId::explicit("pipeline.partial-damage.text-input.field");
+        let motion = WidgetId::explicit("pipeline.partial-damage.text-input.focus-motion");
+
+        pipeline.replace_ir(
+            with_idle_opacity_motion(stable_text_input_ir("alpha beta", 10, None), field, motion),
+            &Env::default(),
+        );
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("initial TextInput layout");
+        pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &MotionStateMap::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("initial TextInput scene");
+        let previous_field_bounds = pipeline
+            .last_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.get_node_rect(field))
+            .expect("initial field bounds");
+
+        let invalidation = pipeline.replace_ir(
+            with_idle_opacity_motion(
+                stable_text_input_ir("alpha! beta", 6, Some((5, 6))),
+                field,
+                motion,
+            ),
+            &Env::default(),
+        );
+        assert!(invalidation.layout, "text entry updates paragraph layout");
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("updated TextInput layout");
+        let current_field_bounds = pipeline
+            .last_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.get_node_rect(field))
+            .expect("updated field bounds");
+        assert_eq!(previous_field_bounds, current_field_bounds);
+
+        let updated = pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &MotionStateMap::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("updated TextInput scene");
+        let damage = updated
+            .damage_rect
+            .expect("stable-geometry text, caret, and selection should stay bounded");
+        assert!(damage.width() < render_size.width);
+        assert!(damage.height() < render_size.height);
+    }
+
+    #[test]
+    fn active_motion_changes_keep_full_damage_for_text_updates() {
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
+        let render_size = LayoutSize::new(320.0, 240.0);
+        let field = WidgetId::explicit("pipeline.partial-damage.text-input.field");
+        let motion = WidgetId::explicit("pipeline.partial-damage.text-input.focus-motion");
+        let with_motion = |text, caret, selection| {
+            let mut ir = stable_text_input_ir(text, caret, selection);
+            ir.nodes
+                .get_mut(&field)
+                .expect("field node")
+                .composite
+                .opacity = Some(CompositeScalar::new(1.0).motion(motion));
+            ir
+        };
+
+        pipeline.replace_ir(with_motion("alpha beta", 10, None), &Env::default());
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("initial TextInput layout");
+        pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &MotionStateMap::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("initial TextInput scene");
+
+        pipeline.replace_ir(with_motion("alpha! beta", 6, Some((5, 6))), &Env::default());
+        pipeline
+            .ensure_layout(viewport, &mut layout_engine, &scroll)
+            .expect("updated TextInput layout");
+        let mut motion_state = MotionStateMap::default();
+        motion_state.values.insert(
+            (motion, MotionPropertyId::Opacity),
+            fission_core::MotionValue::Scalar(0.5),
+        );
+        let updated = pipeline
+            .prepare_current(
+                render_size,
+                render_size,
+                false,
+                &scroll,
+                &motion_state,
+                &Default::default(),
+                &Default::default(),
+            )
+            .expect("TextInput scene during motion");
+        assert!(
+            updated.damage_rect.is_none(),
+            "a changed compositor motion value must keep the full-frame fallback"
+        );
+    }
+
+    #[test]
+    fn screenshot_requests_clear_pending_partial_damage() {
+        let mut pipeline = Pipeline::new();
+        pipeline.pending_partial_damage = true;
+
+        pipeline.force_full_damage_for_screenshot();
+
+        assert!(!pipeline.pending_partial_damage);
+        assert!(pipeline.pending_damage_nodes.is_empty());
+        assert!(pipeline.pending_required_damage_nodes.is_empty());
+    }
+
+    #[test]
     fn balanced_display_list_transforms_keep_local_damage_bounded() {
         fn scene(transform_ops: &[DisplayOp], balance_save: bool, color: Color) -> RenderScene {
             let viewport = LayoutRect::new(0.0, 0.0, 320.0, 240.0);
@@ -3881,7 +4309,7 @@ mod tests {
         assert!(
             pipeline
                 .pending_damage_rect(&unsupported, viewport)
-                .is_none(),
+                .is_err(),
             "unsupported 3D terms must keep the full-frame fallback"
         );
 
@@ -3896,9 +4324,7 @@ mod tests {
             },
         );
         assert!(
-            pipeline
-                .pending_damage_rect(&unbalanced, viewport)
-                .is_none(),
+            pipeline.pending_damage_rect(&unbalanced, viewport).is_err(),
             "an unbalanced transform stack must keep the full-frame fallback"
         );
     }
@@ -4095,7 +4521,7 @@ mod tests {
             RenderScene::from_display_list(list)
         };
         let mut found = HashSet::new();
-        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_none());
+        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_err());
 
         if let fission_render::RenderNode::Paint(list) = &mut scene.roots[0] {
             if let DisplayOp::DrawText { caret_index, .. } = &mut list.ops[0] {
@@ -4103,7 +4529,7 @@ mod tests {
             }
         }
         found.clear();
-        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_some());
+        assert!(scene_damage_for_nodes(&scene, &targets, &mut found).is_ok());
     }
 
     #[test]
@@ -4194,26 +4620,64 @@ mod tests {
     #[test]
     fn motion_presence_changes_and_ripples_require_full_damage() {
         let id = WidgetId::explicit("pipeline.partial-damage.motion");
+        let previous_active_keys = HashSet::new();
         let previous_values = HashMap::new();
         let previous_presence = HashMap::new();
+        let previous_ripple_ids = HashSet::new();
         let mut motion = MotionStateMap::default();
-        assert!(!motion_state_may_change_output(
-            false,
-            &previous_values,
-            &previous_presence,
-            &motion
-        ));
+        assert_eq!(
+            motion_state_fallback(
+                &previous_active_keys,
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            None
+        );
+
+        let active_key = (id, MotionPropertyId::Opacity);
+        motion.active.insert(
+            active_key.clone(),
+            fission_core::motion::ActiveMotion {
+                target: id,
+                property: MotionPropertyId::Opacity,
+                start_value: fission_core::MotionValue::Scalar(1.0),
+                end_value: fission_core::MotionValue::Scalar(0.5),
+                start_time: 0,
+                duration: 200,
+                repeat: false,
+                frame_interval_ms: None,
+                easing: fission_core::motion::MotionEasing::Linear,
+            },
+        );
+        let stable_active_keys = HashSet::from([active_key]);
+        assert_eq!(
+            motion_state_fallback(
+                &stable_active_keys,
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            None,
+            "an active animation with unchanged output can retain bounded damage"
+        );
 
         motion.values.insert(
             (id, MotionPropertyId::Opacity),
             fission_core::MotionValue::Scalar(0.5),
         );
-        assert!(motion_state_may_change_output(
-            false,
-            &previous_values,
-            &previous_presence,
-            &motion
-        ));
+        assert_eq!(
+            motion_state_fallback(
+                &stable_active_keys,
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            Some(DamageFallback::for_node("motion value changed", id))
+        );
 
         motion.values.clear();
         motion.ripples.insert(
@@ -4228,31 +4692,81 @@ mod tests {
                 duration_ms: 200,
             }],
         );
-        assert!(motion_state_may_change_output(
-            false,
-            &previous_values,
-            &previous_presence,
-            &motion
-        ));
+        assert_eq!(
+            motion_state_fallback(
+                &stable_active_keys,
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            Some(DamageFallback::for_node("ripple animation active", id))
+        );
 
         motion.ripples.clear();
-        assert!(motion_state_may_change_output(
-            true,
-            &previous_values,
-            &previous_presence,
-            &motion
-        ));
-        assert!(!motion_state_has_active_output(&motion));
+        motion.active.clear();
+        assert_eq!(
+            motion_state_fallback(
+                &stable_active_keys,
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            Some(DamageFallback::for_node("active motion set changed", id))
+        );
 
         motion
             .presence
             .insert(id, fission_core::motion::PresencePhase::Entering);
-        assert!(motion_state_may_change_output(
-            false,
-            &previous_values,
-            &previous_presence,
-            &motion
-        ));
+        assert_eq!(
+            motion_state_fallback(
+                &HashSet::new(),
+                &previous_values,
+                &previous_presence,
+                &previous_ripple_ids,
+                &motion
+            ),
+            Some(DamageFallback::for_node("presence phase changed", id))
+        );
+
+        let previous_entering =
+            HashMap::from([(id, fission_core::motion::PresencePhase::Entering)]);
+        assert!(
+            motion_state_fallback(
+                &HashSet::new(),
+                &previous_values,
+                &previous_entering,
+                &previous_ripple_ids,
+                &motion,
+            )
+            .is_none(),
+            "an active presence phase with unchanged output does not need a full repaint"
+        );
+        motion
+            .presence
+            .insert(id, fission_core::motion::PresencePhase::Present);
+        assert_eq!(
+            motion_state_fallback(
+                &HashSet::new(),
+                &previous_values,
+                &previous_entering,
+                &previous_ripple_ids,
+                &motion,
+            ),
+            Some(DamageFallback::for_node("presence phase changed", id))
+        );
+
+        assert_eq!(
+            motion_state_fallback(
+                &HashSet::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashSet::from([id]),
+                &MotionStateMap::default(),
+            ),
+            Some(DamageFallback::for_node("ripple animation ended", id))
+        );
     }
 
     #[test]
