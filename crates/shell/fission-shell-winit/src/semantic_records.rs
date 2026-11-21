@@ -75,17 +75,13 @@ pub(crate) fn collect_semantic_records(
     snap: &fission_layout::LayoutSnapshot,
     scroll: &fission_core::ScrollStateMap,
 ) -> Vec<SemanticRecord> {
-    let mut semantic_ids: Vec<WidgetId> = ir
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| {
-            (matches!(node.op, fission_ir::Op::Semantics(_))
-                && !fission_core::hit_test::is_interaction_inert(ir, *id)
-                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id))
-            .then_some(*id)
+    let semantic_ids = semantic_ids_in_reading_order(ir)
+        .into_iter()
+        .filter(|id| {
+            !fission_core::hit_test::is_interaction_inert(ir, *id)
+                && fission_core::hit_test::is_in_active_responsive_branch(ir, snap, *id)
         })
-        .collect();
-    semantic_ids.sort_by_key(|id| id.as_u128());
+        .collect::<Vec<_>>();
 
     let mut semantic_children: HashMap<WidgetId, Vec<String>> = HashMap::new();
     for id in &semantic_ids {
@@ -104,6 +100,107 @@ pub(crate) fn collect_semantic_records(
             semantic_record_for_node(ir, snap, scroll, id, children)
         })
         .collect()
+}
+
+/// Returns semantic widget IDs in authored IR child order. HashMap iteration
+/// and WidgetId ordering are stable for neither visual nor screen-reader
+/// reading order, so DOM projections must traverse the retained tree.
+pub(crate) fn semantic_ids_in_reading_order(ir: &CoreIR) -> Vec<WidgetId> {
+    fn visit(
+        ir: &CoreIR,
+        id: WidgetId,
+        visited: &mut std::collections::HashSet<WidgetId>,
+        output: &mut Vec<WidgetId>,
+    ) {
+        if !visited.insert(id) {
+            return;
+        }
+        let Some(node) = ir.nodes.get(&id) else {
+            return;
+        };
+        if matches!(
+            node.op,
+            fission_ir::Op::Structural(fission_ir::StructuralOp::InteractionInert { .. })
+        ) {
+            return;
+        }
+        if matches!(node.op, fission_ir::Op::Semantics(_)) {
+            output.push(id);
+        }
+        for child in &node.children {
+            visit(ir, *child, visited, output);
+        }
+    }
+
+    let mut output = Vec::new();
+    if let Some(root) = ir.root {
+        visit(ir, root, &mut std::collections::HashSet::new(), &mut output);
+    } else {
+        // A detached IR is only valid in a few synthetic/test contexts. Keep
+        // those inspectable, but make the fallback deterministic.
+        output.extend(ir.nodes.iter().filter_map(|(id, node)| {
+            matches!(node.op, fission_ir::Op::Semantics(_)).then_some(*id)
+        }));
+        output.sort_by_key(|id| id.as_u128());
+    }
+    output
+}
+
+#[cfg(test)]
+mod reading_order_tests {
+    use super::semantic_ids_in_reading_order;
+    use fission_ir::{CoreIR, CoreNode, Op, Semantics, WidgetId};
+
+    fn add_semantic_node(ir: &mut CoreIR, id: WidgetId, children: &[WidgetId]) {
+        ir.nodes.insert(
+            id,
+            CoreNode {
+                id,
+                op: Op::Semantics(Semantics::default()),
+                composite: Default::default(),
+                children: children.to_vec(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        for child in children {
+            ir.nodes
+                .get_mut(child)
+                .expect("child node is inserted before its parent")
+                .parent = Some(id);
+        }
+    }
+
+    #[test]
+    fn semantic_reading_order_follows_ir_children_not_widget_ids() {
+        let mut ir = CoreIR::default();
+        let root = WidgetId::from_u128(10);
+        let first = WidgetId::from_u128(30);
+        let first_child = WidgetId::from_u128(40);
+        let second = WidgetId::from_u128(20);
+
+        add_semantic_node(&mut ir, first_child, &[]);
+        add_semantic_node(&mut ir, first, &[first_child]);
+        add_semantic_node(&mut ir, second, &[]);
+        add_semantic_node(&mut ir, root, &[first, second]);
+        ir.root = Some(root);
+
+        assert_eq!(
+            semantic_ids_in_reading_order(&ir),
+            vec![root, first, first_child, second]
+        );
+    }
+
+    #[test]
+    fn detached_semantic_ir_uses_a_deterministic_fallback_order() {
+        let mut ir = CoreIR::default();
+        let higher = WidgetId::from_u128(30);
+        let lower = WidgetId::from_u128(20);
+        add_semantic_node(&mut ir, higher, &[]);
+        add_semantic_node(&mut ir, lower, &[]);
+
+        assert_eq!(semantic_ids_in_reading_order(&ir), vec![lower, higher]);
+    }
 }
 
 fn semantic_record_for_node(
