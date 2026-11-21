@@ -9405,6 +9405,9 @@ where
                                                     render_target_size.1,
                                                     scale_factor,
                                                 ) {
+                                                    presenter
+                                                        .cpu_renderer
+                                                        .invalidate_retained_target();
                                                     eprintln!(
                                                         "failed to present web canvas frame: {err}"
                                                     );
@@ -10097,6 +10100,8 @@ where
                                                             )
                                                         })
                                                     else {
+                                                        cpu_renderer.invalidate_retained_target();
+                                                        software_frame_valid = false;
                                                         diag::end_frame(diag::FrameStats::default());
                                                         return;
                                                     };
@@ -10160,7 +10165,6 @@ where
                                                             upload_ms,
                                                         },
                                                     );
-                                                    software_frame_valid = true;
                                                 }
                                             }
                                         }
@@ -10237,6 +10241,12 @@ where
                                             surface_texture,
                                             is_linux_wayland_event_loop(elwt),
                                         );
+                                        if matches!(
+                                            &render_state.main_renderer,
+                                            MainRenderer::Software { .. }
+                                        ) {
+                                            software_frame_valid = true;
+                                        }
                                         pending_resize = None;
                                         if resize_settled {
                                             resize_needs_settled_frame = false;

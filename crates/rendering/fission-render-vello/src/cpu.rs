@@ -33,6 +33,8 @@ pub struct CpuRenderer {
     context_size: Option<(u16, u16)>,
     resources: Resources,
     retained_target: Option<Pixmap>,
+    retained_background: Option<RenderColor>,
+    retained_scale_factor: Option<f64>,
     backdrop_filters_enabled: bool,
     exact_root_clip_elision: bool,
 }
@@ -74,6 +76,8 @@ impl CpuRenderer {
             context_size: None,
             resources: Resources::new(),
             retained_target: None,
+            retained_background: None,
+            retained_scale_factor: None,
             backdrop_filters_enabled: true,
             exact_root_clip_elision: false,
         }
@@ -84,6 +88,9 @@ impl CpuRenderer {
     /// Disable them when this renderer serves an interactive fallback that cannot afford to blur
     /// a full-window backdrop. The remaining scene, including translucent scrims, is unchanged.
     pub fn with_backdrop_filters(mut self, enabled: bool) -> Self {
+        if self.backdrop_filters_enabled != enabled {
+            self.invalidate_retained_target();
+        }
         self.backdrop_filters_enabled = enabled;
         self
     }
@@ -94,6 +101,17 @@ impl CpuRenderer {
     pub fn with_exact_root_clip_elision(mut self, enabled: bool) -> Self {
         self.exact_root_clip_elision = enabled;
         self
+    }
+
+    /// Discard the incremental target after its presentation sink fails.
+    ///
+    /// The next render will rebuild the full frame before emitting pixels, so a
+    /// failed canvas or texture update cannot leave stale pixels in a later
+    /// damage-limited frame.
+    pub fn invalidate_retained_target(&mut self) {
+        self.retained_target = None;
+        self.retained_background = None;
+        self.retained_scale_factor = None;
     }
 
     /// Render `scene` into premultiplied RGBA8 bytes over `background`.
@@ -120,6 +138,7 @@ impl CpuRenderer {
         scale_factor: f64,
         measurer: Arc<VelloTextMeasurer>,
     ) -> Result<(Vec<u8>, CpuRenderTimings)> {
+        self.invalidate_retained_target();
         let width = pixmap_dimension(width, "width")?;
         let height = pixmap_dimension(height, "height")?;
         let dimensions = (width, height);
@@ -196,14 +215,18 @@ impl CpuRenderer {
                     .as_ref()
                     .is_some_and(|target| target.width() == width && target.height() == height)
             })
+            .filter(|_| self.retained_background == Some(background))
+            .filter(|_| self.retained_scale_factor == Some(scale_factor))
             .and_then(|rect| pixel_damage_rect(rect, scale_factor, width, height));
 
         if let Some((pixel_rect, logical_clip)) = partial {
-            let target = self
+            let mut target = self
                 .retained_target
-                .as_mut()
+                .take()
                 .expect("partial rendering requires a retained target");
-            clear_pixmap_rect(target, pixel_rect, background);
+            self.retained_background = None;
+            self.retained_scale_factor = None;
+            clear_pixmap_rect(&mut target, pixel_rect, background);
             let clipped_scene = scene_with_clip(scene, logical_clip);
             let recording_started = Instant::now();
             if trace_web {
@@ -237,7 +260,7 @@ impl CpuRenderer {
                 .as_ref()
                 .expect("context initialized above")
                 .render_with(
-                    target,
+                    &mut target,
                     &mut self.resources,
                     RasterizerSettings {
                         target_init: TargetInit::SrcOver,
@@ -250,8 +273,11 @@ impl CpuRenderer {
             }
 
             let copy_started = Instant::now();
-            let rgba = copy_pixmap_rect(target, pixel_rect);
+            let rgba = copy_pixmap_rect(&target, pixel_rect);
             let output_copy = copy_started.elapsed();
+            self.retained_target = Some(target);
+            self.retained_background = Some(background);
+            self.retained_scale_factor = Some(scale_factor);
             if trace_web {
                 crate::trace_web_test_stage(376, 0);
                 crate::trace_web_test_stage(377, output_copy.as_millis() as u32);
@@ -274,6 +300,7 @@ impl CpuRenderer {
             ));
         }
 
+        self.invalidate_retained_target();
         let (target, mut timings) = render_scene_to_pixmap(
             self.context.as_mut().expect("context initialized above"),
             &mut self.resources,
@@ -298,6 +325,8 @@ impl CpuRenderer {
             crate::trace_web_test_stage(377, timings.output_copy.as_millis() as u32);
         }
         self.retained_target = Some(target);
+        self.retained_background = Some(background);
+        self.retained_scale_factor = Some(scale_factor);
         Ok((
             CpuFrameUpdate {
                 rgba,
@@ -676,6 +705,30 @@ mod tests {
                 .copy_from_slice(&partial.rgba[source..source + row_bytes]);
         }
         assert_eq!(composed, full_after, "partial update left stale pixels");
+
+        renderer.invalidate_retained_target();
+        let (recovered, _) = renderer
+            .render_to_rgba8_update_with_timings(
+                &after,
+                80,
+                60,
+                background,
+                1.25,
+                measurer(),
+                Some(LayoutRect::new(25.3, 12.2, 15.1, 10.3)),
+            )
+            .unwrap();
+        assert_eq!(
+            recovered.rect,
+            CpuUpdateRect {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 60,
+            },
+            "invalidating a failed presentation sink must force a full update"
+        );
+        assert_eq!(recovered.rgba, full_after);
     }
 
     #[test]
