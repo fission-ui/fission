@@ -289,10 +289,10 @@ impl CpuRenderer {
                 CpuFrameUpdate {
                     rgba,
                     rect: CpuUpdateRect {
-                        x: u32::from(pixel_rect.x),
-                        y: u32::from(pixel_rect.y),
-                        width: u32::from(pixel_rect.width),
-                        height: u32::from(pixel_rect.height),
+                        x: u32::from(pixel_rect.0),
+                        y: u32::from(pixel_rect.1),
+                        width: u32::from(pixel_rect.2),
+                        height: u32::from(pixel_rect.3),
                     },
                 },
                 CpuRenderTimings {
