@@ -414,6 +414,9 @@ pub enum ActionTrigger {
     LongPress,
     /// An active drag ended without committing, for example after pointer cancellation.
     DragCancel,
+    /// Platform-produced text was committed to a focused non-editing control,
+    /// or its IME composition changed.
+    TextEntry,
 }
 
 #[cfg(test)]
@@ -453,11 +456,16 @@ mod tests {
         assert_eq!(ActionTrigger::Key as u8, 25);
         assert_eq!(ActionTrigger::LongPress as u8, 26);
         assert_eq!(ActionTrigger::DragCancel as u8, 27);
+        assert_eq!(ActionTrigger::TextEntry as u8, 28);
     }
 
     #[test]
-    fn appended_gesture_triggers_round_trip_through_ir_serialization() {
-        for trigger in [ActionTrigger::LongPress, ActionTrigger::DragCancel] {
+    fn appended_action_triggers_round_trip_through_ir_serialization() {
+        for trigger in [
+            ActionTrigger::LongPress,
+            ActionTrigger::DragCancel,
+            ActionTrigger::TextEntry,
+        ] {
             let encoded = serde_json::to_string(&trigger).expect("serialize gesture trigger");
             let decoded: ActionTrigger =
                 serde_json::from_str(&encoded).expect("deserialize gesture trigger");

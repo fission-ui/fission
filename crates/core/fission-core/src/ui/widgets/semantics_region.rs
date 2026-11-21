@@ -68,6 +68,9 @@ pub struct SemanticsRegion {
     /// Whether this region represents a modal surface.
     #[serde(default)]
     pub modal: bool,
+    /// Whether this semantic region is disabled and must not receive input.
+    #[serde(default)]
+    pub disabled: bool,
     /// Semantic nodes whose content or visibility this region controls.
     #[serde(default)]
     pub controls: Vec<WidgetId>,
@@ -291,6 +294,12 @@ impl SemanticsRegion {
         self
     }
 
+    /// Marks this semantic region disabled so it cannot receive routed input.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
     /// Makes this region a focus scope and optionally a traversal barrier.
     pub fn focus_scope(mut self, is_barrier: bool) -> Self {
         self.is_focus_scope = true;
@@ -321,6 +330,22 @@ impl SemanticsRegion {
         });
         self
     }
+
+    /// Receives platform-produced text and IME composition while this region
+    /// or one of its descendants holds focus.
+    ///
+    /// This is intended for controls such as spreadsheet cells that start an
+    /// edit session on the first character without being a `TextInput`.
+    /// Reducers read the committed Unicode text or composition event with
+    /// `ctx.input.text_entry()`.
+    pub fn text_entry_action(mut self, action: ActionEnvelope) -> Self {
+        self.actions.entries.push(ActionEntry {
+            trigger: ActionTrigger::TextEntry,
+            action_id: action.id.as_u128(),
+            payload_data: Some(action.payload),
+        });
+        self
+    }
 }
 
 impl Default for SemanticsRegion {
@@ -344,6 +369,7 @@ impl Default for SemanticsRegion {
             validation_state: TextFieldValidationState::Unvalidated,
             validation_message: None,
             modal: false,
+            disabled: false,
             controls: Vec::new(),
             pointer_passthrough: Vec::new(),
             labelled_by: Vec::new(),
@@ -373,13 +399,15 @@ impl Lower for SemanticsRegion {
                 hyperlink: self.hyperlink.clone(),
                 popover_target: self.popover_target.clone(),
                 actions: self.actions.clone(),
+                disabled: self.disabled,
                 focusable: self.focusable.unwrap_or_else(|| {
                     self.hyperlink.is_some()
-                        || self
-                            .actions
-                            .entries
-                            .iter()
-                            .any(|entry| entry.trigger == ActionTrigger::Default)
+                        || self.actions.entries.iter().any(|entry| {
+                            matches!(
+                                entry.trigger,
+                                ActionTrigger::Default | ActionTrigger::TextEntry
+                            )
+                        })
                 }),
                 selected: self.selected,
                 expanded: self.expanded,
@@ -482,6 +510,7 @@ mod tests {
     fn added_fields_default_when_deserializing_an_older_region() {
         let added_fields = [
             "window_drag_region",
+            "disabled",
             "selected",
             "expanded",
             "has_popup",
@@ -507,6 +536,7 @@ mod tests {
 
         let decoded: SemanticsRegion = serde_json::from_value(encoded).unwrap();
         assert!(!decoded.window_drag_region);
+        assert!(!decoded.disabled);
         assert_eq!(decoded.selected, None);
         assert_eq!(decoded.expanded, None);
         assert_eq!(decoded.has_popup, None);
@@ -523,5 +553,32 @@ mod tests {
         assert!(decoded.described_by.is_empty());
         assert_eq!(decoded.active_descendant, None);
         assert!(decoded.sequential_focusable);
+    }
+
+    #[test]
+    fn text_entry_action_makes_region_focusable_and_preserves_disabled_state() {
+        let action = ActionEnvelope {
+            id: ActionId::from_u128(19),
+            payload: vec![1, 2],
+        };
+        let widget: Widget = SemanticsRegion::new(Spacer::default())
+            .text_entry_action(action)
+            .disabled(true)
+            .into();
+        let ir = crate::internal::lower_widget_to_ir(&widget);
+        let root = ir.root.expect("semantic region root");
+        let Op::Semantics(semantics) = &ir.nodes[&root].op else {
+            panic!("semantic region did not lower to semantics");
+        };
+
+        assert!(semantics.focusable);
+        assert!(semantics.disabled);
+        assert_eq!(semantics.actions.entries.len(), 1);
+        assert_eq!(
+            semantics.actions.entries[0].trigger,
+            ActionTrigger::TextEntry
+        );
+        assert_eq!(semantics.actions.entries[0].action_id, 19);
+        assert_eq!(semantics.actions.entries[0].payload_data, Some(vec![1, 2]));
     }
 }
