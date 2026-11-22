@@ -120,6 +120,31 @@ pub fn child_id<K: UiKey + ?Sized>(parent: WidgetId, namespace: &str, key: &K) -
     );
     WidgetId::from_u128(ActionId::from_name(&encoded).as_u128())
 }
+
+/// Retains a composed subtree under a stable semantic identity and explicit
+/// dependency value.
+///
+/// Include every state, property, environment, and layout input that affects
+/// the subtree in `dependencies`. The body is skipped while those dependencies
+/// and descendant local state remain unchanged. `key` must be unique within
+/// `namespace` among siblings in the active build.
+pub fn memoized_subtree<S, K, D>(
+    build_ctx: &core::BuildCtxHandle<S>,
+    namespace: &str,
+    key: &K,
+    dependencies: D,
+    build: impl FnOnce() -> core::Widget,
+) -> core::Widget
+where
+    S: GlobalState,
+    K: UiKey + ?Sized,
+    D: Clone + PartialEq + Send + Sync + 'static,
+{
+    let owner = child_id(current_id(), namespace, key);
+    BuildSession::claim(owner, namespace);
+    build_ctx.memoized_subtree(owner, dependencies, build)
+}
+
 pub fn current_id() -> WidgetId {
     core::build::current_identity().expect("fission_component! must run in an active Fission build")
 }
@@ -201,18 +226,12 @@ impl Mount {
         if incarnation != self.incarnation {
             return false;
         }
-        let mut alive = false;
         self.store
-            .update::<Incarnation>(&self.witness, |v| alive = v.0 == incarnation)
-            .is_ok()
-            && alive
+            .read::<Incarnation>(&self.witness)
+            .is_some_and(|value| value.0 == incarnation)
     }
     pub fn snapshot<T: Clone + Send + Sync + 'static>(&self, key: &LocalStateKey) -> Option<T> {
-        let mut out = None;
-        self.store
-            .update::<T>(key, |value| out = Some(value.clone()))
-            .ok()?;
-        out
+        self.store.read(key)
     }
     pub fn replace<T: Send + Sync + 'static>(&self, key: &LocalStateKey, value: T) -> bool {
         self.store.update::<T>(key, |slot| *slot = value).is_ok()

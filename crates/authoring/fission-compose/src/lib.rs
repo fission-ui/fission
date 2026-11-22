@@ -12,7 +12,7 @@ pub mod scope;
 
 pub use binding::{read, Control, ControlSource, LocalSource, Read, ReadOnly, Source, StateSource};
 pub use events::{Event, Press, TextChanged, Toggle};
-pub use identity::{BuildSession, Mount, NodeContext, UiKey};
+pub use identity::{memoized_subtree, BuildSession, Mount, NodeContext, UiKey};
 pub use scope::{DefaultScope, Scope};
 
 /// Opt-in contract for editable controls. Composition itself needs no trait:
@@ -25,7 +25,8 @@ pub trait ComposeBind<S>: Sized {
 
 pub mod prelude {
     pub use crate::{
-        fission_component, fission_compose, fission_effect, read, state_scope, ComposeBind,
+        fission_component, fission_compose, fission_effect, memoized_subtree, read, state_scope,
+        ComposeBind,
         Control, ControlSource, DefaultScope, Event, ManySource, Press, Scope, Source, TextChanged,
         Toggle, UiKey,
     };
