@@ -4394,6 +4394,7 @@ impl<'a> VelloRenderer<'a> {
                                 }
                             }
                             continue;
+                        }
                     }
                     if let Some(first) = runs.first() {
                         if runs.iter().all(|run| run.style == first.style)

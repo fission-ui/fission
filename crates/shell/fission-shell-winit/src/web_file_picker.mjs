@@ -301,10 +301,11 @@ export function fissionPickSaveFile(suggestedName, serializedTypes, persistenceK
       if (error && error.name === "AbortError") return null;
       throw error;
     }
+    const filePermission = await permission(handle, false);
     if (persistenceKey) await storedSaveFileHandle(requireSaveFileKey(persistenceKey), handle, false);
     const id = allocateFileId();
     writableFiles.set(id, handle);
-    return { id, name: handle.name || options.suggestedName, permission: await permission(handle, false) };
+    return { id, name: handle.name || options.suggestedName, permission: filePermission };
   })();
 }
 
@@ -312,9 +313,10 @@ export async function fissionRestoreSaveFile(persistenceKey) {
   const key = requireSaveFileKey(persistenceKey);
   const handle = await storedSaveFileHandle(key, undefined, false);
   if (!handle) return null;
+  const filePermission = await permission(handle, false);
   const id = allocateFileId();
   writableFiles.set(id, handle);
-  return { id, name: handle.name || "selected-file", permission: await permission(handle, false) };
+  return { id, name: handle.name || "selected-file", permission: filePermission };
 }
 
 export async function fissionForgetSaveFile(persistenceKey) {

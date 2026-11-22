@@ -177,7 +177,7 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
     async_registry.register_operation_capability(
         RELEASE_WRITABLE_FILE,
         |request: ReleaseWritableFileRequest, _| async move {
-            let id = save_file_id(request.file.id)?;
+            let id = save_file_id(request.file)?;
             fissionReleaseWritableFile(id);
             Ok(())
         },

@@ -1,8 +1,8 @@
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemPermission, FileWriteSource,
-    PickSaveFileRequest, PickSaveFileResult, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult, PICK_SAVE_FILE,
-    WRITE_PICKED_FILE,
+    PickSaveFileRequest, PickSaveFileResult, ReleaseWritableFileRequest, SaveFileDestination,
+    WritableFileHandle, WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult,
+    PICK_SAVE_FILE, RELEASE_WRITABLE_FILE, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use objc::runtime::Object;
@@ -49,6 +49,18 @@ pub(crate) fn register_macos_file_picker_capabilities(async_registry: &mut Async
                 })?;
             let byte_len = write_picked_file(request.source, &ctx, file).await?;
             Ok(WritePickedFileResult { byte_len })
+        },
+    );
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move {
+            picked_files()
+                .lock()
+                .map_err(|_| {
+                    FileSystemError::new("registry_failed", "save file registry is unavailable")
+                })?
+                .remove(&request.file);
+            Ok(())
         },
     );
 }
@@ -294,11 +306,12 @@ mod tests {
     }
 
     #[test]
-    fn registers_save_picker_and_picked_file_writer() {
+    fn registers_save_picker_writer_and_release_capabilities() {
         let mut registry = AsyncRegistry::new();
         register_macos_file_picker_capabilities(&mut registry);
         assert!(registry.has_operation_capability(PICK_SAVE_FILE));
         assert!(registry.has_operation_capability(WRITE_PICKED_FILE));
+        assert!(registry.has_operation_capability(RELEASE_WRITABLE_FILE));
     }
 
     #[test]

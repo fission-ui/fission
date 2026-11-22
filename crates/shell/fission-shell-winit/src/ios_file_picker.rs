@@ -190,7 +190,7 @@ pub(crate) fn register_ios_file_picker_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         RELEASE_WRITABLE_FILE,
         |request: ReleaseWritableFileRequest, _| async move {
-            let file = writable_files().lock().unwrap().remove(&request.file.id);
+            let file = writable_files().lock().unwrap().remove(&request.file);
             drop(file);
             Ok(())
         },

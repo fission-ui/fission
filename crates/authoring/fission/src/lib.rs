@@ -259,9 +259,8 @@ pub mod sqlite {
 
 pub use fission_compose::{
     fission_component, fission_compose, fission_effect, memoized_subtree, read, state_scope,
-    ComposeBind, Control,
-    ControlSource, DefaultScope, Event, ManySource, Press, Scope, Source, TextChanged, Toggle,
-    UiKey,
+    ComposeBind, Control, ControlSource, DefaultScope, Event, ManySource, Press, Scope, Source,
+    TextChanged, Toggle, UiKey,
 };
 pub use fission_core::Bytes;
 pub use fission_core::{KeyAction, KeyBinding};

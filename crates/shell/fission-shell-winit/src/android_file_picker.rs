@@ -316,7 +316,7 @@ pub(crate) fn register_android_file_picker_capabilities(
     async_registry.register_operation_capability(
         RELEASE_WRITABLE_FILE,
         |request: ReleaseWritableFileRequest, _| async move {
-            saved_documents().lock().unwrap().remove(&request.file.id);
+            saved_documents().lock().unwrap().remove(&request.file);
             Ok(())
         },
     );
