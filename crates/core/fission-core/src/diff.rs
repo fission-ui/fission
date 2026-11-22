@@ -151,9 +151,9 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
 mod tests {
     use super::diff_ir;
     use fission_ir::op::Fill;
+    use fission_ir::op::TextDisplayBreak;
     use fission_ir::{
-        CompositeScalar, CompositeStyle, CoreIR, LayoutDirection, LayoutOp, Op, PaintOp,
-        TextDisplayBreak, WidgetId,
+        CompositeScalar, CompositeStyle, CoreIR, LayoutDirection, LayoutOp, Op, PaintOp, WidgetId,
     };
 
     fn rect_ir(id_seed: u128, color: (u8, u8, u8, u8)) -> CoreIR {

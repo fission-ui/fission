@@ -79,9 +79,9 @@ fn same_dependencies_skip_conversion_and_reuse_the_retained_widget() {
     let second = build_pass(&mut runtime, owner, 4, body_count.clone());
 
     assert_eq!(body_count.load(Ordering::SeqCst), 1);
-    let serialized_first = serde_json::to_value(&first).unwrap();
-    assert_eq!(serialized_first, serde_json::to_value(&second).unwrap());
-    assert!(serialized_first.get("identities_resolved").is_none());
+    let serialized_first = serde_json::to_string(&first).unwrap();
+    assert_eq!(serialized_first, serde_json::to_string(&second).unwrap());
+    assert!(!serialized_first.contains("identities_resolved"));
     let (WidgetKind::Composite(first), WidgetKind::Composite(second)) =
         (first.kind(), second.kind())
     else {
@@ -94,8 +94,8 @@ fn same_dependencies_skip_conversion_and_reuse_the_retained_widget() {
     assert_eq!(region.identifier.as_deref(), Some("retained-label"));
     assert_eq!(region.label.as_deref(), Some("Retained label"));
     assert_eq!(
-        crate::authoring::widget_id(&first.child),
-        crate::authoring::widget_id(&second.child)
+        crate::internal::widget_id(&first.child),
+        crate::internal::widget_id(&second.child)
     );
 }
 
@@ -110,14 +110,14 @@ fn changed_dependencies_rebuild_the_subtree() {
 
     assert_eq!(body_count.load(Ordering::SeqCst), 2);
     assert_ne!(
-        serde_json::to_value(first).unwrap(),
-        serde_json::to_value(changed).unwrap()
+        serde_json::to_string(&first).unwrap(),
+        serde_json::to_string(&changed).unwrap()
     );
 }
 
 #[test]
 fn cache_hits_replay_scroll_build_dependencies() {
-    let mut runtime = new_runtime();
+    let runtime = new_runtime();
     let env = Env::default();
     let owner = WidgetId::from_u128(103);
     let scroll_id = WidgetId::from_u128(104);
@@ -156,7 +156,7 @@ fn sibling_owners_keep_independent_cache_entries() {
         let mut ctx = BuildCtx::new();
         let first_count = body_count.clone();
         let second_count = body_count.clone();
-        let widget = build::enter(&mut ctx, &view, || {
+        let widget: Widget = build::enter(&mut ctx, &view, || {
             let (build, _) = build::current::<MemoTestState>();
             let first = build.memoized_subtree(first_owner, first_dep, move || {
                 first_count.fetch_add(1, Ordering::SeqCst);
@@ -183,12 +183,12 @@ fn sibling_owners_keep_independent_cache_entries() {
 
     assert_eq!(body_count.load(Ordering::SeqCst), 3);
     assert_ne!(
-        serde_json::to_value(first).unwrap(),
-        serde_json::to_value(second).unwrap()
+        serde_json::to_string(&first).unwrap(),
+        serde_json::to_string(&second).unwrap()
     );
     assert_eq!(
-        serde_json::to_value(second).unwrap(),
-        serde_json::to_value(third).unwrap()
+        serde_json::to_string(&second).unwrap(),
+        serde_json::to_string(&third).unwrap()
     );
 }
 
@@ -211,7 +211,7 @@ fn cached_bindings_work_and_local_state_changes_invalidate_the_view() {
         let sibling_builds_for_body = sibling_builds.clone();
         let observed_for_body = observed.clone();
         let action_for_body = action_envelope.clone();
-        let widget = build::enter(&mut ctx, &view, || {
+        let widget: Widget = build::enter(&mut ctx, &view, || {
             let (build, _) = build::current::<MemoTestState>();
             let active = build.memoized_subtree(owner, "fixed-dependencies", move || {
                 builds_for_body.fetch_add(1, Ordering::SeqCst);
