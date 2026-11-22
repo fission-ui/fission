@@ -18,7 +18,12 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Widget {
-    kind: Box<WidgetKind>,
+    kind: Arc<WidgetKind>,
+    /// `resolve_identities` is idempotent for a resolved subtree. Retained
+    /// components set this once before caching, so a later shared clone does
+    /// not copy-on-write every node during shell lowering.
+    #[serde(skip)]
+    identities_resolved: bool,
     /// Relationship metadata applied to one unambiguous form-control
     /// semantics node after this retained subtree is lowered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,7 +217,8 @@ impl Widget {
 
     fn from_kind(kind: WidgetKind) -> Self {
         Self {
-            kind: Box::new(kind),
+            kind: Arc::new(kind),
+            identities_resolved: false,
             form_field_relationships: None,
         }
     }
@@ -378,19 +384,21 @@ impl Widget {
         ) {
             let kind = std::mem::replace(
                 &mut self.kind,
-                Box::new(WidgetKind::Spacer(Spacer::default())),
+                Arc::new(WidgetKind::Spacer(Spacer::default())),
             );
-            self.kind = Box::new(WidgetKind::Identified {
+            self.kind = Arc::new(WidgetKind::Identified {
                 id,
                 child: Self {
                     kind,
+                    identities_resolved: false,
                     form_field_relationships: None,
                 },
             });
+            self.identities_resolved = false;
             return;
         }
 
-        match self.kind.as_mut() {
+        match Arc::make_mut(&mut self.kind) {
             WidgetKind::Identified {
                 id: existing_id, ..
             } => *existing_id = id,
@@ -441,6 +449,7 @@ impl Widget {
                 unreachable!("scope-only kinds are wrapped before assigning identity")
             }
         }
+        self.identities_resolved = false;
     }
 
     pub fn id<I>(self, id: I) -> Self
@@ -459,17 +468,12 @@ impl Widget {
     }
 
     pub(crate) fn into_text(self) -> Result<Text, Self> {
-        let Self {
-            kind,
-            form_field_relationships,
-        } = self;
-        match (*kind, form_field_relationships) {
-            (WidgetKind::Text(text), None) => Ok(text),
-            (kind, form_field_relationships) => Err(Self {
-                kind: Box::new(kind),
-                form_field_relationships,
-            }),
+        if self.form_field_relationships.is_none() {
+            if let WidgetKind::Text(text) = self.kind.as_ref() {
+                return Ok(text.clone());
+            }
         }
+        Err(self)
     }
 
     pub(crate) fn kind_name(&self) -> &'static str {
@@ -619,11 +623,22 @@ impl Widget {
     }
 
     fn resolve_identity_in_place(&mut self, automatic_id: WidgetId) {
+        if self.identities_resolved {
+            return;
+        }
         if self.declared_id().is_none() {
             self.set_id_in_place(automatic_id);
         }
         let parent = self.declared_id().unwrap_or(automatic_id);
         self.resolve_descendants_in_place(parent);
+        self.identities_resolved = true;
+    }
+
+    /// Resolves this widget and its descendants as child `slot` of `parent`.
+    /// Retained subtree boundaries call this once before caching their tree.
+    pub(crate) fn resolve_as_child(mut self, parent: WidgetId, slot: u32) -> Self {
+        Self::resolve_child_identity(parent, slot, &mut self);
+        self
     }
 
     fn resolve_child_identity(parent: WidgetId, slot: u32, widget: &mut Widget) {
@@ -641,7 +656,7 @@ impl Widget {
     }
 
     fn resolve_descendants_in_place(&mut self, parent: WidgetId) {
-        match self.kind.as_mut() {
+        match Arc::make_mut(&mut self.kind) {
             WidgetKind::Identified {
                 id,
                 child: identified_child,
@@ -768,6 +783,7 @@ impl Widget {
             }
             WidgetKind::Custom(_) => {}
         }
+        self.identities_resolved = true;
     }
 
     pub(crate) fn as_row(&self) -> Option<&Row> {
