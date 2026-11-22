@@ -477,6 +477,7 @@ fn create_rich_text_input_tree(
                         typography: Default::default(),
                     },
                 }],
+                display_breaks: Vec::new(),
                 wrap: true,
                 caret_index: None,
                 caret_color: None,
