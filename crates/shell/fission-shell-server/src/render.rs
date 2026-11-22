@@ -47,8 +47,16 @@ pub struct ServerRequest {
     pub method: String,
     /// Request path without query text.
     pub path: String,
-    /// Decoded query parameters.
+    /// Convenience query map produced by the HTTP adapter. Duplicate names
+    /// are collapsed, so security-sensitive parsing should use `raw_query`.
     pub query: BTreeMap<String, String>,
+    /// Original query text from the request target, excluding the leading `?`.
+    /// The adapter preserves parameter order, duplicate names, and percent
+    /// encoding without decoding. Applications should parse this value once at
+    /// their protocol boundary when those distinctions matter. `None` means
+    /// the request target had no query delimiter; `Some("")` means it had an
+    /// empty query.
+    pub raw_query: Option<String>,
     /// Lowercase header names and their decoded values.
     pub headers: BTreeMap<String, String>,
     /// Complete request body bytes.
@@ -62,6 +70,7 @@ impl ServerRequest {
             method: "GET".to_string(),
             path: path.into(),
             query: BTreeMap::new(),
+            raw_query: None,
             headers: BTreeMap::new(),
             body: Vec::new(),
         }
@@ -73,9 +82,19 @@ impl ServerRequest {
             method: "POST".to_string(),
             path: path.into(),
             query: BTreeMap::new(),
+            raw_query: None,
             headers: BTreeMap::new(),
             body: body.into(),
         }
+    }
+
+    /// Returns the original query text without decoding or collapsing pairs.
+    ///
+    /// Parse this value exactly once with the protocol's required query
+    /// encoding and duplicate-key rules. The `query` convenience map is not a
+    /// substitute for this accessor when multiplicity or raw encoding matters.
+    pub fn raw_query(&self) -> Option<&str> {
+        self.raw_query.as_deref()
     }
 }
 

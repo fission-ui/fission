@@ -14,7 +14,7 @@ pub mod hyper_adapter {
     ) -> Result<Response<Body>, Infallible> {
         let method = request.method().as_str().to_string();
         let path = request.uri().path().to_string();
-        let query = parse_query(request.uri().query().unwrap_or(""));
+        let (query, raw_query) = request_query(request.uri().query());
         let headers = request
             .headers()
             .iter()
@@ -34,6 +34,7 @@ pub mod hyper_adapter {
                 method,
                 path,
                 query,
+                raw_query,
                 headers,
                 body,
             })
@@ -70,7 +71,7 @@ pub mod axum_adapter {
     ) -> Response<Body> {
         let method = request.method().as_str().to_string();
         let path = request.uri().path().to_string();
-        let query = parse_query(request.uri().query().unwrap_or(""));
+        let (query, raw_query) = request_query(request.uri().query());
         let headers = request
             .headers()
             .iter()
@@ -90,6 +91,7 @@ pub mod axum_adapter {
                 method,
                 path,
                 query,
+                raw_query,
                 headers,
                 body,
             })
@@ -119,7 +121,7 @@ pub mod actix_adapter {
     ) -> HttpResponse {
         let method = request.method().as_str().to_string();
         let path = request.path().to_string();
-        let query = parse_query(request.query_string());
+        let (query, raw_query) = request_query(request.uri().query());
         let headers = request
             .headers()
             .iter()
@@ -135,6 +137,7 @@ pub mod actix_adapter {
                 method,
                 path,
                 query,
+                raw_query,
                 headers,
                 body: body.to_vec(),
             })
@@ -152,6 +155,14 @@ pub mod actix_adapter {
     }
 }
 
+fn request_query(
+    raw_query: Option<&str>,
+) -> (std::collections::BTreeMap<String, String>, Option<String>) {
+    let raw_query = raw_query.map(str::to_owned);
+    let query = raw_query.as_deref().map(parse_query).unwrap_or_default();
+    (query, raw_query)
+}
+
 fn parse_query(query: &str) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
     for part in query.split('&') {
@@ -162,4 +173,36 @@ fn parse_query(query: &str) -> std::collections::BTreeMap<String, String> {
         out.insert(key.to_string(), value.to_string());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_query;
+    use crate::ServerRequest;
+
+    #[test]
+    fn original_query_preserves_duplicates_order_and_encoding() {
+        let original = "state=first&code=a%2Bb+c&state=second&iss=https%3A%2F%2Fidp.example";
+        let (query, raw_query) = request_query(Some(original));
+
+        assert_eq!(raw_query.as_deref(), Some(original));
+        assert_eq!(query.get("state").map(String::as_str), Some("second"));
+        assert_eq!(query.get("code").map(String::as_str), Some("a%2Bb+c"));
+
+        let mut request = ServerRequest::get("/oidc/callback");
+        request.query = query;
+        request.raw_query = raw_query;
+        assert_eq!(request.raw_query(), Some(original));
+    }
+
+    #[test]
+    fn original_query_distinguishes_absent_from_empty() {
+        let (without_query, absent) = request_query(None);
+        let (empty_query, present_empty) = request_query(Some(""));
+
+        assert!(without_query.is_empty());
+        assert!(empty_query.is_empty());
+        assert_eq!(absent, None);
+        assert_eq!(present_empty.as_deref(), Some(""));
+    }
 }
