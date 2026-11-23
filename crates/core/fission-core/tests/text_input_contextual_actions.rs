@@ -141,6 +141,31 @@ fn lowering_preserves_unit_and_field_action_payloads() {
 }
 
 #[test]
+fn tab_handler_lowers_forward_and_reverse_navigation_bindings() {
+    let action = bound_field_action("inventory.cell.commit_and_move");
+    let ir = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .semantics_identifier("inventory.cell")
+            .on_tab(action.clone()),
+    ));
+    let (_, semantics) = text_semantics(&ir, "inventory.cell");
+
+    for modifiers in [0, fission_ir::MOD_SHIFT] {
+        let binding = semantics
+            .key_actions
+            .iter()
+            .find(|binding| binding.matches(&KeyCode::Tab, modifiers))
+            .expect("TextInput Tab binding");
+        assert_eq!(binding.action.trigger, ActionTrigger::Key);
+        assert_eq!(binding.action.action_id, action.id.as_u128());
+        assert_eq!(
+            binding.action.payload_data.as_deref(),
+            Some(action.payload.as_slice())
+        );
+    }
+}
+
+#[test]
 fn complete_controlled_value_lowers_text_selection_and_composition_atomically() {
     let text = "a😀bc";
     let editing_value = fission_core::TextEditingValue::new(

@@ -148,6 +148,15 @@ pub struct TextInput {
     /// Action dispatched when the user submits the field (for example by pressing Enter
     /// on a single-line input).
     pub on_submit: Option<ActionEnvelope>,
+    /// Action dispatched for Tab and Shift+Tab while this input is focused.
+    ///
+    /// Setting this explicitly opts the field into handling both keys. The
+    /// reducer receives an [`crate::ActionInput::KeyPress`] whose modifiers
+    /// distinguish forward Tab (`0`) from reverse Tab (`MOD_SHIFT`). When this
+    /// is `None`, focus traversal remains in control unless `capture_tab` is
+    /// enabled, in which case Tab inserts spaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_tab: Option<ActionEnvelope>,
     /// Action dispatched when editing is explicitly completed.
     pub on_editing_complete: Option<ActionEnvelope>,
     /// Action dispatched when the user taps/clicks outside the active field.
@@ -665,6 +674,14 @@ impl TextInput {
         self
     }
 
+    /// Handles Tab and Shift+Tab instead of allowing focus traversal to move
+    /// away from this field. Inspect `ctx.input.key_press().modifiers` to
+    /// distinguish forward from reverse navigation.
+    pub fn on_tab(mut self, action: ActionEnvelope) -> Self {
+        self.on_tab = Some(action);
+        self
+    }
+
     pub fn undo_controller(mut self, undo_controller: TextUndoController) -> Self {
         self.undo_controller = Some(undo_controller);
         self
@@ -781,6 +798,7 @@ impl Default for TextInput {
             counter_text: None,
             on_input: None,
             on_submit: None,
+            on_tab: None,
             on_editing_complete: None,
             on_tap_outside: None,
             on_focus: None,
@@ -2032,6 +2050,18 @@ impl Lower for TextInput {
         semantics.scroll_padding = self.scroll_padding;
         semantics.capture_tab = self.capture_tab;
         semantics.auto_indent = self.auto_indent;
+        if let Some(env) = &self.on_tab {
+            for modifiers in [0, fission_ir::MOD_SHIFT] {
+                semantics.key_actions.push(
+                    fission_ir::KeyAction::with_modifiers(
+                        fission_ir::KeyCode::Tab,
+                        modifiers,
+                        env.id.as_u128(),
+                    )
+                    .payload(env.payload.clone()),
+                );
+            }
+        }
         if let Some(env) = &self.on_input {
             semantics.actions.entries.push(fission_ir::ActionEntry {
                 trigger: fission_ir::semantics::ActionTrigger::TextChanged,

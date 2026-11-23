@@ -978,6 +978,7 @@ fn text_entry_runtime() -> Runtime {
 #[derive(Debug, Default)]
 struct KeyActionState {
     initial_text: Option<String>,
+    modifiers: Vec<u8>,
 }
 
 impl GlobalState for KeyActionState {}
@@ -996,7 +997,102 @@ fn on_start_inline_edit<'a, 'b, 'c>(
     _action: StartInlineEdit,
     ctx: &mut ReducerContext<'a, 'b, 'c, KeyActionState>,
 ) {
-    state.initial_text = ctx.input.key_press().and_then(|press| press.text.clone());
+    if let Some(press) = ctx.input.key_press() {
+        state.initial_text = press.text.clone();
+        state.modifiers.push(press.modifiers);
+    }
+}
+
+#[test]
+fn focused_text_input_can_handle_tab_and_shift_tab_explicitly() {
+    let mut ir = CoreIR::default();
+    add_item(&mut ir, "before", Role::Button, "Before", None, false, true);
+    add_semantics(
+        &mut ir,
+        "editor",
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            text_editable: true,
+            key_actions: vec![
+                KeyAction::new(KeyCode::Tab, StartInlineEdit::static_id().as_u128()),
+                KeyAction::with_modifiers(
+                    KeyCode::Tab,
+                    crate::event::MOD_SHIFT,
+                    StartInlineEdit::static_id().as_u128(),
+                ),
+            ],
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    add_item(&mut ir, "after", Role::Button, "After", None, false, true);
+    finish_root(&mut ir, vec![id("before"), id("editor"), id("after")]);
+
+    let mut runtime = Runtime::default().with_global_state(KeyActionState::default());
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(on_start_inline_edit));
+    runtime.absorb_registry(registry);
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("editor")));
+
+    key(&mut runtime, &ir, KeyCode::Tab);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("editor"))
+    );
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Tab,
+                modifiers: crate::event::MOD_SHIFT,
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("editor"))
+    );
+    assert_eq!(
+        runtime
+            .get_global_state::<KeyActionState>()
+            .unwrap()
+            .modifiers,
+        vec![0, crate::event::MOD_SHIFT]
+    );
+}
+
+#[test]
+fn text_input_without_a_tab_handler_uses_normal_focus_traversal() {
+    let mut ir = CoreIR::default();
+    add_semantics(
+        &mut ir,
+        "editor",
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            text_editable: true,
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    add_item(&mut ir, "next", Role::Button, "Next", None, false, true);
+    finish_root(&mut ir, vec![id("editor"), id("next")]);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("editor")));
+
+    key(&mut runtime, &ir, KeyCode::Tab);
+
+    assert_eq!(runtime.runtime_state.interaction.focused, Some(id("next")));
 }
 
 #[derive(Debug, Default)]

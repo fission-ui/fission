@@ -2040,7 +2040,9 @@ impl Runtime {
         // them before custom render objects and input controllers get a chance
         // to consume the event. This lets an editor handle its own text keys
         // while application shortcuts such as Ctrl+F still reach an ancestor.
-        // Tab remains reserved for tree-wide focus traversal.
+        // Tab remains reserved for tree-wide focus traversal, except when the
+        // focused text editor explicitly opts into handling it (for example,
+        // to commit a spreadsheet cell and move to its neighbour).
         let declared_key = match &event {
             InputEvent::Keyboard(KeyEvent::Down {
                 key_code,
@@ -2054,33 +2056,40 @@ impl Runtime {
             _ => None,
         };
         if let Some((key_code, modifiers, text)) = declared_key {
-            if !matches!(key_code, KeyCode::Tab) {
-                if let Some((node_id, action)) = crate::hit_test::declared_key_action(
+            let action = if matches!(key_code, KeyCode::Tab) {
+                crate::hit_test::declared_text_input_tab_action(
+                    ir,
+                    self.runtime_state.interaction.focused,
+                    modifiers,
+                )
+            } else {
+                crate::hit_test::declared_key_action(
                     ir,
                     self.runtime_state.interaction.focused,
                     key_code,
                     modifiers,
-                ) {
-                    let input = crate::input::scoped_action_input(
-                        ir,
-                        node_id,
-                        ActionInput::KeyPress(KeyPressInput {
-                            key_code: key_code.clone(),
-                            modifiers,
-                            text: text.map(str::to_owned),
-                        }),
-                    );
-                    self.dispatch_node_with_input(
-                        ActionEnvelope {
-                            id: ActionId::from_u128(action.action_id),
-                            payload: action.payload_data.unwrap_or_default(),
-                        },
-                        node_id,
-                        &input,
-                    )?;
-                    self.update_focused_ime_state(ir, layout);
-                    return Ok(());
-                }
+                )
+            };
+            if let Some((node_id, action)) = action {
+                let input = crate::input::scoped_action_input(
+                    ir,
+                    node_id,
+                    ActionInput::KeyPress(KeyPressInput {
+                        key_code: key_code.clone(),
+                        modifiers,
+                        text: text.map(str::to_owned),
+                    }),
+                );
+                self.dispatch_node_with_input(
+                    ActionEnvelope {
+                        id: ActionId::from_u128(action.action_id),
+                        payload: action.payload_data.unwrap_or_default(),
+                    },
+                    node_id,
+                    &input,
+                )?;
+                self.update_focused_ime_state(ir, layout);
+                return Ok(());
             }
         }
 

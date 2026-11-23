@@ -977,6 +977,38 @@ pub fn declared_key_action(
     None
 }
 
+/// Finds an explicitly declared Tab action on the focused text editor itself.
+///
+/// Tab remains reserved for focus traversal for ordinary semantic key actions.
+/// Text editors are the exception because controls such as spreadsheet cells
+/// need to commit an edit and then move their own selection. Requiring the
+/// action to live on the focused text-editing node prevents an ancestor from
+/// trapping focus for its whole subtree.
+pub fn declared_text_input_tab_action(
+    ir: &CoreIR,
+    focused: Option<WidgetId>,
+    modifiers: u8,
+) -> Option<(WidgetId, ActionEntry)> {
+    let focused_id = focused?;
+    if is_interaction_inert(ir, focused_id) {
+        return None;
+    }
+
+    let node = ir.nodes.get(&focused_id)?;
+    let Op::Semantics(semantics) = &node.op else {
+        return None;
+    };
+    if semantics.disabled || !semantics.supports_text_editing() {
+        return None;
+    }
+
+    semantics
+        .key_actions
+        .iter()
+        .find(|binding| binding.matches(&KeyCode::Tab, modifiers))
+        .map(|binding| (focused_id, binding.action.clone()))
+}
+
 /// Returns the last active semantic action with `trigger` in paint/tree order.
 ///
 /// Overlay portals lower after their underlying content, so the last matching
