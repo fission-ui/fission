@@ -923,6 +923,7 @@ fn generate_display_list_with_visited(
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText {
                     runs,
                     display_breaks,
+                    paragraph_styles,
                     wrap,
                     caret_index,
                     caret_color,
@@ -972,6 +973,7 @@ fn generate_display_list_with_visited(
                             })
                             .collect(),
                         display_breaks: display_breaks.clone(),
+                        paragraph_styles: paragraph_styles.clone(),
                         position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
                         bounds: geom.rect,
                         node_id: Some(node_id),

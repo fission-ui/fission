@@ -35,6 +35,8 @@ fn test_box_default_stretch() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let child = LayoutInputNode {
@@ -59,6 +61,8 @@ fn test_box_default_stretch() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let nodes = vec![root, child];
@@ -104,6 +108,8 @@ fn stretch_box_shrink_wraps_child_on_loose_axis() {
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let fixed_box = |id, height| {
         layout_node(
@@ -208,6 +214,8 @@ fn stretch_container(id: WidgetId, child: WidgetId) -> LayoutInputNode {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -234,6 +242,8 @@ fn plain_box(id: WidgetId, parent: WidgetId, size: Option<f32>) -> LayoutInputNo
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 

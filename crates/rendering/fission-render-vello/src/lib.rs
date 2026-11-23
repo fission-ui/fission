@@ -1051,6 +1051,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingPainter {
         glyphs: usize,
+        glyph_positions: Vec<(f32, f32)>,
         /// Distinct baselines glyphs were drawn on, one per painted line of text.
         glyph_rows: Vec<f32>,
         paths: usize,
@@ -1114,7 +1115,10 @@ mod tests {
         ) {
             self.glyphs += glyphs.len();
             for glyph in glyphs {
-                let y = (transform * Point::new(0.0, glyph.y as f64)).y as f32;
+                let position = transform * Point::new(glyph.x as f64, glyph.y as f64);
+                let x = position.x as f32;
+                let y = position.y as f32;
+                self.glyph_positions.push((x, y));
                 if !self.glyph_rows.iter().any(|row| (row - y).abs() < 0.5) {
                     self.glyph_rows.push(y);
                 }
@@ -1502,6 +1506,7 @@ mod tests {
                 text_offset: "abé".len(),
                 gap_after: gap,
             }],
+            paragraph_styles: Vec::new(),
             position: LayoutPoint::new(0.0, 0.0),
             bounds: LayoutRect::new(0.0, 0.0, 200.0, 120.0),
             node_id: None,
@@ -1524,6 +1529,73 @@ mod tests {
             "one baseline should be painted for each segment"
         );
         assert!(rows[1] - rows[0] > gap);
+    }
+
+    #[test]
+    fn rich_text_mixed_paragraphs_render_wrapped_indentation_and_alignment() {
+        let text = "title\nparagraph wraps across the narrow indented column";
+        let second_paragraph = "title\n".len();
+        let painter = render_ops(vec![DisplayOp::DrawRichText {
+            runs: vec![fission_render::TextRun {
+                text: text.into(),
+                style: test_style(),
+            }],
+            display_breaks: Vec::new(),
+            paragraph_styles: vec![
+                fission_ir::op::TextParagraphStyleSpan {
+                    text_offset: 0,
+                    style: fission_ir::op::TextParagraphLayoutStyle {
+                        indent: 0.0,
+                        text_align: TextAlign::Start,
+                        text_direction: TextDirection::Ltr,
+                    },
+                },
+                fission_ir::op::TextParagraphStyleSpan {
+                    text_offset: second_paragraph,
+                    style: fission_ir::op::TextParagraphLayoutStyle {
+                        indent: 20.0,
+                        text_align: TextAlign::End,
+                        text_direction: TextDirection::Ltr,
+                    },
+                },
+            ],
+            position: LayoutPoint::new(0.0, 0.0),
+            bounds: LayoutRect::new(0.0, 0.0, 90.0, 160.0),
+            node_id: None,
+            wrap: true,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+            annotations: Vec::new(),
+            resolved_layout: None,
+        }]);
+
+        let mut row_min_x = Vec::<(f32, f32)>::new();
+        for (x, y) in painter.glyph_positions {
+            if let Some((_, min_x)) = row_min_x
+                .iter_mut()
+                .find(|(row_y, _)| (*row_y - y).abs() < 0.5)
+            {
+                *min_x = min_x.min(x);
+            } else {
+                row_min_x.push((y, x));
+            }
+        }
+        row_min_x.sort_by(|left, right| left.0.total_cmp(&right.0));
+
+        assert!(row_min_x.len() >= 3, "the indented paragraph wraps");
+        assert!(row_min_x[0].1 < 20.0, "the first paragraph has no indent");
+        assert!(
+            row_min_x[1..].iter().all(|(_, x)| *x >= 20.0),
+            "all wrapped lines in the second paragraph respect its leading inset"
+        );
+        assert!(
+            row_min_x.last().unwrap().1 > row_min_x[1].1,
+            "the shorter final line is aligned to the paragraph end"
+        );
     }
 
     #[test]
@@ -4227,6 +4299,7 @@ impl<'a> VelloRenderer<'a> {
                 DisplayOp::DrawRichText {
                     runs,
                     display_breaks,
+                    paragraph_styles,
                     position,
                     bounds,
                     wrap,
@@ -4256,10 +4329,17 @@ impl<'a> VelloRenderer<'a> {
                     if let Some(started) = rich_input_started {
                         trace_web_test_stage(387, started.elapsed().as_millis() as u32);
                     }
-                    if !display_breaks.is_empty() {
-                        let segments =
-                            fission_layout::split_text_display_segments(&rich.text, display_breaks);
-                        if segments.len() > 1 {
+                    if !display_breaks.is_empty() || !paragraph_styles.is_empty() {
+                        let segments = fission_layout::split_text_layout_segments(
+                            &rich.text,
+                            display_breaks,
+                            paragraph_styles,
+                        );
+                        if segments.len() > 1
+                            || segments
+                                .first()
+                                .is_some_and(|segment| segment.paragraph_style.is_some())
+                        {
                             let available_width = resolved_layout
                                 .as_ref()
                                 .and_then(|layout| layout.constraint_width)
@@ -4309,6 +4389,28 @@ impl<'a> VelloRenderer<'a> {
                                         height: inline_box.height,
                                     })
                                     .collect::<Vec<_>>();
+                                let style = segment.paragraph_style;
+                                let indent = style
+                                    .map(|style| style.indent)
+                                    .filter(|indent| indent.is_finite())
+                                    .unwrap_or(0.0)
+                                    .max(0.0);
+                                let is_rtl =
+                                    style.is_some_and(|style| match style.text_direction {
+                                        TextDirection::Ltr => false,
+                                        TextDirection::Rtl => true,
+                                        TextDirection::Auto => resolved_layout
+                                            .as_ref()
+                                            .and_then(|layout| {
+                                                layout.clusters.iter().find(|cluster| {
+                                                    cluster.start_index >= segment.byte_range.start
+                                                        && cluster.start_index
+                                                            < segment.byte_range.end
+                                                })
+                                            })
+                                            .is_some_and(|cluster| cluster.is_rtl),
+                                    });
+                                let indent_x = if is_rtl { 0.0 } else { indent };
                                 let segment_y = if segment_index == 0 {
                                     0.0
                                 } else {
@@ -4326,13 +4428,13 @@ impl<'a> VelloRenderer<'a> {
                                 let resolved_segment_bottom =
                                     resolved_layout.as_ref().map(|layout| {
                                         segment
-                                            .break_after
-                                            .and_then(|display_break| {
+                                            .boundary_after
+                                            .then(|| {
                                                 layout.display_breaks.iter().find(|resolved| {
-                                                    resolved.text_offset
-                                                        == display_break.text_offset
+                                                    resolved.text_offset == segment.byte_range.end
                                                 })
                                             })
+                                            .flatten()
                                             .map(|display_break| display_break.gap_rect.y())
                                             .unwrap_or(layout.size.height)
                                     });
@@ -4345,30 +4447,46 @@ impl<'a> VelloRenderer<'a> {
                                             rich.base_color,
                                             &styles,
                                             &inline_boxes,
-                                            if segment_wrap { available_width } else { None },
+                                            if segment_wrap {
+                                                available_width
+                                                    .map(|width| (width - indent).max(0.0))
+                                            } else {
+                                                None
+                                            },
                                         );
                                         VelloTextMeasurer::layout_measured_size(&segment_layout).1
                                     });
                                 let segment_position = fission_render::LayoutPoint::new(
-                                    position.x,
+                                    position.x + indent_x,
                                     position.y + segment_y,
                                 );
                                 let segment_bounds = fission_render::LayoutRect::new(
-                                    bounds.origin.x,
+                                    bounds.origin.x + indent_x,
                                     bounds.origin.y + segment_y,
-                                    bounds.size.width,
+                                    (bounds.size.width - indent).max(0.0),
                                     (bounds.origin.y + bounds.size.height
                                         - (bounds.origin.y + segment_y))
                                         .max(0.0),
                                 );
-                                let local_caret = caret_index.and_then(|caret| {
-                                    let is_final_segment = segment_index + 1 == segments.len();
-                                    (caret >= segment.byte_range.start
-                                        && (caret < segment.byte_range.end
-                                            || (is_final_segment
-                                                && caret == segment.byte_range.end)))
-                                        .then_some(caret - segment.byte_range.start)
-                                });
+                                let local_caret = resolved_layout
+                                    .is_none()
+                                    .then_some(caret_index)
+                                    .flatten()
+                                    .and_then(|caret| {
+                                        let is_final_segment = segment_index + 1 == segments.len();
+                                        (caret >= segment.byte_range.start
+                                            && (caret < segment.byte_range.end
+                                                || (is_final_segment
+                                                    && caret == segment.byte_range.end)))
+                                            .then_some(caret - segment.byte_range.start)
+                                    });
+                                let mut segment_paragraph_style = *paragraph_style;
+                                if let Some(style) = style {
+                                    let paragraph = segment_paragraph_style
+                                        .get_or_insert_with(TextParagraphStyle::default);
+                                    paragraph.text_align = style.text_align;
+                                    paragraph.text_direction = style.text_direction;
+                                }
                                 self.render_text(
                                     text,
                                     rich.base_size,
@@ -4383,7 +4501,7 @@ impl<'a> VelloRenderer<'a> {
                                     *caret_width,
                                     *caret_height,
                                     *caret_radius,
-                                    *paragraph_style,
+                                    segment_paragraph_style,
                                     &inline_boxes,
                                     &styles,
                                 );
@@ -4392,6 +4510,17 @@ impl<'a> VelloRenderer<'a> {
                                 if let Some(display_break) = segment.break_after {
                                     fallback_y += display_break.gap_after;
                                 }
+                            }
+                            if let (Some(caret), Some(layout)) = (caret_index, resolved_layout) {
+                                self.draw_resolved_caret(
+                                    layout,
+                                    *caret,
+                                    *position,
+                                    caret_color.unwrap_or(rich.base_color),
+                                    caret_width.unwrap_or(2.0),
+                                    *caret_height,
+                                    *caret_radius,
+                                );
                             }
                             continue;
                         }

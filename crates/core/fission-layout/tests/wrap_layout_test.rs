@@ -48,6 +48,8 @@ fn box_node(
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -97,6 +99,8 @@ fn wrapped_auto_sized_controls_keep_intrinsic_width() {
         flex_grow: 1.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let nodes = vec![
         root,
@@ -157,6 +161,8 @@ fn wrapped_layout_uses_independent_line_gap() {
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let mut first = box_node(21, Some(20), Vec::new(), [0.0; 4]);
     first.width = Some(60.0);

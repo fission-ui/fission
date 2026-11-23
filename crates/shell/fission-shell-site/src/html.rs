@@ -6272,6 +6272,7 @@ mod tests {
                     },
                 }],
                 display_breaks: Vec::new(),
+                paragraph_styles: Vec::new(),
                 wrap: true,
                 caret_index: None,
                 caret_color: None,

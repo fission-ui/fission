@@ -733,6 +733,41 @@ pub struct TextParagraphStyle {
     pub text_height_behavior: TextHeightBehavior,
 }
 
+/// Paragraph-local alignment and indentation.
+///
+/// Indentation is a logical leading inset: left for left-to-right paragraphs
+/// and right for right-to-left paragraphs.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TextParagraphLayoutStyle {
+    #[serde(default)]
+    pub indent: LayoutUnit,
+    #[serde(default)]
+    pub text_align: TextAlign,
+    #[serde(default)]
+    pub text_direction: TextDirection,
+}
+
+impl Default for TextParagraphLayoutStyle {
+    fn default() -> Self {
+        Self {
+            indent: 0.0,
+            text_align: TextAlign::Start,
+            text_direction: TextDirection::Auto,
+        }
+    }
+}
+
+/// Paragraph-local layout style at a UTF-8 byte offset in a rich-text value.
+/// A span applies from its offset until the next span; offsets must be at
+/// grapheme boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TextParagraphStyleSpan {
+    #[serde(default)]
+    pub text_offset: usize,
+    #[serde(flatten)]
+    pub style: TextParagraphLayoutStyle,
+}
+
 impl PartialEq for TextParagraphStyle {
     fn eq(&self, other: &Self) -> bool {
         self.text_align == other.text_align
@@ -2282,6 +2317,9 @@ pub enum PaintOp {
         /// Optional layout-only breaks that do not change the logical text.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         display_breaks: Vec<TextDisplayBreak>,
+        /// Paragraph-specific alignment and indentation spans.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        paragraph_styles: Vec<TextParagraphStyleSpan>,
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
@@ -2467,6 +2505,7 @@ impl std::hash::Hash for PaintOp {
             Self::DrawRichText {
                 runs,
                 display_breaks,
+                paragraph_styles,
                 wrap,
                 caret_index,
                 caret_color,
@@ -2486,6 +2525,18 @@ impl std::hash::Hash for PaintOp {
                         display_break.gap_after
                     };
                     gap_after.to_bits().hash(state);
+                }
+                paragraph_styles.len().hash(state);
+                for span in paragraph_styles {
+                    span.text_offset.hash(state);
+                    let indent = if span.style.indent == 0.0 {
+                        0.0
+                    } else {
+                        span.style.indent
+                    };
+                    indent.to_bits().hash(state);
+                    span.style.text_align.hash(state);
+                    span.style.text_direction.hash(state);
                 }
                 wrap.hash(state);
                 caret_index.hash(state);

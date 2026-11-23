@@ -5,12 +5,13 @@ use super::paragraph_cache::{
 use super::{
     flyout_root_position, resolve_length, resolve_position_length, split_text_display_segments,
     LayoutEngine, LayoutGraphState, LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize,
-    ParagraphCaretStop, ResolvedParagraphLayout, TextMeasurer,
-    DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
+    ParagraphCaretStop, ParagraphCluster, ParagraphSelectionBox, ResolvedParagraphLayout,
+    TextMeasurer, DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
 };
 use fission_ir::op::{
-    BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
-    TextDisplayBreak, TextRun, TextStyle,
+    BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery, TextAlign,
+    TextDirection, TextDisplayBreak, TextParagraphLayoutStyle, TextParagraphStyleSpan, TextRun,
+    TextStyle,
 };
 use fission_ir::{GridPlacement, LayoutOp, WidgetId};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -44,6 +45,7 @@ fn box_node(
         flex_shrink: 0.0,
         rich_text: None,
         display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -60,6 +62,7 @@ fn layout_input_display_breaks_are_optional_in_serialized_legacy_nodes() {
     let restored: LayoutInputNode =
         serde_json::from_value(legacy_json).expect("deserialize node without display breaks");
     assert!(restored.display_breaks.is_empty());
+    assert!(restored.paragraph_styles.is_empty());
 
     node.display_breaks = vec![TextDisplayBreak {
         text_offset: 4,
@@ -69,6 +72,7 @@ fn layout_input_display_breaks_are_optional_in_serialized_legacy_nodes() {
     let restored: LayoutInputNode =
         serde_json::from_slice(&encoded).expect("deserialize layout display breaks");
     assert_eq!(restored.display_breaks, node.display_breaks);
+    assert!(restored.paragraph_styles.is_empty());
 }
 
 struct RecordingMeasurer {
@@ -82,6 +86,7 @@ struct CountingParagraphMeasurer {
 
 struct WrappingMeasurer;
 struct NewlineMeasurer;
+struct GeometryMeasurer;
 
 impl TextMeasurer for WrappingMeasurer {
     fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
@@ -152,6 +157,111 @@ impl TextMeasurer for NewlineMeasurer {
     }
 }
 
+impl TextMeasurer for GeometryMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (text.chars().count() as f32 * 10.0, 20.0)
+    }
+
+    fn resolve_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> ResolvedParagraphLayout {
+        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        let Some(width) = available_width.filter(|width| *width > 0.0) else {
+            return single_line_geometry(&text, available_width);
+        };
+        let max_chars = ((width / 10.0).floor() as usize).max(1);
+        let mut result = ResolvedParagraphLayout::empty(available_width);
+        let mut line_start = 0usize;
+        let mut line_index = 0usize;
+        let mut column = 0usize;
+        for (byte_offset, character) in text.char_indices() {
+            if column == max_chars {
+                push_geometry_line(&mut result, &text, line_start, byte_offset, line_index);
+                line_start = byte_offset;
+                line_index += 1;
+                column = 0;
+            }
+            column += 1;
+        }
+        if line_start < text.len() || text.is_empty() {
+            push_geometry_line(&mut result, &text, line_start, text.len(), line_index);
+        }
+        result.size = LayoutSize::new(
+            result
+                .lines
+                .iter()
+                .map(|line| line.width)
+                .fold(0.0, f32::max),
+            result.lines.len() as f32 * 20.0,
+        );
+        result
+    }
+}
+
+fn single_line_geometry(text: &str, available_width: Option<f32>) -> ResolvedParagraphLayout {
+    let mut result = ResolvedParagraphLayout::empty(available_width);
+    push_geometry_line(&mut result, text, 0, text.len(), 0);
+    result.size = LayoutSize::new(text.chars().count() as f32 * 10.0, 20.0);
+    result
+}
+
+fn push_geometry_line(
+    result: &mut ResolvedParagraphLayout,
+    text: &str,
+    start: usize,
+    end: usize,
+    line_index: usize,
+) {
+    let baseline = line_index as f32 * 20.0 + 16.0;
+    let mut x = 0.0;
+    result.lines.push(super::LineMetric {
+        start_index: start,
+        end_index: end,
+        baseline,
+        height: 20.0,
+        width: text[start..end].chars().count() as f32 * 10.0,
+    });
+    result.caret_stops.push(ParagraphCaretStop {
+        index: start,
+        upstream: false,
+        position: LayoutPoint::new(x, baseline),
+        height: 20.0,
+    });
+    for (offset, character) in text[start..end].char_indices() {
+        let cluster_start = start + offset;
+        let cluster_end = cluster_start + character.len_utf8();
+        let rect = LayoutRect::new(x, line_index as f32 * 20.0, 10.0, 20.0);
+        result.clusters.push(ParagraphCluster {
+            start_index: cluster_start,
+            end_index: cluster_end,
+            line_index,
+            rect,
+            is_rtl: false,
+        });
+        result.selection_boxes.push(ParagraphSelectionBox {
+            start_index: cluster_start,
+            end_index: cluster_end,
+            line_index,
+            rect,
+        });
+        x += 10.0;
+        result.caret_stops.push(ParagraphCaretStop {
+            index: cluster_end,
+            upstream: true,
+            position: LayoutPoint::new(x, baseline),
+            height: 20.0,
+        });
+        result.caret_stops.push(ParagraphCaretStop {
+            index: cluster_end,
+            upstream: false,
+            position: LayoutPoint::new(x, baseline),
+            height: 20.0,
+        });
+    }
+}
+
 fn node(
     id: WidgetId,
     parent_id: Option<WidgetId>,
@@ -185,6 +295,7 @@ fn node(
         flex_shrink,
         rich_text: None,
         display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -295,6 +406,69 @@ fn display_break_after_block_newline_does_not_add_a_trailing_blank_line() {
     .remove(0);
     assert_eq!(crlf_segment.byte_range, 0..crlf_break);
     assert_eq!(crlf_segment.shape_byte_range, 0.."one".len());
+}
+
+#[test]
+fn indented_mixed_paragraphs_share_wrapping_caret_selection_and_hit_geometry() {
+    let text = "abcde\nfghij";
+    let second_paragraph = "abcde\n".len();
+    let paragraph_styles = [
+        TextParagraphStyleSpan {
+            text_offset: 0,
+            style: TextParagraphLayoutStyle {
+                indent: 0.0,
+                text_align: TextAlign::Start,
+                text_direction: TextDirection::Ltr,
+            },
+        },
+        TextParagraphStyleSpan {
+            text_offset: second_paragraph,
+            style: TextParagraphLayoutStyle {
+                indent: 20.0,
+                text_align: TextAlign::Center,
+                text_direction: TextDirection::Ltr,
+            },
+        },
+    ];
+
+    let paragraph = GeometryMeasurer.resolve_rich_text_with_paragraph_styles(
+        &[text_run(text)],
+        Some(50.0),
+        &[],
+        &paragraph_styles,
+    );
+
+    assert_eq!(
+        paragraph.lines.len(),
+        3,
+        "the indented paragraph wraps at its reduced width"
+    );
+    assert_eq!(paragraph.lines[1].start_index, second_paragraph);
+    assert_eq!(paragraph.lines[1].width, 30.0);
+    assert_eq!(paragraph.lines[2].start_index, second_paragraph + 3);
+    assert_eq!(paragraph.lines[2].width, 20.0);
+    assert_eq!(
+        paragraph.caret(second_paragraph, false).unwrap().position.x,
+        20.0
+    );
+    assert_eq!(
+        paragraph
+            .caret(second_paragraph + 3, false)
+            .unwrap()
+            .position
+            .x,
+        25.0,
+        "the shorter wrapped line is centred inside its indented measure"
+    );
+    assert_eq!(
+        paragraph.selection_rects(second_paragraph, second_paragraph + 1)[0].x(),
+        20.0
+    );
+    assert_eq!(
+        paragraph.hit_test(LayoutPoint::new(22.0, 30.0)),
+        second_paragraph,
+        "hit testing follows the visible indented glyph"
+    );
 }
 
 impl RecordingMeasurer {
@@ -1369,6 +1543,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_shrink: 1.0,
             rich_text: None,
             display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
         },
         LayoutInputNode {
             id: positioned,
@@ -1389,6 +1564,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_shrink: 0.0,
             rich_text: None,
             display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
         },
         box_node(anchor, Some(positioned), vec![]),
         LayoutInputNode {
@@ -1406,6 +1582,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_shrink: 1.0,
             rich_text: None,
             display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
         },
     ];
     nodes[2].op = LayoutOp::Box {

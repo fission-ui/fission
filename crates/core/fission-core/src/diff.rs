@@ -118,6 +118,7 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
             PaintOp::DrawRichText {
                 runs: prev_runs,
                 display_breaks: prev_display_breaks,
+                paragraph_styles: prev_paragraph_styles,
                 wrap: prev_wrap,
                 paragraph_style: prev_paragraph,
                 caret_index: _,
@@ -129,6 +130,7 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
             PaintOp::DrawRichText {
                 runs,
                 display_breaks,
+                paragraph_styles,
                 wrap,
                 paragraph_style,
                 caret_index: _,
@@ -138,8 +140,19 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
                 caret_radius: _,
             },
         ) => {
-            (prev_runs, prev_display_breaks, prev_wrap, prev_paragraph)
-                != (runs, display_breaks, wrap, paragraph_style)
+            (
+                prev_runs,
+                prev_display_breaks,
+                prev_paragraph_styles,
+                prev_wrap,
+                prev_paragraph,
+            ) != (
+                runs,
+                display_breaks,
+                paragraph_styles,
+                wrap,
+                paragraph_style,
+            )
         }
         (PaintOp::DrawText { .. }, _) | (_, PaintOp::DrawText { .. }) => true,
         (PaintOp::DrawRichText { .. }, _) | (_, PaintOp::DrawRichText { .. }) => true,
@@ -214,6 +227,7 @@ mod tests {
         node.op = Op::Paint(PaintOp::DrawRichText {
             runs: vec![],
             display_breaks,
+            paragraph_styles: Vec::new(),
             wrap: true,
             caret_index: None,
             caret_color: None,

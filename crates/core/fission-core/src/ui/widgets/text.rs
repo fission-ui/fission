@@ -1874,6 +1874,7 @@ impl Lower for Text {
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 display_breaks: self.display_breaks.clone(),
+                paragraph_styles: Vec::new(),
                 wrap: self.wrap,
                 caret_index: None,
                 caret_color: None,
@@ -2045,6 +2046,7 @@ impl Lower for RichText {
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 display_breaks: self.display_breaks.clone(),
+                paragraph_styles: Vec::new(),
                 wrap: self.wrap,
                 caret_index: None,
                 caret_color: None,

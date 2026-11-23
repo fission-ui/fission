@@ -302,6 +302,7 @@ mod tests {
             flex_shrink,
             rich_text: None,
             display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
         }
     }
 

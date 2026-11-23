@@ -84,6 +84,8 @@ fn rich_text_hyperlink_is_exposed_as_a_bounded_accesskit_link() {
                     typography: Default::default(),
                 },
             }],
+            display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
             wrap: true,
             caret_index: None,
             caret_color: None,
@@ -138,10 +140,9 @@ fn rich_text_hyperlink_is_exposed_as_a_bounded_accesskit_link() {
             LayoutSize::new(100.0, 20.0),
         ),
     ] {
-        layout.nodes.insert(
-            id,
-            LayoutNodeGeometry { rect, content_size },
-        );
+        layout
+            .nodes
+            .insert(id, LayoutNodeGeometry { rect, content_size });
     }
     layout.paragraphs.insert(
         paint,
@@ -463,8 +464,15 @@ fn native_accessibility_tree_contains_only_the_active_responsive_branch() {
 
     let built = build_tree_update(&ir, &layout, &Runtime::default(), 1.0);
     let expanded_access = mapped_access_id(&built, expanded_input);
-    assert!(built.update.nodes.iter().any(|(id, _)| *id == expanded_access));
-    assert!(!built.node_map.values().any(|widget_id| *widget_id == compact_input));
+    assert!(built
+        .update
+        .nodes
+        .iter()
+        .any(|(id, _)| *id == expanded_access));
+    assert!(!built
+        .node_map
+        .values()
+        .any(|widget_id| *widget_id == compact_input));
 }
 
 #[test]

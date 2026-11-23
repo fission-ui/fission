@@ -13,7 +13,8 @@ use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
     RichTextAnnotation, TextAlign, TextDecoration, TextDecorationLines, TextDirection,
-    TextDisplayBreak, TextHeightBehavior, TextOverflow, TextShadow, TextTypography, TextWidthBasis,
+    TextDisplayBreak, TextHeightBehavior, TextOverflow, TextParagraphLayoutStyle,
+    TextParagraphStyleSpan, TextShadow, TextTypography, TextWidthBasis,
 };
 use fission_ir::semantics::{ActionTrigger, FocusPolicy};
 use fission_ir::{CoreIR, FlexDirection};
@@ -303,6 +304,82 @@ fn text_widgets_lower_display_breaks_without_changing_run_text() {
         );
         assert_eq!(breaks.as_slice(), &[display_break]);
     }
+}
+
+#[test]
+fn text_input_lowers_paragraph_styles_into_shared_layout_boundaries() {
+    let text = "first paragraph\nsecond paragraph";
+    let second_start = "first paragraph\n".len();
+    let ir = lower_node(
+        TextInput {
+            value: text.into(),
+            multiline: true,
+            paragraph_styles: vec![
+                TextParagraphStyleSpan {
+                    text_offset: 0,
+                    style: TextParagraphLayoutStyle {
+                        indent: 0.0,
+                        text_align: TextAlign::Start,
+                        text_direction: TextDirection::Ltr,
+                    },
+                },
+                TextParagraphStyleSpan {
+                    text_offset: second_start,
+                    style: TextParagraphLayoutStyle {
+                        indent: 28.0,
+                        text_align: TextAlign::End,
+                        text_direction: TextDirection::Ltr,
+                    },
+                },
+            ],
+            ..Default::default()
+        }
+        .into(),
+    );
+
+    let (runs, paragraph_styles) = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText {
+                runs,
+                paragraph_styles,
+                ..
+            } => Some((runs, paragraph_styles)),
+            _ => None,
+        })
+        .expect("TextInput rich-text paint op");
+
+    assert_eq!(
+        runs.iter().map(|run| run.text.as_str()).collect::<String>(),
+        text,
+        "paragraph layout metadata does not change the editable value"
+    );
+    assert_eq!(paragraph_styles.len(), 2);
+    assert_eq!(paragraph_styles[0].text_offset, 0);
+    assert_eq!(paragraph_styles[1].text_offset, second_start);
+    assert_eq!(paragraph_styles[1].style.indent, 28.0);
+    assert_eq!(paragraph_styles[1].style.text_align, TextAlign::End);
+    let layout_nodes = fission_core::internal::build_layout_tree(&ir, &Env::default());
+    let layout_styles = layout_nodes
+        .iter()
+        .find(|node| node.rich_text.is_some())
+        .expect("TextInput layout node")
+        .paragraph_styles
+        .clone();
+    assert_eq!(layout_styles, paragraph_styles);
+    let semantic_value = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                semantics.value.as_deref()
+            }
+            _ => None,
+        })
+        .expect("TextInput semantics");
+    assert_eq!(
+        semantic_value, text,
+        "layout styles are absent from semantics"
+    );
 }
 
 #[test]

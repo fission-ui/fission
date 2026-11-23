@@ -478,6 +478,7 @@ fn create_rich_text_input_tree(
                     },
                 }],
                 display_breaks: Vec::new(),
+                paragraph_styles: Vec::new(),
                 wrap: true,
                 caret_index: None,
                 caret_color: None,

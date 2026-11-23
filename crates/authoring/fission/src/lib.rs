@@ -635,7 +635,8 @@ pub mod prelude {
     };
     pub use fission_core::op::{
         BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, Color, Fill, GridPlacement,
-        GridTrack, Length, Overflow, PaintOp,
+        GridTrack, Length, Overflow, PaintOp, TextAlign, TextDirection, TextParagraphLayoutStyle,
+        TextParagraphStyleSpan,
     };
     pub use fission_core::Bytes;
     pub use fission_core::{

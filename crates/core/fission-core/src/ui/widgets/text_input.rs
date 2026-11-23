@@ -10,7 +10,7 @@ use crate::ActionEnvelope;
 use fission_ir::{
     op::{
         Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke, TextAlign as IrTextAlign,
-        TextParagraphStyle,
+        TextParagraphLayoutStyle, TextParagraphStyle, TextParagraphStyleSpan,
     },
     semantics::{
         InputFormatter, MaxLengthEnforcement, MouseCursor as SemanticsMouseCursor,
@@ -28,7 +28,7 @@ mod decoration;
 mod display_breaks;
 mod text_runs;
 pub use config::*;
-use display_breaks::map_display_breaks_through_preedit;
+use display_breaks::{map_display_breaks_through_preedit, map_paragraph_styles_through_preedit};
 use text_runs::{clamp_text_offset, split_runs_for_range};
 
 #[cfg(debug_assertions)]
@@ -206,6 +206,13 @@ pub struct TextInput {
     /// accessibility text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_breaks: Vec<fission_ir::op::TextDisplayBreak>,
+    /// Paragraph-specific alignment and leading indentation for the displayed value.
+    ///
+    /// Offsets use UTF-8 bytes at grapheme boundaries. A span applies until the
+    /// next span; provide one at each paragraph start whose layout differs.
+    /// Active IME replacements remap the spans around the composing range.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paragraph_styles: Vec<TextParagraphStyleSpan>,
     /// When `true`, the background rect and border are omitted (for embedding
     /// in editor chrome).
     pub borderless: bool,
@@ -401,6 +408,12 @@ impl TextInput {
         breaks: impl Into<Vec<fission_ir::op::TextDisplayBreak>>,
     ) -> Self {
         self.display_breaks = breaks.into();
+        self
+    }
+
+    /// Applies alignment and indentation from each logical paragraph start.
+    pub fn paragraph_styles(mut self, styles: impl Into<Vec<TextParagraphStyleSpan>>) -> Self {
+        self.paragraph_styles = styles.into();
         self
     }
 
@@ -791,6 +804,7 @@ impl Default for TextInput {
             mask: None,
             styled_runs: None,
             display_breaks: Vec::new(),
+            paragraph_styles: Vec::new(),
             borderless: false,
             capture_tab: false,
             auto_indent: false,
@@ -1307,7 +1321,51 @@ impl Lower for TextInput {
                     }
                 })
         };
-
+        let mut paragraph_styles_for_paint = if self.obscure_text {
+            Vec::new()
+        } else {
+            retained_session
+                .and_then(|state| {
+                    let committed_text = state.committed_text();
+                    if committed_text != model_text {
+                        return None;
+                    }
+                    let preedit = state.preedit.as_ref()?;
+                    let displayed_preedit_range = displayed_preedit_range?;
+                    Some(map_paragraph_styles_through_preedit(
+                        &self.paragraph_styles,
+                        preedit.range,
+                        displayed_preedit_range.1 - displayed_preedit_range.0,
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    if retained_session.is_some_and(|state| state.committed_text() != model_text) {
+                        Vec::new()
+                    } else {
+                        self.paragraph_styles.clone()
+                    }
+                })
+        };
+        let needs_default_paragraph_style = !paragraph_styles_for_paint.is_empty()
+            || self.text_align != IrTextAlign::Start
+            || self.text_direction != fission_ir::op::TextDirection::Auto;
+        if needs_default_paragraph_style
+            && !paragraph_styles_for_paint
+                .iter()
+                .any(|style| style.text_offset == 0)
+        {
+            paragraph_styles_for_paint.insert(
+                0,
+                TextParagraphStyleSpan {
+                    text_offset: 0,
+                    style: TextParagraphLayoutStyle {
+                        indent: 0.0,
+                        text_align: self.text_align,
+                        text_direction: self.text_direction,
+                    },
+                },
+            );
+        }
         // Construct Runs
         let mut runs = Vec::new();
         if is_focused && caret != anchor {
@@ -1512,6 +1570,7 @@ impl Lower for TextInput {
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 display_breaks: display_breaks_for_paint,
+                paragraph_styles: paragraph_styles_for_paint,
                 wrap: self.multiline && self.wrap_mode != TextWrapMode::NoWrap,
                 caret_index: caret_idx,
                 caret_color: Some(cursor_color),

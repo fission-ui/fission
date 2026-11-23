@@ -601,7 +601,7 @@ pub mod public {
     pub use fission_ir::op;
     pub use fission_ir::op::{
         BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
-        Overflow,
+        Overflow, TextAlign, TextDirection, TextParagraphLayoutStyle, TextParagraphStyleSpan,
     };
     pub use fission_ir::{
         EmbedKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding, LinkTarget,
