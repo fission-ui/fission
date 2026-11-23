@@ -1,13 +1,13 @@
 use fission_core::{
-    ActionEnvelope, CapabilityCtx, CapabilityType, DataStreamRegistry, InlineJob, JobCtx, JobRef,
-    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
-    ServiceType,
+    ActionEnvelope, CapabilityCtx, CapabilityType, DataStreamRegistry, InlineJob,
+    JobCancellationToken, JobCtx, JobRef, JobSpec, OperationCapability, ResourceExecutionContext,
+    ServiceCtx, ServiceRunner, ServiceSpec, ServiceType,
 };
 use futures_channel::mpsc as async_mpsc;
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 
 pub type WakeFn = Arc<dyn Fn() + Send + Sync>;
 
@@ -124,6 +124,7 @@ pub struct RunningServiceHandle {
 #[derive(Clone)]
 struct JobLaunch {
     req_id: u64,
+    cancellation: JobCancellationToken,
     payload: Vec<u8>,
     on_ok: Option<ActionEnvelope>,
     on_err: Option<ActionEnvelope>,
@@ -163,6 +164,7 @@ pub struct AsyncRegistry {
     services: HashMap<String, Arc<ServiceSpawner>>,
     operations: HashMap<String, Arc<CapabilitySpawner>>,
     data_streams: DataStreamRegistry,
+    job_cancellations: Arc<Mutex<HashMap<u64, JobCancellationToken>>>,
 }
 
 impl Default for AsyncRegistry {
@@ -172,6 +174,7 @@ impl Default for AsyncRegistry {
             services: HashMap::new(),
             operations: HashMap::new(),
             data_streams: DataStreamRegistry::new(),
+            job_cancellations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -272,7 +275,16 @@ impl AsyncRegistry {
                 };
 
                 wasm_bindgen_futures::spawn_local(async move {
-                    match handler(request, JobCtx::new_runtime(launch.req_id, data_streams)).await {
+                    match handler(
+                        request,
+                        JobCtx::new_runtime_with_cancellation(
+                            launch.req_id,
+                            data_streams,
+                            launch.cancellation.clone(),
+                        ),
+                    )
+                    .await
+                    {
                         Ok(ok) => match serde_json::to_vec(&ok) {
                             Ok(payload) => {
                                 let _ = launch.tx.send(AsyncMessage::JobOk {
@@ -515,8 +527,22 @@ impl AsyncRegistry {
         tx: &mpsc::Sender<AsyncMessage>,
         wake: WakeFn,
     ) -> bool {
+        let handler = if inline.is_none() {
+            let Some(handler) = self.jobs.get(job_name) else {
+                return false;
+            };
+            Some(handler.clone())
+        } else {
+            None
+        };
+        let cancellation = JobCancellationToken::new();
+        self.job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(req_id, cancellation.clone());
         let launch = JobLaunch {
             req_id,
+            cancellation,
             payload,
             on_ok,
             on_err,
@@ -525,7 +551,7 @@ impl AsyncRegistry {
             wake,
         };
         let Some(inline) = inline else {
-            let Some(handler) = self.jobs.get(job_name) else {
+            let Some(handler) = handler else {
                 return false;
             };
             handler(launch);
@@ -537,7 +563,11 @@ impl AsyncRegistry {
             match inline
                 .run(
                     launch.payload,
-                    JobCtx::new_runtime(launch.req_id, data_streams),
+                    JobCtx::new_runtime_with_cancellation(
+                        launch.req_id,
+                        data_streams,
+                        launch.cancellation.clone(),
+                    ),
                 )
                 .await
             {
@@ -564,6 +594,31 @@ impl AsyncRegistry {
             (launch.wake)();
         });
         true
+    }
+
+    /// Requests cooperative cancellation of the app job with this request id.
+    ///
+    /// The result stays registered until its completion message is drained, so
+    /// the shell can suppress a completion that races with cancellation.
+    pub fn cancel_job(&self, req_id: u64) -> bool {
+        let cancellations = self
+            .job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(cancellation) = cancellations.get(&req_id) else {
+            return false;
+        };
+        cancellation.cancel();
+        true
+    }
+
+    /// Removes the completed job registration and reports whether it was cancelled.
+    pub fn finish_job(&self, req_id: u64) -> bool {
+        self.job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&req_id)
+            .is_some_and(|cancellation| cancellation.is_cancelled())
     }
 
     pub fn spawn_capability(

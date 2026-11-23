@@ -7,7 +7,7 @@ use fission_core::{
 };
 use fission_shell::async_host::{AsyncMessage, AsyncRegistry, ServiceControlMessage};
 use serde::{Deserialize, Serialize};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Barrier};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -58,6 +58,23 @@ impl JobSpec for StreamEchoJob {
 }
 
 const STREAM_ECHO_JOB: JobRef<StreamEchoJob> = JobRef::new("stream-echo-job");
+
+#[derive(Debug)]
+struct CancellableJob;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CancellationRequest {
+    wait_for_cancel: bool,
+}
+
+impl JobSpec for CancellableJob {
+    type Request = CancellationRequest;
+    type Ok = String;
+    type Err = String;
+    const NAME: &'static str = "cancellable-job";
+}
+
+const CANCELLABLE_JOB: JobRef<CancellableJob> = JobRef::new("cancellable-job");
 
 #[derive(Debug)]
 struct SyncService;
@@ -311,6 +328,75 @@ fn registered_jobs_emit_typed_results() {
         }
         other => panic!("unexpected message: {:?}", other),
     }
+}
+
+#[test]
+fn cancelled_job_completion_is_correlated_without_affecting_a_later_same_name_job() {
+    let mut registry = AsyncRegistry::new();
+    let cancelled_job_gate = Arc::new(Barrier::new(2));
+    let handler_gate = cancelled_job_gate.clone();
+    registry.register_job(
+        CANCELLABLE_JOB,
+        move |request: CancellationRequest, ctx: JobCtx| {
+            let cancelled_job_gate = handler_gate.clone();
+            async move {
+                if request.wait_for_cancel {
+                    ctx.cancelled().await;
+                    cancelled_job_gate.wait();
+                }
+                Ok::<_, String>(if ctx.is_cancelled() {
+                    "cancelled".into()
+                } else {
+                    "completed".into()
+                })
+            }
+        },
+    );
+
+    let (tx, rx) = mpsc::channel();
+    let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+    assert!(registry.spawn_job(
+        CANCELLABLE_JOB.name,
+        None,
+        501,
+        serde_json::to_vec(&CancellationRequest {
+            wait_for_cancel: true,
+        })
+        .unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        wake.clone(),
+    ));
+
+    assert!(registry.cancel_job(501));
+    assert!(registry.spawn_job(
+        CANCELLABLE_JOB.name,
+        None,
+        502,
+        serde_json::to_vec(&CancellationRequest {
+            wait_for_cancel: false,
+        })
+        .unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        wake,
+    ));
+    let completed = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("subsequent job completion");
+    assert!(matches!(completed, AsyncMessage::JobOk { req_id: 502, .. }));
+    cancelled_job_gate.wait();
+
+    let cancelled = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("cancelled job completion after the newer request");
+    assert!(matches!(cancelled, AsyncMessage::JobOk { req_id: 501, .. }));
+    assert!(registry.finish_job(501));
+    assert!(!registry.finish_job(502));
 }
 
 #[test]

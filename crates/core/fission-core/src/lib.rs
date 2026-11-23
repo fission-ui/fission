@@ -398,9 +398,9 @@ pub mod public {
         UpdateTextSelection, ViewportResized,
     };
     pub use crate::async_runtime::{
-        AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
-        ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot,
-        ServiceSpec, ServiceType,
+        AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCancellationToken,
+        JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
+        ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
     };
     pub use crate::capability::{
         CapabilityCtx, CapabilityInvocationPayload, CapabilityType, OpenUrlCapability,
@@ -623,9 +623,9 @@ pub use action::{
     UpdateTextInput, UpdateTextSelection, ViewportResized,
 };
 pub use async_runtime::{
-    AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
-    ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec,
-    ServiceType,
+    AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCancellationToken, JobCtx,
+    JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner,
+    ServiceSlot, ServiceSpec, ServiceType,
 };
 pub use bytes::Bytes;
 pub use capability::{

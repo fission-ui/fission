@@ -2897,6 +2897,9 @@ fn process_pending_effects(
                     },
                 );
                 if runtime.queue_runtime_effect(runtime_effect.clone()) {
+                    for req_id in runtime.take_pending_job_cancellations() {
+                        async_registry.cancel_job(req_id);
+                    }
                     dispatched_callback = true;
                     (wake)();
                 }
@@ -3046,6 +3049,7 @@ fn process_pending_effects(
 fn drain_effect_results(
     runtime: &mut Runtime,
     effect_rx: &mpsc::Receiver<AsyncMessage>,
+    async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
 ) -> bool {
@@ -3060,6 +3064,9 @@ fn drain_effect_results(
                 on_ok,
                 resource,
             } => {
+                if async_registry.finish_job(req_id) {
+                    continue;
+                }
                 if let Some(resource) = resource.as_ref() {
                     if !runtime.is_resource_current(resource) {
                         continue;
@@ -3086,6 +3093,9 @@ fn drain_effect_results(
                 message,
                 resource,
             } => {
+                if async_registry.finish_job(req_id) {
+                    continue;
+                }
                 if let Some(resource) = resource.as_ref() {
                     if !runtime.is_resource_current(resource) {
                         continue;
@@ -7651,6 +7661,7 @@ where
                         if drain_effect_results(
                             &mut runtime,
                             &effect_result_rx,
+                            &async_registry,
                             &mut active_services,
                             &mut service_bindings,
                         ) {
@@ -8517,6 +8528,7 @@ where
                     let effect_results_dispatched = drain_effect_results(
                         &mut runtime,
                         &effect_result_rx,
+                        &async_registry,
                         &mut active_services,
                         &mut service_bindings,
                     );

@@ -7,7 +7,9 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::task::Waker;
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
@@ -258,19 +260,117 @@ pub struct ResourceExecutionContext {
     pub generation: u64,
 }
 
+#[derive(Debug, Default)]
+struct JobCancellationState {
+    cancelled: AtomicBool,
+    wakers: Mutex<Vec<Waker>>,
+}
+
+/// Cooperative cancellation signal for one app job.
+///
+/// The shell sets this when the app cancels a job request. A job can inspect
+/// [`is_cancelled`](Self::is_cancelled) between units of work or await
+/// [`cancelled`](Self::cancelled) alongside its other asynchronous work. The
+/// runtime also uses the signal to ignore results from cancelled requests.
+#[derive(Debug, Clone, Default)]
+pub struct JobCancellationToken {
+    state: Arc<JobCancellationState>,
+}
+
+impl JobCancellationToken {
+    /// Creates a cancellation signal that has not been cancelled.
+    #[doc(hidden)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Marks this job as cancelled and wakes tasks awaiting cancellation.
+    pub fn cancel(&self) -> bool {
+        if self.state.cancelled.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        let wakers = std::mem::take(
+            &mut *self
+                .state
+                .wakers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        for waker in wakers {
+            waker.wake();
+        }
+        true
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.state.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Completes when cancellation is requested.
+    pub async fn cancelled(&self) {
+        std::future::poll_fn(|context| {
+            if self.is_cancelled() {
+                return std::task::Poll::Ready(());
+            }
+
+            let mut wakers = self
+                .state
+                .wakers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !wakers.iter().any(|waker| waker.will_wake(context.waker())) {
+                wakers.push(context.waker().clone());
+            }
+            if self.is_cancelled() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct JobCtx {
     pub req_id: u64,
     data_streams: DataStreamRegistry,
+    cancellation: JobCancellationToken,
 }
 
 impl JobCtx {
     #[doc(hidden)]
     pub fn new_runtime(req_id: u64, data_streams: DataStreamRegistry) -> Self {
+        Self::new_runtime_with_cancellation(req_id, data_streams, JobCancellationToken::new())
+    }
+
+    #[doc(hidden)]
+    pub fn new_runtime_with_cancellation(
+        req_id: u64,
+        data_streams: DataStreamRegistry,
+        cancellation: JobCancellationToken,
+    ) -> Self {
         Self {
             req_id,
             data_streams,
+            cancellation,
         }
+    }
+
+    /// Returns whether this job has been cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    /// Completes when the shell requests cancellation for this job.
+    pub async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
+    }
+
+    /// Returns a clone of this job's cancellation signal.
+    pub fn cancellation_token(&self) -> JobCancellationToken {
+        self.cancellation.clone()
     }
 
     /// Registers a one-shot stream produced by this job.

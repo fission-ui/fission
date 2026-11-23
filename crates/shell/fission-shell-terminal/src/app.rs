@@ -482,6 +482,16 @@ where
                     self.runtime
                         .queue_runtime_effect(RuntimeEffect::Navigate(command.clone()));
                 }
+                Effect::Runtime(RuntimeEffect::Cancel { req_id }) => {
+                    self.runtime
+                        .queue_runtime_effect(RuntimeEffect::Cancel { req_id: *req_id });
+                    #[cfg(feature = "store")]
+                    for req_id in self.runtime.take_pending_job_cancellations() {
+                        self.async_registry.cancel_job(req_id);
+                    }
+                    #[cfg(not(feature = "store"))]
+                    let _ = self.runtime.take_pending_job_cancellations();
+                }
                 _ => self.runtime.pending_effects.push(envelope),
             }
         }

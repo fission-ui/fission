@@ -185,6 +185,8 @@ pub struct Runtime {
     pub editing_convention: crate::input::TextEditingConvention,
     /// Effects emitted by reducers, awaiting platform execution.
     pub pending_effects: Vec<EffectEnvelope>,
+    /// App job requests cancelled by queued runtime effects, awaiting the shell.
+    pending_job_cancellations: Vec<u64>,
     /// Post-layout scroll requests that need computed geometry before applying.
     pending_scroll_into_view: Vec<PendingScrollIntoView>,
     /// Active-descendant relationships already revealed for the current mount.
@@ -230,6 +232,7 @@ impl Default for Runtime {
             ime_handler: None,
             editing_convention: crate::input::TextEditingConvention::default(),
             pending_effects: Vec::new(),
+            pending_job_cancellations: Vec::new(),
             pending_scroll_into_view: Vec::new(),
             revealed_active_descendants: HashMap::new(),
             pending_navigation: Vec::new(),
@@ -623,8 +626,10 @@ impl Runtime {
     }
 
     fn enqueue_effect(&mut self, mut envelope: EffectEnvelope) {
-        envelope.req_id = self.next_req_id;
-        self.next_req_id += 1;
+        if envelope.req_id < crate::effect::EFFECT_REQUEST_ID_BASE {
+            envelope.req_id = self.next_req_id;
+            self.next_req_id += 1;
+        }
         self.pending_effects.push(envelope);
     }
 
@@ -639,6 +644,7 @@ impl Runtime {
     pub fn discard_pending_effects(&mut self) -> usize {
         let discarded = self.pending_effects.len() + self.effect_callbacks.clear();
         self.pending_effects.clear();
+        self.pending_job_cancellations.clear();
         discarded
     }
 
@@ -951,8 +957,18 @@ impl Runtime {
                 self.pending_text_form_validation.push(form_id);
                 true
             }
-            RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => false,
+            RuntimeEffect::Cancel { req_id } => {
+                self.pending_job_cancellations.push(req_id);
+                true
+            }
+            RuntimeEffect::ReleaseResource { .. } => false,
         }
+    }
+
+    /// Takes cancellation requests queued by app reducers.
+    #[doc(hidden)]
+    pub fn take_pending_job_cancellations(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.pending_job_cancellations)
     }
 
     /// Takes navigation commands queued since the previous shell turn.

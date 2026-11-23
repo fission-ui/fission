@@ -13,7 +13,10 @@ use crate::async_runtime::{
 use crate::capability::{
     CapabilityInvocationPayload, CapabilityType, OperationCapability, OperationCapabilityInvocation,
 };
-use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollIntoViewRequest};
+use crate::effect::{
+    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollIntoViewRequest,
+    EFFECT_REQUEST_ID_BASE,
+};
 use crate::platform::{
     CancelNotificationRequest, NotificationPermissionRequest, NotificationRequest,
     PushRegistrationRequest, SetBadgeCountRequest, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
@@ -102,6 +105,11 @@ use std::{
 };
 
 static NEXT_EFFECT_CALLBACK_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_EFFECT_REQUEST_ID: AtomicU64 = AtomicU64::new(EFFECT_REQUEST_ID_BASE);
+
+fn next_effect_request_id() -> u64 {
+    NEXT_EFFECT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// The context passed to modern 3-argument reducer handlers.
 ///
@@ -155,6 +163,7 @@ pub struct Effects<'a, S: GlobalState> {
     /// Accumulated effect envelopes, drained by the runtime after the reducer.
     pub out: Vec<EffectEnvelope>,
     next_req_id: u64,
+    stable_req_ids: bool,
     pub(crate) registry: Option<&'a mut ActionRegistry<S>>,
     callback_registry: Option<Arc<EffectCallbackRegistry>>,
     _phantom: PhantomData<S>,
@@ -165,6 +174,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
+            stable_req_ids: false,
             registry: Some(registry),
             callback_registry: None,
             _phantom: PhantomData,
@@ -175,6 +185,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
+            stable_req_ids: false,
             registry: None,
             callback_registry: None,
             _phantom: PhantomData,
@@ -188,6 +199,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
+            stable_req_ids: true,
             registry: None,
             callback_registry: Some(callback_registry),
             _phantom: PhantomData,
@@ -222,8 +234,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     }
 
     pub fn add(&mut self, effect: Effect) -> u64 {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
 
         self.out.push(EffectEnvelope {
             req_id,
@@ -241,8 +252,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         capability: CapabilityType<C>,
         request: C::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let request =
             serde_json::to_vec(&request).expect("capability request serialization must succeed");
 
@@ -428,8 +438,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         job: JobRef<J>,
         request: J::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let payload = serde_json::to_vec(&request).expect("job request serialization must succeed");
         let index = self.out.len();
         self.out.push(EffectEnvelope {
@@ -456,8 +465,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         &mut self,
         request: E::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let payload =
             serde_json::to_vec(&request).expect("app effect request serialization must succeed");
         let index = self.out.len();
@@ -484,8 +492,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         slot: ServiceSlot<Svc>,
         config: Svc::Config,
     ) -> ServiceStartBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         let config =
             serde_json::to_vec(&config).expect("service config serialization must succeed");
@@ -512,8 +519,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         slot: ServiceSlot<Svc>,
         command: Svc::Command,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         let payload =
             serde_json::to_vec(&command).expect("service command serialization must succeed");
@@ -539,8 +545,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         &mut self,
         slot: ServiceSlot<Svc>,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         self.out.push(EffectEnvelope {
             req_id,
@@ -556,6 +561,16 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         EffectBuilder {
             effects: self,
             index,
+        }
+    }
+
+    fn allocate_req_id(&mut self) -> u64 {
+        if self.stable_req_ids {
+            next_effect_request_id()
+        } else {
+            let req_id = self.next_req_id;
+            self.next_req_id = self.next_req_id.wrapping_add(1);
+            req_id
         }
     }
 
@@ -1552,6 +1567,16 @@ pub struct EffectBuilder<'a, 'b, S: GlobalState> {
 }
 
 impl<'a, 'b, S: GlobalState> EffectBuilder<'a, 'b, S> {
+    /// Returns the request id assigned to this effect.
+    ///
+    /// Keep this id when cancelling an in-flight app job with
+    /// [`Effects::cancel`]. Runtime-created reducer effects retain this id when
+    /// they are queued, so it remains the id delivered to the job context and
+    /// completion action.
+    pub fn req_id(&self) -> u64 {
+        self.effects.out[self.index].req_id
+    }
+
     pub fn on_ok(self, action: ActionEnvelope) -> Self {
         self.effects.out[self.index].on_ok = Some(action);
         self
