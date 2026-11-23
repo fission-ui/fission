@@ -4470,7 +4470,7 @@ impl<'a> VelloRenderer<'a> {
                                 );
                                 let local_caret = resolved_layout
                                     .is_none()
-                                    .then_some(caret_index)
+                                    .then_some(*caret_index)
                                     .flatten()
                                     .and_then(|caret| {
                                         let is_final_segment = segment_index + 1 == segments.len();
@@ -4513,7 +4513,7 @@ impl<'a> VelloRenderer<'a> {
                             }
                             if let (Some(caret), Some(layout)) = (caret_index, resolved_layout) {
                                 self.draw_resolved_caret(
-                                    layout,
+                                    Some(layout),
                                     *caret,
                                     *position,
                                     caret_color.unwrap_or(rich.base_color),
