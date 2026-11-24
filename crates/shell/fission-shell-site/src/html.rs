@@ -3544,7 +3544,7 @@ impl HtmlRenderer<'_> {
     ) -> Result<String> {
         let mut content = String::new();
         let mut rendered_inline_children = HashSet::new();
-        let mut active_link: Option<&RichTextAnnotation> = None;
+        let mut active_annotations: Vec<&RichTextAnnotation> = Vec::new();
         let mut run_start = 0usize;
         for run in runs {
             let run_end = run_start.saturating_add(run.text.len());
@@ -3554,8 +3554,8 @@ impl HtmlRenderer<'_> {
                     // A real inline widget may itself contain an interactive
                     // element. Keep it outside text links rather than nesting
                     // anchors or buttons inside an anchor.
-                    if active_link.take().is_some() {
-                        content.push_str("</a>");
+                    for annotation in active_annotations.drain(..).rev() {
+                        content.push_str(Self::rich_text_annotation_closing(annotation));
                     }
                     if let Ok(child_index) = usize::try_from(marker.id) {
                         if let Some(child_id) = node.children.get(child_index) {
@@ -3594,7 +3594,7 @@ impl HtmlRenderer<'_> {
                 let relative_end = segment_end - run_start;
                 let mut segment = run.clone();
                 segment.text = run.text[relative_start..relative_end].to_string();
-                let mut rendered = self.render_text_run(&segment);
+                let rendered = self.render_text_run(&segment);
                 let mut segment_annotations = annotations
                     .iter()
                     .filter(|annotation| {
@@ -3608,44 +3608,44 @@ impl HtmlRenderer<'_> {
                 // A style change does not create a new link or another Tab
                 // stop. Nested annotations select the innermost destination;
                 // HTML anchors cannot nest, so resume the outer link afterward.
-                let segment_link = segment_annotations.iter().copied().find(|annotation| {
-                    annotation.hyperlink.is_some()
-                        || annotation
-                            .semantics_identifier
-                            .as_deref()
-                            .is_some_and(|id| id.starts_with("markdown-link:"))
-                });
-                let same_link = match (active_link, segment_link) {
-                    (Some(active), Some(next)) => std::ptr::eq(active, next),
-                    (None, None) => true,
-                    _ => false,
-                };
-                if !same_link {
-                    if active_link.is_some() {
-                        content.push_str("</a>");
-                    }
-                    if let Some(annotation) = segment_link {
-                        content.push_str(&self.rich_text_link_opening(annotation));
-                    }
-                    active_link = segment_link;
+                let segment_link = segment_annotations
+                    .iter()
+                    .copied()
+                    .find(|annotation| Self::rich_text_annotation_is_link(annotation));
+                // Preserve parent semantics outside their child annotations,
+                // including when the parent and child cover the same bytes.
+                let next_annotations = segment_annotations
+                    .iter()
+                    .rev()
+                    .copied()
+                    .filter(|annotation| {
+                        if Self::rich_text_annotation_is_link(annotation) {
+                            segment_link.is_some_and(|link| std::ptr::eq(link, *annotation))
+                        } else {
+                            annotation.semantics_label.is_some()
+                                || annotation.semantics_identifier.is_some()
+                                || annotation.spell_out.unwrap_or(false)
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let common = active_annotations
+                    .iter()
+                    .zip(&next_annotations)
+                    .take_while(|(active, next)| std::ptr::eq(**active, **next))
+                    .count();
+                for annotation in active_annotations.drain(common..).rev() {
+                    content.push_str(Self::rich_text_annotation_closing(annotation));
                 }
-                for annotation in segment_annotations {
-                    if annotation.hyperlink.is_some()
-                        || annotation
-                            .semantics_identifier
-                            .as_deref()
-                            .is_some_and(|id| id.starts_with("markdown-link:"))
-                    {
-                        continue;
-                    }
-                    rendered = self.render_rich_text_annotation(rendered, annotation);
+                for annotation in &next_annotations[common..] {
+                    content.push_str(&self.rich_text_annotation_opening(annotation));
                 }
+                active_annotations = next_annotations;
                 content.push_str(&rendered);
             }
             run_start = run_end;
         }
-        if active_link.is_some() {
-            content.push_str("</a>");
+        for annotation in active_annotations.into_iter().rev() {
+            content.push_str(Self::rich_text_annotation_closing(annotation));
         }
         for child_id in &node.children {
             // Inline hyperlink semantics exist for retained focus and native
@@ -3701,20 +3701,31 @@ impl HtmlRenderer<'_> {
         }
     }
 
-    fn render_rich_text_annotation(
-        &self,
-        content: String,
-        annotation: &RichTextAnnotation,
-    ) -> String {
+    fn rich_text_annotation_is_link(annotation: &RichTextAnnotation) -> bool {
+        annotation.hyperlink.is_some()
+            || annotation
+                .semantics_identifier
+                .as_deref()
+                .is_some_and(|id| id.starts_with("markdown-link:"))
+    }
+
+    fn rich_text_annotation_closing(annotation: &RichTextAnnotation) -> &'static str {
+        if Self::rich_text_annotation_is_link(annotation) {
+            "</a>"
+        } else {
+            "</span>"
+        }
+    }
+
+    fn rich_text_annotation_opening(&self, annotation: &RichTextAnnotation) -> String {
+        if Self::rich_text_annotation_is_link(annotation) {
+            return self.rich_text_link_opening(annotation);
+        }
         let mut attrs = self.rich_text_annotation_attrs(annotation);
         if annotation.spell_out.unwrap_or(false) {
             attrs.push_str(" role=\"text\"");
         }
-        if attrs.is_empty() {
-            content
-        } else {
-            format!("<span{attrs}>{content}</span>")
-        }
+        format!("<span{attrs}>")
     }
 
     fn fill_css(&self, fill: &Fill) -> String {

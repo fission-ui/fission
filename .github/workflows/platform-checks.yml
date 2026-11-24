@@ -86,7 +86,7 @@ jobs:
         run: cargo test --locked -p fission-render-vello --lib
 
       - name: Test rich-text links in the shared Static site and SSR renderer
-        run: cargo test --locked -p fission-shell-site --lib rich_text_hyperlink
+        run: cargo test --locked -p fission-shell-site --lib html::tests::semantics
 
       - name: Test presenter pixels and asynchronous job cancellation
         run: |

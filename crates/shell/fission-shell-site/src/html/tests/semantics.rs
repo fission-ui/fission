@@ -96,8 +96,8 @@ fn rich_text_hyperlink_keeps_different_styles_in_one_anchor() {
         assert!(anchor.contains(&format!(">{words}</span>")), "{anchor}");
     }
     assert!(!anchor.contains(" outside"));
-    assert!(rendered.html.contains("font-weight:700"));
-    assert!(rendered.html.contains("font-style:italic"));
+    assert!(rendered.css.contains("font-weight:700"));
+    assert!(rendered.css.contains("font-style:italic"));
 }
 
 #[test]
