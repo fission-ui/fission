@@ -3170,6 +3170,7 @@ dependencies = [
  "fission-diagnostics",
  "fission-ir",
  "serde",
+ "serde_json",
  "unicode-segmentation",
 ]
 

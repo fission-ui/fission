@@ -266,10 +266,18 @@ export function createHarness(options = {}) {
         },
       };
       let authorizer;
+      let transactionOpen = false;
       class Database {
         constructor() { this.pointer = 1; }
         exec(sql) {
           sql = typeof sql === "string" ? sql : sql.sql;
+          if (/^BEGIN\b/i.test(sql)) transactionOpen = true;
+          if (/^(COMMIT|ROLLBACK)\b/i.test(sql)) transactionOpen = false;
+          if (options.lockStagesDuringTransaction && transactionOpen && /^DETACH\b/i.test(sql)) {
+            const error = new Error("database incoming is locked");
+            error.resultCode = 6;
+            throw error;
+          }
           const pragma = /^PRAGMA\s+(\w+)(?:\s*=\s*(\S+))?/i.exec(sql);
           if (pragma && authorizer?.(0, 19, pragma[1], pragma[2] ?? null, "main", null) === 1) {
             const error = new Error("not authorized");
@@ -279,6 +287,11 @@ export function createHarness(options = {}) {
           worker.commands.push(sql.trim().split(/\s+/).slice(0, 2).join(" "));
         }
         changes() { return 0; }
+        selectValue(sql) {
+          if (sql === "PRAGMA quick_check") return "ok";
+          throw new Error(`unexpected fixture scalar query: ${sql}`);
+        }
+        close() {}
       }
       const sqlite = {
         oo1: { OpfsWlDb: Database },

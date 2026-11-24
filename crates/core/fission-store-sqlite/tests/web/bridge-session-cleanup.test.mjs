@@ -2,6 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHarness, deadline } from "./bridge-harness.mjs";
 
+for (const completion of ["commit", "rollback"]) {
+  test(`stage release waits until ${completion} after the stage has been read`, async (t) => {
+    const harness = createHarness({ lockStagesDuringTransaction: true });
+    t.after(() => harness.close());
+    const page = await harness.page(`stage release ${completion}`);
+    const pending = await deadline(page.request("sqlite_import_begin", { begin_token: completion }));
+    await deadline(page.request("sqlite_import_write", { ...pending, bytes: [1, 2, 3] }));
+    const stage = await deadline(page.request("sqlite_import_finish_stage", pending));
+    const transaction = await deadline(page.request("sql_tx_begin"));
+    await deadline(page.request("sql_tx_stage_attach", {
+      ...transaction, stage_id: stage.session_id, alias: "incoming",
+    }));
+    await deadline(page.request("sql_tx_execute", {
+      ...transaction, statement: { sql: "INSERT INTO main.records SELECT * FROM incoming.records" },
+    }));
+    await deadline(page.request("sql_tx_stage_detach", { ...transaction, alias: "incoming" }));
+    await deadline(page.request("sql_tx_stage_detach", { ...transaction, alias: "incoming" }));
+    const commands = harness.workers[0].commands;
+    assert.ok(!commands.some((command) => command.startsWith("DETACH")));
+    await deadline(page.request(`sql_tx_${completion}`, transaction));
+    assert.ok(commands.indexOf(`${completion.toUpperCase()}`) < commands.indexOf("DETACH DATABASE"));
+    await deadline(page.request("sqlite_stage_cancel", stage));
+    assert.equal(harness.opfs.listFiles().length, 0);
+  });
+}
+
 test("disconnect during import begin removes its partial OPFS file", async (t) => {
   let releaseAccess;
   let accessStarted;

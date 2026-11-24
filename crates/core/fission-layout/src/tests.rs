@@ -47,6 +47,30 @@ fn box_node(
     }
 }
 
+#[test]
+fn layout_input_display_breaks_are_optional_in_serialized_legacy_nodes() {
+    let mut node = box_node(
+        WidgetId::explicit("layout-input-display-breaks"),
+        None,
+        vec![],
+    );
+    let legacy_json = serde_json::to_value(&node).expect("serialize layout input node");
+    assert!(legacy_json.get("display_breaks").is_none());
+
+    let restored: LayoutInputNode =
+        serde_json::from_value(legacy_json).expect("deserialize node without display breaks");
+    assert!(restored.display_breaks.is_empty());
+
+    node.display_breaks = vec![TextDisplayBreak {
+        text_offset: 4,
+        gap_after: 12.0,
+    }];
+    let encoded = serde_json::to_vec(&node).expect("serialize layout display breaks");
+    let restored: LayoutInputNode =
+        serde_json::from_slice(&encoded).expect("deserialize layout display breaks");
+    assert_eq!(restored.display_breaks, node.display_breaks);
+}
+
 struct RecordingMeasurer {
     last_font_size_bits: AtomicU32,
 }

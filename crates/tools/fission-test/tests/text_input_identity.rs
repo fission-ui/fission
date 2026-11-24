@@ -118,6 +118,7 @@ impl TextMeasurer for CountingTextMeasurer {
             glyphs: Vec::new(),
             caret_stops: Vec::new(),
             selection_boxes: Vec::new(),
+            display_breaks: Vec::new(),
         }
     }
 }
