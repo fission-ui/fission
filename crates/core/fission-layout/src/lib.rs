@@ -30,7 +30,9 @@
 
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::{BoxStyle, Length, RichTextAnnotation, TextParagraphStyle, TextRun};
+use fission_ir::op::{
+    BoxStyle, Length, RichTextAnnotation, TextDisplayBreak, TextParagraphStyle, TextRun,
+};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -44,7 +46,8 @@ use geometry::{intersect_rect, union_rect};
 mod stack;
 pub use paragraph::{
     LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
-    ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
+    ResolvedParagraphDisplayBreak, ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
+    TextDisplaySegment, split_text_display_segments,
 };
 use paragraph_cache::{ResolvedParagraphCache, ResolvedParagraphCacheKey};
 use spotlight::spotlight_regions;
@@ -56,7 +59,7 @@ mod layout_direction;
 use flyout::{
     absolute_overrides as flyout_absolute_overrides, root_position as flyout_root_position,
 };
-use grid_tracks::{distribute_deficit, distribute_flex, expand_tracks, IntrinsicAxis, TrackSizing};
+use grid_tracks::{IntrinsicAxis, TrackSizing, distribute_deficit, distribute_flex, expand_tracks};
 use layout_direction::{
     resolve_cross_axis_alignment, resolve_horizontal_flex_policy, reverse_flex_lines,
 };
@@ -103,11 +106,7 @@ pub type LayoutUnit = f32;
 
 /// Returns `value` if it is finite, otherwise `fallback`.
 fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
-    if value.is_finite() {
-        value
-    } else {
-        fallback
-    }
+    if value.is_finite() { value } else { fallback }
 }
 
 fn resolve_length(
@@ -704,8 +703,11 @@ impl LayoutGraphState {
             .iter()
             .filter_map(|(id, current)| {
                 let changed = match next_nodes.get(id) {
-                    Some(next) => current.rich_text != next.rich_text,
-                    None => current.rich_text.is_some(),
+                    Some(next) => {
+                        current.rich_text != next.rich_text
+                            || current.display_breaks != next.display_breaks
+                    }
+                    None => current.rich_text.is_some() || !current.display_breaks.is_empty(),
                 };
                 changed.then_some(*id)
             })
@@ -744,7 +746,8 @@ impl LayoutGraphState {
                 continue;
             }
 
-            if current.rich_text != node.rich_text {
+            if current.rich_text != node.rich_text || current.display_breaks != node.display_breaks
+            {
                 changed_rich_text.push(node.id);
             }
             topology_changed |=
@@ -1050,7 +1053,7 @@ impl LayoutSnapshot {
 ///
 /// The layout engine operates on `&[LayoutInputNode]` rather than traversing the
 /// IR directly, which keeps the engine decoupled from the IR's internal structure.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutInputNode {
     /// The unique identity of this node.
     pub id: WidgetId,
@@ -1073,6 +1076,9 @@ pub struct LayoutInputNode {
     /// Optional rich text content. When present, the layout engine uses the
     /// [`TextMeasurer`] to determine the node's intrinsic size from the text.
     pub rich_text: Option<Vec<TextRun>>,
+    /// Visual-only breaks in byte offsets over the concatenated rich text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_breaks: Vec<TextDisplayBreak>,
 }
 
 fn has_explicit_axis_size(node: &LayoutInputNode, horizontal: bool) -> bool {
@@ -1237,7 +1243,24 @@ pub trait TextMeasurer: Send + Sync {
             glyphs: Vec::new(),
             caret_stops: Vec::new(),
             selection_boxes: Vec::new(),
+            display_breaks: Vec::new(),
         }
+    }
+
+    /// Resolves rich text with visual-only breaks at UTF-8 byte offsets that
+    /// are also grapheme boundaries.
+    ///
+    /// The default implementation resolves each contiguous segment separately,
+    /// then merges its geometry back into the original byte-index space. The
+    /// logical text remains unchanged, and the gap rectangles are paragraph
+    /// local so parent page surfaces can align with the displayed pages.
+    fn resolve_rich_text_with_display_breaks(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        display_breaks: &[TextDisplayBreak],
+    ) -> ResolvedParagraphLayout {
+        resolve_rich_text_with_display_breaks(self, runs, available_width, display_breaks)
     }
 
     /// Hit-test rich text (styled runs) at the given (x, y) position.
@@ -1275,6 +1298,151 @@ pub trait TextMeasurer: Send + Sync {
     ) -> Option<RichTextAnnotation> {
         None
     }
+}
+
+fn resolve_rich_text_with_display_breaks<M: TextMeasurer + ?Sized>(
+    measurer: &M,
+    runs: &[TextRun],
+    available_width: Option<f32>,
+    display_breaks: &[TextDisplayBreak],
+) -> ResolvedParagraphLayout {
+    if display_breaks.is_empty() {
+        return measurer.resolve_rich_text(runs, available_width);
+    }
+
+    let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+    let segments = split_text_display_segments(&text, display_breaks);
+    if segments.len() <= 1 {
+        return measurer.resolve_rich_text(runs, available_width);
+    }
+
+    let mut resolved = ResolvedParagraphLayout::empty(available_width);
+    let mut paragraph_y = 0.0;
+    let mut line_base = 0usize;
+    let mut cluster_base = 0usize;
+    let mut width = 0.0f32;
+
+    for (segment_index, segment) in segments.iter().enumerate() {
+        let shaped_byte_len = segment.shape_byte_range.end - segment.shape_byte_range.start;
+        let trailing_separator = segment.byte_range.end - segment.shape_byte_range.end;
+        let include_shape_end = segment_index + 1 == segments.len() || trailing_separator > 0;
+        let segment_runs =
+            slice_text_runs(runs, segment.shape_byte_range.clone(), include_shape_end);
+        let mut part = measurer.resolve_rich_text(&segment_runs, available_width);
+        width = width.max(part.size.width);
+
+        let trailing_separator_caret = if segment.break_after.is_some() && trailing_separator > 0 {
+            part.caret_stops
+                .iter()
+                .find(|stop| stop.index == shaped_byte_len && stop.upstream)
+                .or_else(|| {
+                    part.caret_stops
+                        .iter()
+                        .find(|stop| stop.index == shaped_byte_len)
+                })
+                .copied()
+                .map(|mut stop| {
+                    stop.index = segment.byte_range.end;
+                    stop.upstream = true;
+                    stop.position.y += paragraph_y;
+                    stop
+                })
+        } else {
+            None
+        };
+
+        for line in &mut part.lines {
+            line.start_index += segment.byte_range.start;
+            line.end_index += segment.byte_range.start;
+            line.baseline += paragraph_y;
+        }
+        for cluster in &mut part.clusters {
+            cluster.start_index += segment.byte_range.start;
+            cluster.end_index += segment.byte_range.start;
+            cluster.line_index += line_base;
+            cluster.rect.origin.y += paragraph_y;
+        }
+        for glyph in &mut part.glyphs {
+            glyph.cluster_index += cluster_base;
+            glyph.position.y += paragraph_y;
+        }
+        for caret in &mut part.caret_stops {
+            caret.index += segment.byte_range.start;
+            caret.position.y += paragraph_y;
+            if segment_index > 0 && caret.index == segment.byte_range.start {
+                caret.upstream = false;
+            }
+            if segment.break_after.is_some() && caret.index == segment.byte_range.end {
+                caret.upstream = true;
+            }
+        }
+        for selection in &mut part.selection_boxes {
+            selection.start_index += segment.byte_range.start;
+            selection.end_index += segment.byte_range.start;
+            selection.line_index += line_base;
+            selection.rect.origin.y += paragraph_y;
+        }
+        for inline_box in &mut part.inline_boxes {
+            inline_box.y += paragraph_y;
+        }
+
+        paragraph_y += part.size.height;
+        line_base += part.lines.len();
+        cluster_base += part.clusters.len();
+        resolved.lines.extend(part.lines);
+        resolved.inline_boxes.extend(part.inline_boxes);
+        resolved.clusters.extend(part.clusters);
+        resolved.glyphs.extend(part.glyphs);
+        resolved.caret_stops.extend(part.caret_stops);
+        if let Some(stop) = trailing_separator_caret {
+            resolved.caret_stops.push(stop);
+        }
+        resolved.selection_boxes.extend(part.selection_boxes);
+
+        if let Some(display_break) = segment.break_after {
+            let gap = display_break.gap_after.max(0.0);
+            resolved.display_breaks.push(ResolvedParagraphDisplayBreak {
+                text_offset: display_break.text_offset,
+                gap_rect: LayoutRect::new(0.0, paragraph_y, available_width.unwrap_or(width), gap),
+            });
+            paragraph_y += gap;
+        }
+    }
+
+    resolved.size = LayoutSize::new(width, paragraph_y);
+    let gap_width = available_width.unwrap_or(width);
+    for display_break in &mut resolved.display_breaks {
+        display_break.gap_rect.size.width = gap_width;
+    }
+    resolved
+}
+
+fn slice_text_runs(
+    runs: &[TextRun],
+    range: std::ops::Range<usize>,
+    include_end: bool,
+) -> Vec<TextRun> {
+    let mut offset = 0usize;
+    let mut sliced = Vec::new();
+    for run in runs {
+        if run.text.is_empty()
+            && offset >= range.start
+            && (offset < range.end || (include_end && offset == range.end))
+        {
+            sliced.push(run.clone());
+        }
+        let run_end = offset + run.text.len();
+        let start = offset.max(range.start);
+        let end = run_end.min(range.end);
+        if start < end {
+            sliced.push(TextRun {
+                text: run.text[start - offset..end - offset].to_owned(),
+                style: run.style.clone(),
+            });
+        }
+        offset = run_end;
+    }
+    sliced
 }
 
 /// The constraint-based layout solver.
@@ -1445,7 +1613,12 @@ impl LayoutEngine {
                     .get(child)
                     .ok_or_else(|| anyhow::anyhow!("[verify] child {:?} not found", child))?;
                 if child_node.parent_id != Some(n.id) {
-                    anyhow::bail!("[verify] parent/child mismatch parent={:?} child={:?} child.parent_id={:?}", n.id, child, child_node.parent_id);
+                    anyhow::bail!(
+                        "[verify] parent/child mismatch parent={:?} child={:?} child.parent_id={:?}",
+                        n.id,
+                        child,
+                        child_node.parent_id
+                    );
                 }
             }
         }
@@ -2008,9 +2181,15 @@ impl LayoutEngine {
         if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
             return Ok(match intrinsic {
                 IntrinsicAxis::Max => {
-                    self.resolve_cached_rich_paragraph(node_id, runs, None, measurer.as_ref())
-                        .size
-                        .width
+                    self.resolve_cached_rich_paragraph(
+                        node_id,
+                        runs,
+                        &node.display_breaks,
+                        None,
+                        measurer.as_ref(),
+                    )
+                    .size
+                    .width
                 }
                 IntrinsicAxis::Min => runs
                     .iter()
@@ -2071,6 +2250,7 @@ impl LayoutEngine {
         &self,
         node_id: WidgetId,
         runs: &[TextRun],
+        display_breaks: &[TextDisplayBreak],
         available_width: Option<f32>,
         measurer: &dyn TextMeasurer,
     ) -> Arc<ResolvedParagraphLayout> {
@@ -2082,7 +2262,11 @@ impl LayoutEngine {
             return paragraph;
         }
 
-        let paragraph = Arc::new(measurer.resolve_rich_text(runs, available_width));
+        let paragraph = Arc::new(measurer.resolve_rich_text_with_display_breaks(
+            runs,
+            available_width,
+            display_breaks,
+        ));
         self.resolved_paragraph_cache
             .lock()
             .unwrap()
@@ -2205,7 +2389,13 @@ impl LayoutEngine {
                         })
                         .fold(0.0, f32::max);
                     max_content = self
-                        .resolve_cached_rich_paragraph(node_id, runs, None, measurer.as_ref())
+                        .resolve_cached_rich_paragraph(
+                            node_id,
+                            runs,
+                            &node.display_breaks,
+                            None,
+                            measurer.as_ref(),
+                        )
                         .size
                         .width;
                 }
@@ -4457,8 +4647,13 @@ impl LayoutEngine {
                         .is_width_bounded()
                         .then_some(text_inner_constraints.max_w),
                 };
-                let rich_layout =
-                    self.resolve_cached_rich_paragraph(node_id, runs, avail_w, measurer.as_ref());
+                let rich_layout = self.resolve_cached_rich_paragraph(
+                    node_id,
+                    runs,
+                    &node.display_breaks,
+                    avail_w,
+                    measurer.as_ref(),
+                );
                 if record {
                     self.resolved_paragraphs
                         .lock()

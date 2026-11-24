@@ -3,13 +3,14 @@ use super::paragraph_cache::{
     RESOLVED_PARAGRAPH_CACHE_MAX_ENTRIES,
 };
 use super::{
-    flyout_root_position, resolve_length, resolve_position_length, LayoutEngine, LayoutGraphState,
-    LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize, ResolvedParagraphLayout, TextMeasurer,
+    flyout_root_position, resolve_length, resolve_position_length, split_text_display_segments,
+    LayoutEngine, LayoutGraphState, LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize,
+    ParagraphCaretStop, ResolvedParagraphLayout, TextMeasurer,
     DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
 };
 use fission_ir::op::{
-    BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery, TextRun,
-    TextStyle,
+    BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
+    TextDisplayBreak, TextRun, TextStyle,
 };
 use fission_ir::{GridPlacement, LayoutOp, WidgetId};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -42,7 +43,32 @@ fn box_node(
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
     }
+}
+
+#[test]
+fn layout_input_display_breaks_are_optional_in_serialized_legacy_nodes() {
+    let mut node = box_node(
+        WidgetId::explicit("layout-input-display-breaks"),
+        None,
+        vec![],
+    );
+    let legacy_json = serde_json::to_value(&node).expect("serialize layout input node");
+    assert!(legacy_json.get("display_breaks").is_none());
+
+    let restored: LayoutInputNode =
+        serde_json::from_value(legacy_json).expect("deserialize node without display breaks");
+    assert!(restored.display_breaks.is_empty());
+
+    node.display_breaks = vec![TextDisplayBreak {
+        text_offset: 4,
+        gap_after: 12.0,
+    }];
+    let encoded = serde_json::to_vec(&node).expect("serialize layout display breaks");
+    let restored: LayoutInputNode =
+        serde_json::from_slice(&encoded).expect("deserialize layout display breaks");
+    assert_eq!(restored.display_breaks, node.display_breaks);
 }
 
 struct RecordingMeasurer {
@@ -55,6 +81,7 @@ struct CountingParagraphMeasurer {
 }
 
 struct WrappingMeasurer;
+struct NewlineMeasurer;
 
 impl TextMeasurer for WrappingMeasurer {
     fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
@@ -93,6 +120,38 @@ impl TextMeasurer for CountingParagraphMeasurer {
     }
 }
 
+impl TextMeasurer for NewlineMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        (text.len() as f32, text.split('\n').count() as f32)
+    }
+
+    fn resolve_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> ResolvedParagraphLayout {
+        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        let line_count = text.split('\n').count();
+        let mut paragraph = ResolvedParagraphLayout::empty(available_width);
+        paragraph.size = LayoutSize::new(text.len() as f32, line_count as f32);
+        paragraph.caret_stops = vec![
+            ParagraphCaretStop {
+                index: 0,
+                upstream: false,
+                position: LayoutPoint::new(0.0, 0.0),
+                height: 1.0,
+            },
+            ParagraphCaretStop {
+                index: text.len(),
+                upstream: true,
+                position: LayoutPoint::new(text.len() as f32, (line_count - 1) as f32),
+                height: 1.0,
+            },
+        ];
+        paragraph
+    }
+}
+
 fn node(
     id: WidgetId,
     parent_id: Option<WidgetId>,
@@ -125,6 +184,7 @@ fn node(
         flex_grow,
         flex_shrink,
         rich_text: None,
+        display_breaks: Vec::new(),
     }
 }
 
@@ -145,6 +205,96 @@ fn text_run(text: &str) -> TextRun {
             typography: Default::default(),
         },
     }
+}
+
+#[test]
+fn display_breaks_keep_logical_utf8_offsets_and_expose_gap_geometry() {
+    let text = "aé👩‍👩‍👧‍👦z";
+    let display_breaks = [TextDisplayBreak {
+        text_offset: "aé".len(),
+        gap_after: 18.0,
+    }];
+    let segments = split_text_display_segments(text, &display_breaks);
+
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0].grapheme_range, 0..2);
+    assert_eq!(segments[0].byte_range, 0.."aé".len());
+    assert_eq!(segments[1].grapheme_range, 2..4);
+    assert_eq!(segments[1].byte_range, "aé".len()..text.len());
+
+    let paragraph = CountingParagraphMeasurer.resolve_rich_text_with_display_breaks(
+        &[text_run(text)],
+        None,
+        &display_breaks,
+    );
+    assert_eq!(paragraph.size.height, 58.0);
+    assert_eq!(paragraph.display_breaks.len(), 1);
+    assert_eq!(paragraph.display_breaks[0].text_offset, "aé".len());
+    assert_eq!(
+        paragraph.display_breaks[0].gap_rect,
+        LayoutRect::new(0.0, 20.0, paragraph.size.width, 18.0)
+    );
+
+    let inside_emoji_grapheme = [TextDisplayBreak {
+        text_offset: "aé👩".len(),
+        gap_after: 18.0,
+    }];
+    assert_eq!(
+        split_text_display_segments(text, &inside_emoji_grapheme).len(),
+        1
+    );
+}
+
+#[test]
+fn display_break_after_block_newline_does_not_add_a_trailing_blank_line() {
+    let text = "one\ntwo";
+    let page_break = "one\n".len();
+    let paragraph = NewlineMeasurer.resolve_rich_text_with_display_breaks(
+        &[text_run("one\n"), text_run("two")],
+        None,
+        &[TextDisplayBreak {
+            text_offset: page_break,
+            gap_after: 18.0,
+        }],
+    );
+
+    assert_eq!(paragraph.size.height, 20.0);
+    assert_eq!(paragraph.display_breaks[0].gap_rect.y(), 1.0);
+    assert_eq!(paragraph.display_breaks[0].gap_rect.bottom(), 19.0);
+    assert_eq!(
+        paragraph.caret(page_break, true).unwrap().position.y,
+        0.0,
+        "the upstream affinity stays at the end of the previous block"
+    );
+    assert_eq!(
+        paragraph.caret(page_break, false).unwrap().position.y,
+        19.0,
+        "the downstream affinity starts after the page gap"
+    );
+
+    let segment = split_text_display_segments(
+        text,
+        &[TextDisplayBreak {
+            text_offset: page_break,
+            gap_after: 18.0,
+        }],
+    )
+    .remove(0);
+    assert_eq!(segment.byte_range, 0..page_break);
+    assert_eq!(segment.shape_byte_range, 0..page_break - 1);
+
+    let crlf_text = "one\r\ntwo";
+    let crlf_break = "one\r\n".len();
+    let crlf_segment = split_text_display_segments(
+        crlf_text,
+        &[TextDisplayBreak {
+            text_offset: crlf_break,
+            gap_after: 18.0,
+        }],
+    )
+    .remove(0);
+    assert_eq!(crlf_segment.byte_range, 0..crlf_break);
+    assert_eq!(crlf_segment.shape_byte_range, 0.."one".len());
 }
 
 impl RecordingMeasurer {
@@ -1218,6 +1368,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_grow: 0.0,
             flex_shrink: 1.0,
             rich_text: None,
+            display_breaks: Vec::new(),
         },
         LayoutInputNode {
             id: positioned,
@@ -1237,6 +1388,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_grow: 0.0,
             flex_shrink: 0.0,
             rich_text: None,
+            display_breaks: Vec::new(),
         },
         box_node(anchor, Some(positioned), vec![]),
         LayoutInputNode {
@@ -1253,6 +1405,7 @@ fn spotlight_lays_out_inverse_overlay_around_anchor() {
             flex_grow: 0.0,
             flex_shrink: 1.0,
             rich_text: None,
+            display_breaks: Vec::new(),
         },
     ];
     nodes[2].op = LayoutOp::Box {
