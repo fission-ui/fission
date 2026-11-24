@@ -46,6 +46,82 @@ fn capture_webgpu_frame(
     Ok(())
 }
 
+fn collect_bounded_bridge_errors(client: &LiveTestClient, requests: &[u32]) -> anyhow::Result<()> {
+    assert_eq!(requests.len(), 1024);
+    assert!(requests.iter().all(|id| *id != 0));
+    assert_eq!(
+        requests
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1024
+    );
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut pending = requests.to_vec();
+    let mut collected = std::collections::HashSet::new();
+    while !pending.is_empty() {
+        let ids = serde_json::to_string(&pending)?;
+        let replies = client.browser_evaluate_json(&format!(
+            r#"(() => {{
+            const bridge = globalThis.__FISSION_TEST__;
+            return {ids}.map(id => {{
+                const raw = bridge.poll(id);
+                return {{id, transport: typeof raw, response: JSON.parse(raw)}};
+            }});
+        }})()"#
+        ))?;
+        pending.clear();
+        for reply in replies.as_array().expect("bridge response batch") {
+            let id = reply["id"].as_u64().expect("request id") as u32;
+            assert_eq!(reply["transport"], "string");
+            if reply["response"].is_null() {
+                pending.push(id);
+            } else {
+                assert_eq!(
+                    reply["response"]["status"], "Error",
+                    "request {id}: {reply}"
+                );
+                assert!(
+                    reply["response"]["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("raw Web SimulateResize cannot control Chromium"),
+                    "request {id} must produce its actual dispatched error: {reply}"
+                );
+                assert!(collected.insert(id), "request {id} was collected twice");
+            }
+        }
+        anyhow::ensure!(
+            pending.is_empty() || Instant::now() < deadline,
+            "timed out collecting deferred bridge errors: {} collected, {} pending",
+            collected.len(),
+            pending.len()
+        );
+        if !pending.is_empty() {
+            // A CDP evaluation is synchronous; return to the browser event loop
+            // before polling again so its deferred dispatch tasks can run.
+            std::thread::sleep(Duration::from_millis(8));
+        }
+    }
+    assert_eq!(collected.len(), requests.len());
+    let ids = serde_json::to_string(requests)?;
+    let consumed = client.browser_evaluate_json(&format!(
+        r#"(() => {{
+        const bridge = globalThis.__FISSION_TEST__;
+        return {ids}.every(id => {{
+            const response = JSON.parse(bridge.poll(id));
+            return response?.status === 'Error'
+                && response.message === `unknown browser test request ${{id}}`;
+        }});
+    }})()"#
+    ))?;
+    assert_eq!(
+        consumed, true,
+        "completed responses must be removed after one collection"
+    );
+    Ok(())
+}
+
 #[test]
 #[ignore = "requires FISSION_BRIDGE_WEB_URL, the opt-in Web test bridge, and Chromium"]
 fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow::Result<()> {
@@ -94,9 +170,17 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
     assert!(stage_perf["softwareRasterizationMs"].is_number());
     assert!(stage_perf["softwareOutputCopyMs"].is_number());
 
-    let bounded = client.browser_evaluate_json(
-        "(() => { const bridge=globalThis.__FISSION_TEST__; const read=id=>JSON.parse(bridge.poll(id)); const requests=[]; const command=JSON.stringify({cmd:'SimulateResize',width:390,height:900}); for(let i=0;i<1024;i++) requests.push(bridge.submit(command)); const overflow=bridge.submit(command); const rawRejected=bridge.poll(overflow); const rejected=JSON.parse(rawRejected); const collected=requests.every(id=>read(id)?.status==='Error'); return {count:requests.length,overflow,transport:typeof rawRejected,rejected:rejected?.message,collected}; })()",
-    )?;
+    let submit_batch = r#"(() => {
+        const bridge = globalThis.__FISSION_TEST__;
+        const requests = [];
+        const command = JSON.stringify({cmd:'SimulateResize',width:390,height:900});
+        for (let i = 0; i < 1024; i++) requests.push(bridge.submit(command));
+        const overflow = bridge.submit(command);
+        const rawRejected = bridge.poll(overflow);
+        return {requests, count: requests.length, overflow, transport: typeof rawRejected,
+            rejected: JSON.parse(rawRejected)?.message};
+    })()"#;
+    let bounded = client.browser_evaluate_json(submit_batch)?;
     assert_eq!(bounded["count"], 1024);
     assert_eq!(bounded["overflow"], 0);
     assert_eq!(bounded["transport"], "string");
@@ -104,7 +188,21 @@ fn web_bridge_json_round_trips_remain_bounded_after_repeated_queries() -> anyhow
         .as_str()
         .unwrap()
         .contains("too many pending browser test requests"));
-    assert_eq!(bounded["collected"], true);
+    let requests: Vec<u32> = serde_json::from_value(bounded["requests"].clone())?;
+    collect_bounded_bridge_errors(&client, &requests)?;
+
+    // Refill every slot, not just one, to prove collection reclaimed the whole
+    // bounded queue. Dispatch remains deferred and polling stays observational.
+    let reused = client.browser_evaluate_json(submit_batch)?;
+    assert_eq!(reused["count"], 1024);
+    assert_eq!(reused["overflow"], 0);
+    assert_eq!(reused["transport"], "string");
+    assert!(reused["rejected"]
+        .as_str()
+        .unwrap()
+        .contains("too many pending browser test requests"));
+    let requests: Vec<u32> = serde_json::from_value(reused["requests"].clone())?;
+    collect_bounded_bridge_errors(&client, &requests)?;
 
     assert!(client
         .get_text()?
