@@ -258,9 +258,8 @@ pub mod sqlite {
 }
 
 pub use fission_compose::{
-    fission_component, fission_effect, read, state_scope,
-    ComposeBind, Control, ControlSource, DefaultScope, Event, ManySource, Press, Scope, Source,
-    TextChanged, Toggle, UiKey,
+    fission_component, fission_effect, read, state_scope, ComposeBind, Control, ControlSource,
+    DefaultScope, Event, ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
 };
 pub use fission_core::Bytes;
 pub use fission_core::{KeyAction, KeyBinding};
@@ -335,12 +334,13 @@ pub use fission_core::{
     TextInputAction, TextInputType, TextPosition, TextRange, TextRegionPosition,
     TextRegionSelection, TextScrollCommand, TextScrollController, TextSelection, TextValuePhase,
     TextWrapMode, UnregisterPushNotificationsCapability, UpdateTextInput, ValueView, ViewHandle,
-    WidgetId, WindowCommand, WindowControlCapability, WindowControlError, WriteNfcTagCapability,
-    AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
-    CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
-    GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
-    REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
-    SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WINDOW_CONTROL, WRITE_NFC_TAG,
+    ViewportResized, WidgetId, WindowCommand, WindowControlCapability, WindowControlError,
+    WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
+    CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
+    GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
+    REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+    WINDOW_CONTROL, WRITE_NFC_TAG,
 };
 pub use fission_core::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,

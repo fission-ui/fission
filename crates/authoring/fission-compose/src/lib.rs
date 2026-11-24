@@ -25,9 +25,8 @@ pub trait ComposeBind<S>: Sized {
 
 pub mod prelude {
     pub use crate::{
-        fission_component, fission_effect, read, state_scope,
-        ComposeBind, Control, ControlSource, DefaultScope, Event, ManySource, Press, Scope, Source,
-        TextChanged, Toggle, UiKey,
+        fission_component, fission_effect, read, state_scope, ComposeBind, Control, ControlSource,
+        DefaultScope, Event, ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
     };
 }
 
