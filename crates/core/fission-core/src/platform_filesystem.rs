@@ -244,7 +244,7 @@ pub struct ForgetSaveFileRequest {
 ///
 /// This only releases the runtime's in-memory reference to the handle. The
 /// operation is idempotent and does not delete the file or remove a separately
-/// persisted save-file key.
+/// persisted save-file key. In-flight operations retain their own references.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseWritableFileRequest {
     /// The ID returned in `WritableFileHandle::id` by a picker or restore call.

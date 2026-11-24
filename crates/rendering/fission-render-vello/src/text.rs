@@ -461,8 +461,11 @@ impl VelloTextMeasurer {
                         width: marker.width,
                         height: marker.height,
                     });
-                    continue;
                 }
+                // Parley rejects empty style ranges. Empty inline markers are
+                // represented by `inline_boxes` above; other empty runs have
+                // no visible text to style, so omit them from the style table.
+                continue;
             }
 
             text.push_str(&run.text);
@@ -1608,6 +1611,26 @@ mod tests {
                 rich.text
             );
         }
+    }
+
+    #[test]
+    fn rich_text_layout_skips_empty_non_inline_runs() {
+        let measurer = measurer();
+        let mut empty_run = text_run("", 14.0, 20.0);
+        empty_run.style.underline = true;
+        let runs = [
+            text_run("before", 14.0, 20.0),
+            empty_run,
+            text_run(" after", 14.0, 20.0),
+        ];
+
+        let rich = VelloTextMeasurer::rich_layout_input_from_ir_runs(&runs);
+        assert_eq!(rich.text, "before after");
+        assert_eq!(rich.styles.len(), 2);
+        assert!(rich.styles.iter().all(|(range, _)| range.start < range.end));
+
+        let resolved = measurer.resolve_rich_text(&runs, Some(180.0));
+        assert!(!resolved.lines.is_empty());
     }
 
     #[test]
