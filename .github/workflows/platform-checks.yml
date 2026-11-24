@@ -75,6 +75,9 @@ jobs:
           cargo test --locked -p fission-core --test text_surface_api
           cargo test --locked -p fission-shell-winit --test caret_layout
 
+      - name: Test empty rich text shaping
+        run: cargo test --locked -p fission-render-vello --lib text::tests::rich_text_layout_skips_empty_non_inline_runs -- --exact
+
       - name: Test owned serving and readiness without canonicalisation
         run: cargo test --locked -p fission-command-site
 
