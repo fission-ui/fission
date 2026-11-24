@@ -3,6 +3,8 @@ use super::*;
 fn unique_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("fission-publish-{}-{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
+    // Keep repository discovery inside this fixture when TMPDIR is in the checkout.
+    fs::create_dir_all(dir.join(".git")).unwrap();
     dir
 }
 

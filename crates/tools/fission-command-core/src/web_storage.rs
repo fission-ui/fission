@@ -536,7 +536,7 @@ mod tests {
         fs::write(
             root.path().join("Cargo.toml"),
             format!(
-                "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfission-store-sqlite = {{ path = {:?}, features = [\"web\"] }}\n",
+                "[package]\nname = \"web-storage-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfission-store-sqlite = {{ path = {:?}, features = [\"web\"] }}\n",
                 sqlite_path.to_string_lossy()
             ),
         )

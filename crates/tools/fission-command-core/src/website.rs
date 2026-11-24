@@ -97,14 +97,15 @@ mod tests {
             "fission-website-{label}-{}-{nonce}",
             std::process::id()
         ));
-        fs::create_dir_all(&root).unwrap();
+        // Init writes guidance at the nearest repository root. A mock marker
+        // prevents a project-local TMPDIR from making that the real checkout.
+        fs::create_dir_all(root.join(".git")).unwrap();
         root
     }
 
     #[test]
     fn website_uses_existing_target_wiring_and_preserves_user_guidance() {
         let root = directory("guidance");
-        fs::create_dir(root.join(".git")).unwrap();
         fs::write(
             root.join("AGENTS.md"),
             "# Team instructions\nKeep my rules.\n",
