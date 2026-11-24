@@ -195,6 +195,25 @@ fn linked_text_overlay_frame_with_text_input() -> (
 }
 
 #[test]
+fn unannotated_rich_text_keeps_its_existing_hit_blocking_behavior() {
+    let (mut ir, layout, _, input, paint) = linked_text_overlay_frame_with_text_input();
+    ir.custom_render_objects.remove(&paint);
+    let runtime = Runtime::default();
+    let hit = fission_core::hit_test::hit_test_with_scroll(
+        &ir,
+        &layout,
+        &runtime.runtime_state.scroll,
+        LayoutPoint::new(20.0, 10.0),
+    );
+    assert_ne!(
+        hit,
+        Some(input),
+        "plain rich text must not expose a control behind it"
+    );
+    assert_eq!(hit, Some(paint));
+}
+
+#[test]
 fn rich_text_overlay_passes_non_link_and_blank_taps_to_underlying_text_input() {
     let (ir, layout, measurer, input, paint) = linked_text_overlay_frame_with_text_input();
     let runtime = Runtime::default();

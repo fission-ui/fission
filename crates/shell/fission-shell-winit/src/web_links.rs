@@ -72,6 +72,9 @@ impl WebLinkOverlay {
         let scale_y = canvas_rect.height() / f64::from(viewport.height);
 
         for record in records {
+            if record.semantics.disabled {
+                continue;
+            }
             let Some(link) = &record.semantics.hyperlink else {
                 continue;
             };

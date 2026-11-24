@@ -689,8 +689,15 @@ fn rich_text_annotation_blocks_hit_testing(
         .get(&node_id)
         .and_then(|sidecar| sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>())
     else {
-        return false;
+        return runs.iter().any(|run| !run.text.is_empty());
     };
+    if !annotations.iter().any(|annotation| {
+        annotation.hyperlink.is_some()
+            || annotation.mouse_cursor.is_some()
+            || !annotation.actions.is_empty()
+    }) {
+        return runs.iter().any(|run| !run.text.is_empty());
+    }
     let Some(paragraph) = layout.get_resolved_paragraph(node_id) else {
         return false;
     };
