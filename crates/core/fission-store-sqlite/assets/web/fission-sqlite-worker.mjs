@@ -1241,7 +1241,10 @@ async function dispatchTransaction(operation, request, clientId) {
         error.code = "invalid_request";
         throw error;
       }
-      await detachStagedAlias(transaction, schema, stageId);
+      // SQLite retains a read lock after this transaction reads the stage.
+      // DETACH here would fail with SQLITE_LOCKED and roll back valid writes.
+      // Every attached stage is already detached when this transaction ends;
+      // acknowledge release now, keeping the alias alive until COMMIT/ROLLBACK.
       return null;
     }
     case "sql_tx_commit":
