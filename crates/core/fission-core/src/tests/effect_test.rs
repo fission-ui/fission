@@ -1,6 +1,6 @@
 use crate::runtime::Runtime;
 use crate::{
-    reduce_with, Action, ActionEnvelope, ActionId, CapabilityType, Effect, GlobalState,
+    reduce_with, Action, ActionEnvelope, ActionId, CapabilityType, Effect, GlobalState, JobSpec,
     OperationCapability, ReducerContext,
 };
 use serde::{Deserialize, Serialize};
@@ -261,4 +261,243 @@ fn test_operation_capability_effect() {
         }
         _ => panic!("expected typed capability effect"),
     }
+}
+
+#[derive(Debug, Default)]
+struct CallbackLifetimeState {
+    probes: Vec<std::sync::Weak<()>>,
+    completions: usize,
+}
+
+impl GlobalState for CallbackLifetimeState {}
+
+struct CapturedCallback(std::sync::Arc<()>);
+
+impl crate::registry::IntoHandler<CallbackLifetimeState, UploadFinished> for CapturedCallback {
+    fn call<'a, 'b, 'c>(
+        &self,
+        state: &mut CallbackLifetimeState,
+        _: UploadFinished,
+        _: &mut ReducerContext<'a, 'b, 'c, CallbackLifetimeState>,
+    ) {
+        let _retained_component = &self.0;
+        state.completions += 1;
+    }
+}
+
+struct CallbackJob;
+
+impl crate::JobSpec for CallbackJob {
+    type Request = ();
+    type Ok = ();
+    type Err = String;
+    const NAME: &'static str = "callback-lifetime-job";
+}
+
+fn start_callback_job(
+    state: &mut CallbackLifetimeState,
+    _: UploadRequested,
+    ctx: &mut ReducerContext<CallbackLifetimeState>,
+) {
+    let retained_component = std::sync::Arc::new(());
+    state
+        .probes
+        .push(std::sync::Arc::downgrade(&retained_component));
+    let on_ok = ctx
+        .effects
+        .bind(UploadFinished, CapturedCallback(retained_component.clone()));
+    let on_err = ctx
+        .effects
+        .bind(UploadFinished, CapturedCallback(retained_component));
+    ctx.effects
+        .app(crate::JobRef::<CallbackJob>::new(CallbackJob::NAME), ())
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+fn callback_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_app_state(Box::new(CallbackLifetimeState::default()))
+        .unwrap();
+    let mut registry = crate::ActionRegistry::new();
+    registry.register(
+        start_callback_job as crate::registry::Handler<CallbackLifetimeState, UploadRequested>,
+    );
+    runtime.absorb_persistent_registry(registry);
+    runtime
+}
+
+fn request_callback_job(runtime: &mut Runtime) -> crate::EffectEnvelope {
+    runtime
+        .dispatch(UploadRequested.into(), crate::WidgetId::from_u128(0))
+        .unwrap();
+    runtime.pending_effects.pop().unwrap()
+}
+
+#[test]
+fn repeated_job_cancellation_releases_both_captured_callbacks_without_running_them() {
+    let mut runtime = callback_runtime();
+    for _ in 0..100 {
+        let effect = request_callback_job(&mut runtime);
+        let probe = runtime
+            .get_app_state::<CallbackLifetimeState>()
+            .unwrap()
+            .probes
+            .last()
+            .unwrap()
+            .clone();
+        assert!(probe.upgrade().is_some());
+        runtime.queue_runtime_effect(crate::RuntimeEffect::Cancel {
+            req_id: effect.req_id,
+        });
+        assert!(probe.upgrade().is_none());
+    }
+    assert_eq!(
+        runtime
+            .get_app_state::<CallbackLifetimeState>()
+            .unwrap()
+            .completions,
+        0
+    );
+    assert_eq!(runtime.discard_pending_effects(), 0);
+}
+
+#[test]
+fn job_terminal_outcome_releases_the_unused_callback_and_preserves_another_request() {
+    for failed in [false, true] {
+        let mut runtime = callback_runtime();
+        let cancelled = request_callback_job(&mut runtime);
+        let completed = request_callback_job(&mut runtime);
+        runtime.queue_runtime_effect(crate::RuntimeEffect::Cancel {
+            req_id: cancelled.req_id,
+        });
+        let state = runtime.get_app_state::<CallbackLifetimeState>().unwrap();
+        assert!(state.probes[0].upgrade().is_none());
+        assert!(state.probes[1].upgrade().is_some());
+        let (selected, unused, input) = if failed {
+            (
+                completed.on_err.unwrap(),
+                completed.on_ok.unwrap(),
+                crate::ActionInput::JobErr {
+                    job_name: CallbackJob::NAME.into(),
+                    req_id: completed.req_id,
+                    payload: None,
+                    message: Some("failed".into()),
+                },
+            )
+        } else {
+            (
+                completed.on_ok.unwrap(),
+                completed.on_err.unwrap(),
+                crate::ActionInput::JobOk {
+                    job_name: CallbackJob::NAME.into(),
+                    req_id: completed.req_id,
+                    payload: serde_json::to_vec(&()).unwrap(),
+                },
+            )
+        };
+        runtime
+            .dispatch_with_input(selected, crate::WidgetId::from_u128(0), &input)
+            .unwrap();
+        let state = runtime.get_app_state::<CallbackLifetimeState>().unwrap();
+        assert!(state.probes[1].upgrade().is_none());
+        assert_eq!(state.completions, 1);
+        runtime
+            .dispatch_with_input(unused, crate::WidgetId::from_u128(0), &input)
+            .unwrap();
+        assert_eq!(
+            runtime
+                .get_app_state::<CallbackLifetimeState>()
+                .unwrap()
+                .completions,
+            1
+        );
+        assert_eq!(runtime.discard_pending_effects(), 0);
+    }
+}
+
+fn start_shared_callback_jobs(
+    state: &mut CallbackLifetimeState,
+    _: UploadRequested,
+    ctx: &mut ReducerContext<CallbackLifetimeState>,
+) {
+    let retained_component = std::sync::Arc::new(());
+    state
+        .probes
+        .push(std::sync::Arc::downgrade(&retained_component));
+    let shared = ctx
+        .effects
+        .bind(UploadFinished, CapturedCallback(retained_component));
+    for _ in 0..2 {
+        ctx.effects
+            .app(crate::JobRef::<CallbackJob>::new(CallbackJob::NAME), ())
+            .on_err(shared.clone());
+    }
+}
+
+#[test]
+fn cancelling_one_request_does_not_remove_an_ephemeral_callback_shared_with_another() {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_app_state(Box::new(CallbackLifetimeState::default()))
+        .unwrap();
+    let mut registry = crate::ActionRegistry::new();
+    registry.register(
+        start_shared_callback_jobs
+            as crate::registry::Handler<CallbackLifetimeState, UploadRequested>,
+    );
+    runtime.absorb_persistent_registry(registry);
+    runtime
+        .dispatch(UploadRequested.into(), crate::WidgetId::from_u128(0))
+        .unwrap();
+    let second = runtime.pending_effects.pop().unwrap();
+    let first = runtime.pending_effects.pop().unwrap();
+    runtime.queue_runtime_effect(crate::RuntimeEffect::Cancel {
+        req_id: first.req_id,
+    });
+    assert!(runtime
+        .get_app_state::<CallbackLifetimeState>()
+        .unwrap()
+        .probes[0]
+        .upgrade()
+        .is_some());
+    runtime
+        .dispatch_with_input(
+            second.on_err.unwrap(),
+            crate::WidgetId::from_u128(0),
+            &crate::ActionInput::JobErr {
+                job_name: CallbackJob::NAME.into(),
+                req_id: second.req_id,
+                payload: None,
+                message: None,
+            },
+        )
+        .unwrap();
+    let state = runtime.get_app_state::<CallbackLifetimeState>().unwrap();
+    assert!(state.probes[0].upgrade().is_none());
+    assert_eq!(state.completions, 1);
+}
+
+#[test]
+fn cancelling_a_job_keeps_reusable_registered_action_reducers() {
+    let mut runtime = callback_runtime();
+    let mut registry = crate::ActionRegistry::new();
+    let handler: fn(&mut CallbackLifetimeState, UploadFinished) = |state, _| state.completions += 1;
+    registry.register(handler);
+    runtime.absorb_persistent_registry(registry);
+    let effect = request_callback_job(&mut runtime);
+    runtime.queue_runtime_effect(crate::RuntimeEffect::Cancel {
+        req_id: effect.req_id,
+    });
+    runtime
+        .dispatch(UploadFinished.into(), crate::WidgetId::from_u128(0))
+        .unwrap();
+    assert_eq!(
+        runtime
+            .get_app_state::<CallbackLifetimeState>()
+            .unwrap()
+            .completions,
+        1
+    );
 }

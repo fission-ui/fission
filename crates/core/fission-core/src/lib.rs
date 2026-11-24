@@ -1019,7 +1019,12 @@ pub(crate) type BoxedReducer = Box<
 /// These reducers are separate from the per-frame widget registry so a
 /// completion remains deliverable after the frame that issued the effect.
 pub(crate) struct EffectCallbackRegistry {
-    reducers: Mutex<HashMap<ActionId, Vec<BoxedReducer>>>,
+    reducers: Mutex<HashMap<ActionId, EffectCallbackEntry>>,
+}
+
+struct EffectCallbackEntry {
+    reducers: Vec<BoxedReducer>,
+    job_requests: Vec<u64>,
 }
 
 impl EffectCallbackRegistry {
@@ -1034,8 +1039,46 @@ impl EffectCallbackRegistry {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entry(action_id)
-            .or_default()
+            .or_insert_with(|| EffectCallbackEntry {
+                reducers: Vec::new(),
+                job_requests: Vec::new(),
+            })
+            .reducers
             .push(reducer);
+    }
+
+    pub(crate) fn associate_job(&self, effect: &EffectEnvelope) {
+        if !matches!(&effect.effect, Effect::Job(_)) {
+            return;
+        }
+        let mut reducers = self
+            .reducers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for action in effect.on_ok.iter().chain(effect.on_err.iter()) {
+            // Only callbacks created by Effects::bind belong to this registry.
+            // Ordinary reusable action reducers must not acquire one-shot ownership.
+            if let Some(entry) = reducers.get_mut(&action.id) {
+                if !entry.job_requests.contains(&effect.req_id) {
+                    entry.job_requests.push(effect.req_id);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn finish_job(&self, req_id: u64, selected: Option<ActionId>) {
+        let mut reducers = self
+            .reducers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reducers.retain(|action_id, entry| {
+            let associated = entry.job_requests.contains(&req_id);
+            entry.job_requests.retain(|request| *request != req_id);
+            // Cancellation selects neither handler. A completion keeps its chosen
+            // handler until take(), and drops the unused terminal alternative.
+            // A callback explicitly shared with another job stays alive for it.
+            !associated || selected == Some(*action_id) || !entry.job_requests.is_empty()
+        });
     }
 
     pub(crate) fn take(&self, action_id: ActionId) -> Vec<BoxedReducer> {
@@ -1043,6 +1086,7 @@ impl EffectCallbackRegistry {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&action_id)
+            .map(|entry| entry.reducers)
             .unwrap_or_default()
     }
 
@@ -1051,7 +1095,7 @@ impl EffectCallbackRegistry {
             .reducers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let callback_count = reducers.values().map(Vec::len).sum();
+        let callback_count = reducers.values().map(|entry| entry.reducers.len()).sum();
         reducers.clear();
         callback_count
     }

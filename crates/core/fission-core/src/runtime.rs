@@ -638,6 +638,7 @@ impl Runtime {
             .next_req_id
             .checked_add(1)
             .expect("Fission effect request IDs exhausted");
+        self.effect_callbacks.associate_job(&envelope);
         self.pending_effects.push(envelope);
     }
 
@@ -676,6 +677,12 @@ impl Runtime {
         input: &ActionInput,
     ) -> Result<()> {
         let action_id = action.id;
+
+        if let ActionInput::JobOk { req_id, .. } | ActionInput::JobErr { req_id, .. } =
+            input.unscoped()
+        {
+            self.effect_callbacks.finish_job(*req_id, Some(action_id));
+        }
         let result = self.try_dispatch_node_with_input(action, target, input);
         if let Err(error) = &result {
             crate::registry::emit_action_dispatch_failure(action_id, target, error);
@@ -803,6 +810,9 @@ impl Runtime {
 
         // Reducer builders already reserved these IDs from this runtime's counter.
         // Renumbering here would invalidate IDs returned to reducers for cancellation.
+        for effect in &effects {
+            self.effect_callbacks.associate_job(effect);
+        }
         self.pending_effects.extend(effects);
 
         diag::emit(
@@ -969,6 +979,7 @@ impl Runtime {
                 true
             }
             RuntimeEffect::Cancel { req_id } => {
+                self.effect_callbacks.finish_job(req_id, None);
                 self.pending_job_cancellations.push(req_id);
                 true
             }
