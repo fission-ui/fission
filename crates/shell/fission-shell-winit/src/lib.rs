@@ -11634,6 +11634,8 @@ use capture::{covered_window_screenshot, gpu_screenshot, layout_size_to_image_di
 mod viewport;
 #[cfg(target_os = "ios")]
 use viewport::ios_effective_scale_factor;
+#[cfg(test)]
+use viewport::logical_viewport_to_render_target_size;
 #[cfg(any(test, not(any(target_os = "android", target_os = "ios"))))]
 use viewport::native_window_size_for_logical_viewport;
 #[cfg(target_arch = "wasm32")]
@@ -11641,9 +11643,8 @@ use viewport::web_browser_viewport_state;
 #[cfg(any(test, target_arch = "wasm32"))]
 use viewport::web_effective_render_scale;
 use viewport::{
-    logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-    normalize_scale_factor, physical_size_to_layout_size, recreate_target_texture,
-    sync_tracked_target_texture_size_to_surface,
+    logical_viewport_to_physical_size, normalize_scale_factor, physical_size_to_layout_size,
+    recreate_target_texture, sync_tracked_target_texture_size_to_surface,
 };
 
 #[cfg(test)]

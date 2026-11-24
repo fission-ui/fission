@@ -1,4 +1,6 @@
-use super::{RenderContext, RenderSurface, WindowViewportState};
+#[cfg(target_arch = "wasm32")]
+use super::WindowViewportState;
+use super::{RenderContext, RenderSurface};
 use fission_layout::LayoutSize;
 use winit::dpi::PhysicalSize;
 
