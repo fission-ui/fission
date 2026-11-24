@@ -263,7 +263,33 @@ pub struct ResourceExecutionContext {
 #[derive(Debug, Default)]
 struct JobCancellationState {
     cancelled: AtomicBool,
-    wakers: Mutex<Vec<Waker>>,
+    wakers: Mutex<Vec<Option<Waker>>>,
+}
+
+// A cancelled() future may be dropped each time another branch of select wins.
+// Its registration must disappear with it instead of retaining obsolete tasks.
+struct JobCancellationWaiter<'a> {
+    state: &'a JobCancellationState,
+    slot: Option<usize>,
+}
+
+impl Drop for JobCancellationWaiter<'_> {
+    fn drop(&mut self) {
+        let Some(slot) = self.slot else {
+            return;
+        };
+        let mut wakers = self
+            .state
+            .wakers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waker) = wakers.get_mut(slot) {
+            *waker = None;
+        }
+        while wakers.last().is_some_and(Option::is_none) {
+            wakers.pop();
+        }
+    }
 }
 
 /// Cooperative cancellation signal for one app job.
@@ -296,7 +322,7 @@ impl JobCancellationToken {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-        for waker in wakers {
+        for waker in wakers.into_iter().flatten() {
             waker.wake();
         }
         true
@@ -309,6 +335,10 @@ impl JobCancellationToken {
 
     /// Completes when cancellation is requested.
     pub async fn cancelled(&self) {
+        let mut waiter = JobCancellationWaiter {
+            state: &self.state,
+            slot: None,
+        };
         std::future::poll_fn(|context| {
             if self.is_cancelled() {
                 return std::task::Poll::Ready(());
@@ -319,12 +349,21 @@ impl JobCancellationToken {
                 .wakers
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !wakers.iter().any(|waker| waker.will_wake(context.waker())) {
-                wakers.push(context.waker().clone());
-            }
             if self.is_cancelled() {
                 std::task::Poll::Ready(())
             } else {
+                let slot = *waiter.slot.get_or_insert_with(|| {
+                    wakers.iter().position(Option::is_none).unwrap_or_else(|| {
+                        wakers.push(None);
+                        wakers.len() - 1
+                    })
+                });
+                if !wakers[slot]
+                    .as_ref()
+                    .is_some_and(|waker| waker.will_wake(context.waker()))
+                {
+                    wakers[slot] = Some(context.waker().clone());
+                }
                 std::task::Poll::Pending
             }
         })
@@ -401,8 +440,38 @@ impl JobCtx {
 
 #[cfg(test)]
 mod job_context_tests {
-    use super::JobCtx;
+    use super::{JobCancellationToken, JobCtx};
     use crate::data_stream::{empty_data_stream, DataStreamRegistry};
+    use std::future::Future;
+    use std::task::{Context, Poll, Waker};
+
+    #[test]
+    fn dropped_cancellation_waiters_do_not_accumulate_task_references() {
+        let token = JobCancellationToken::new();
+        let mut context = Context::from_waker(Waker::noop());
+        for _ in 0..1000 {
+            let mut waiter = Box::pin(token.cancelled());
+            assert_eq!(waiter.as_mut().poll(&mut context), Poll::Pending);
+            drop(waiter);
+            assert!(token.state.wakers.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn cancellation_reaches_all_waiters_and_is_idempotent() {
+        let token = JobCancellationToken::new();
+        let mut first = Box::pin(token.cancelled());
+        let mut second = Box::pin(token.cancelled());
+        let mut context = Context::from_waker(Waker::noop());
+        assert_eq!(first.as_mut().poll(&mut context), Poll::Pending);
+        assert_eq!(second.as_mut().poll(&mut context), Poll::Pending);
+        assert_eq!(token.state.wakers.lock().unwrap().len(), 2);
+        assert!(token.cancel());
+        assert!(!token.cancel());
+        assert_eq!(first.as_mut().poll(&mut context), Poll::Ready(()));
+        assert_eq!(second.as_mut().poll(&mut context), Poll::Ready(()));
+        assert!(token.state.wakers.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn job_can_register_a_stream_for_a_later_capability() {

@@ -132,16 +132,21 @@ fn into_boxed_runtime_reducer<S: GlobalState>(
               target: WidgetId,
               out_effects: &mut Vec<EffectEnvelope>,
               input: &ActionInput,
-              callback_registry|
+              callback_registry,
+              next_req_id|
               -> Result<()> {
             if let Some(state_box) = app_states.get_mut(&state_type_id) {
                 let concrete_state = state_box
                     .downcast_mut::<S>()
                     .ok_or_else(|| anyhow!("Failed to downcast GlobalState to concrete type"))?;
 
-                let mut effects_builder = Effects::new_runtime(0, callback_registry.clone());
+                let mut effects_builder =
+                    Effects::new_runtime(*next_req_id, callback_registry.clone());
 
-                typed_reducer(concrete_state, action, target, &mut effects_builder, input)?;
+                let result =
+                    typed_reducer(concrete_state, action, target, &mut effects_builder, input);
+                *next_req_id = effects_builder.next_request_id();
+                result?;
 
                 out_effects.extend(effects_builder.out);
 

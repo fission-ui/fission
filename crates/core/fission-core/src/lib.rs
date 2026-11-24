@@ -1008,6 +1008,7 @@ pub(crate) type BoxedReducer = Box<
             &mut Vec<EffectEnvelope>,
             &ActionInput,
             &Arc<EffectCallbackRegistry>,
+            &mut u64,
         ) -> Result<()>
         + Send
         + Sync,

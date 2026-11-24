@@ -13,10 +13,7 @@ use crate::async_runtime::{
 use crate::capability::{
     CapabilityInvocationPayload, CapabilityType, OperationCapability, OperationCapabilityInvocation,
 };
-use crate::effect::{
-    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollIntoViewRequest,
-    EFFECT_REQUEST_ID_BASE,
-};
+use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollIntoViewRequest};
 use crate::platform::{
     CancelNotificationRequest, NotificationPermissionRequest, NotificationRequest,
     PushRegistrationRequest, SetBadgeCountRequest, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
@@ -105,11 +102,6 @@ use std::{
 };
 
 static NEXT_EFFECT_CALLBACK_ID: AtomicU64 = AtomicU64::new(1);
-static NEXT_EFFECT_REQUEST_ID: AtomicU64 = AtomicU64::new(EFFECT_REQUEST_ID_BASE);
-
-fn next_effect_request_id() -> u64 {
-    NEXT_EFFECT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
-}
 
 /// The context passed to modern 3-argument reducer handlers.
 ///
@@ -163,7 +155,6 @@ pub struct Effects<'a, S: GlobalState> {
     /// Accumulated effect envelopes, drained by the runtime after the reducer.
     pub out: Vec<EffectEnvelope>,
     next_req_id: u64,
-    stable_req_ids: bool,
     pub(crate) registry: Option<&'a mut ActionRegistry<S>>,
     callback_registry: Option<Arc<EffectCallbackRegistry>>,
     _phantom: PhantomData<S>,
@@ -174,7 +165,6 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
-            stable_req_ids: false,
             registry: Some(registry),
             callback_registry: None,
             _phantom: PhantomData,
@@ -185,7 +175,6 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
-            stable_req_ids: false,
             registry: None,
             callback_registry: None,
             _phantom: PhantomData,
@@ -199,7 +188,6 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         Self {
             out: Vec::new(),
             next_req_id,
-            stable_req_ids: true,
             registry: None,
             callback_registry: Some(callback_registry),
             _phantom: PhantomData,
@@ -565,13 +553,15 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     }
 
     fn allocate_req_id(&mut self) -> u64 {
-        if self.stable_req_ids {
-            next_effect_request_id()
-        } else {
-            let req_id = self.next_req_id;
-            self.next_req_id = self.next_req_id.wrapping_add(1);
-            req_id
-        }
+        let req_id = self.next_req_id;
+        self.next_req_id = req_id
+            .checked_add(1)
+            .expect("Fission effect request IDs exhausted");
+        req_id
+    }
+
+    pub(crate) fn next_request_id(&self) -> u64 {
+        self.next_req_id
     }
 
     pub fn cancel(&mut self, req_id: u64) {

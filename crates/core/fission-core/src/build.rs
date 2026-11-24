@@ -684,7 +684,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                   _target,
                   _effects,
                   _input,
-                  _callback_registry|
+                  callback_registry,
+                  next_req_id|
                   -> anyhow::Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(crate::registry::ActionDeserializationError::new)?;
@@ -694,7 +695,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 else {
                     anyhow::bail!("Fission local widget state store is not registered in Runtime");
                 };
-                let mut effects_builder = crate::Effects::<T>::new_headless(0);
+                let mut effects_builder =
+                    crate::Effects::<T>::new_runtime(*next_req_id, callback_registry.clone());
                 let mut reducer_ctx = crate::ReducerContext {
                     effects: &mut effects_builder,
                     input: _input,
@@ -702,6 +704,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 store.update::<T>(&field_key, |value| {
                     handler.call(value, action, &mut reducer_ctx)
                 })?;
+                *next_req_id = effects_builder.next_request_id();
                 _effects.extend(effects_builder.out);
                 Ok(())
             },

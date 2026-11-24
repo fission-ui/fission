@@ -490,7 +490,8 @@ impl Runtime {
                   target: WidgetId,
                   _effects: &mut Vec<EffectEnvelope>,
                   _input: &ActionInput,
-                  _callback_registry|
+                  _callback_registry,
+                  _next_req_id|
                   -> Result<()> {
                 if let Some(state_box) = app_states.get_mut(&state_type_id) {
                     let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
@@ -632,10 +633,11 @@ impl Runtime {
     }
 
     fn enqueue_effect(&mut self, mut envelope: EffectEnvelope) {
-        if envelope.req_id < crate::effect::EFFECT_REQUEST_ID_BASE {
-            envelope.req_id = self.next_req_id;
-            self.next_req_id += 1;
-        }
+        envelope.req_id = self.next_req_id;
+        self.next_req_id = self
+            .next_req_id
+            .checked_add(1)
+            .expect("Fission effect request IDs exhausted");
         self.pending_effects.push(envelope);
     }
 
@@ -741,6 +743,7 @@ impl Runtime {
                 &mut effects,
                 input,
                 &callback_registry,
+                &mut self.next_req_id,
             )?;
         }
 
@@ -764,6 +767,7 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
+                    &mut self.next_req_id,
                 )
             });
             reducers.extend(temp_reducers);
@@ -790,15 +794,16 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
+                    &mut self.next_req_id,
                 )
             });
             reducers.extend(temp_reducers);
             dispatch_result?;
         }
 
-        for envelope in effects {
-            self.enqueue_effect(envelope);
-        }
+        // Reducer builders already reserved these IDs from this runtime's counter.
+        // Renumbering here would invalidate IDs returned to reducers for cancellation.
+        self.pending_effects.extend(effects);
 
         diag::emit(
             diag::DiagCategory::Input,

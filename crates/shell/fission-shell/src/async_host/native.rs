@@ -150,7 +150,7 @@ pub struct AsyncRegistry {
     services: HashMap<String, Arc<ServiceSpawner>>,
     operations: HashMap<String, Arc<CapabilitySpawner>>,
     data_streams: DataStreamRegistry,
-    job_cancellations: Arc<Mutex<HashMap<u64, JobCancellationToken>>>,
+    job_cancellations: Mutex<HashMap<u64, JobCancellationToken>>,
 }
 
 impl Default for AsyncRegistry {
@@ -160,7 +160,7 @@ impl Default for AsyncRegistry {
             services: HashMap::new(),
             operations: HashMap::new(),
             data_streams: DataStreamRegistry::new(),
-            job_cancellations: Arc::new(Mutex::new(HashMap::new())),
+            job_cancellations: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -683,11 +683,13 @@ impl AsyncRegistry {
     /// The result stays registered until its completion message is drained, so
     /// the shell can suppress a completion that races with cancellation.
     pub fn cancel_job(&self, req_id: u64) -> bool {
-        let cancellations = self
+        let cancellation = self
             .job_cancellations
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(cancellation) = cancellations.get(&req_id) else {
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&req_id)
+            .cloned();
+        let Some(cancellation) = cancellation else {
             return false;
         };
         cancellation.cancel();

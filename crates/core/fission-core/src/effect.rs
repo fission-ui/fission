@@ -201,13 +201,6 @@ pub enum Effect {
     StopService(ServiceStopPayload),
 }
 
-/// Starting range for request ids allocated by runtime reducer effect builders.
-///
-/// The runtime preserves these ids when queuing effects. Lower ids remain
-/// available for headless and manually constructed effects that receive their
-/// final ids when queued.
-pub(crate) const EFFECT_REQUEST_ID_BASE: u64 = 1 << 32;
-
 /// A queued effect with optional success/failure callbacks.
 ///
 /// The platform executor processes the [`Effect`], then dispatches either
