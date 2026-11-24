@@ -172,7 +172,7 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid"' EXIT
           FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
-            cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
+            cargo test --locked -p web-smoke --test text_input_browser -- --nocapture --test-threads=1
           FISSION_BRIDGE_WEB_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
             cargo test --locked -p fission-test-driver --test browser_resize web_bridge_ \
               -- --ignored --nocapture --test-threads=1
