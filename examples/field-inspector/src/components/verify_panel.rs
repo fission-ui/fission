@@ -18,9 +18,9 @@ fission_component! {
             gap: spacing.m,
             children: [
                 SectionHeader("Verify the asset", "Use the field label and the embedded service tag to prove the technician is inspecting the right physical unit."),
-                ResponsiveGrid(vec![
-                    Metric::new("Expected barcode".to_string(), order.asset.expected_barcode.to_string()).into(),
-                    Metric::new("Expected NFC".to_string(), order.asset.expected_nfc_uri.to_string()).into(),
+                ResponsiveGrid([
+                    Metric("Expected barcode".to_string(), order.asset.expected_barcode.to_string(), key: "verify.barcode"),
+                    Metric("Expected NFC".to_string(), order.asset.expected_nfc_uri.to_string(), key: "verify.nfc"),
                 ], crate::components::ui::DEFAULT_ITEM_MIN_WIDTH),
                 Row(gap: spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
                     ActionButton("field-inspector.verify.barcode".to_string(), "Scan barcode".to_string(), scan_barcode, ButtonVariant::Primary),
