@@ -24,10 +24,10 @@ fn text_run(text: &str) -> TextRun {
     }
 }
 
-fn close(actual: f32, expected: f32) {
+fn close(actual: f32, expected: f32, context: &str) {
     assert!(
         (actual - expected).abs() < 0.01,
-        "actual={actual}, expected={expected}"
+        "{context}: actual={actual}, expected={expected}"
     );
 }
 
@@ -97,27 +97,96 @@ fn assert_native_geometry(
     for (actual, (range, line_index, x)) in resolved.clusters.iter().zip(expected_clusters) {
         assert_eq!(actual.start_index..actual.end_index, range);
         assert_eq!(actual.line_index, line_index);
-        close(actual.rect.x(), x);
+        close(
+            actual.rect.x(),
+            x,
+            &format!("cluster byte range {range:?}, line {line_index}, x"),
+        );
     }
     for caret in &resolved.caret_stops {
-        let affinity = if caret.upstream {
+        let affinity = if caret.upstream && caret.index != 0 {
             Affinity::Upstream
         } else {
             Affinity::Downstream
         };
+        let native_index = caret.index + prepared.text_byte_offset;
         let expected =
-            Cursor::from_byte_index(&native, caret.index + prepared.text_byte_offset, affinity)
-                .geometry(&native, 0.0);
-        close(caret.position.x, expected.x0 as f32);
-        close(caret.position.y, expected.y0 as f32);
-        close(caret.height, (expected.y1 - expected.y0) as f32);
+            Cursor::from_byte_index(&native, native_index, affinity).geometry(&native, 0.0);
+        // Fission's authored baseline/leading policy shifts glyphs, clusters,
+        // and caret tops together. Parley's cursor returns the raw block top;
+        // its x and height stay authoritative, while y includes that policy.
+        let baseline_shift = prepared
+            .styles
+            .iter()
+            .find(|(range, _)| {
+                if affinity == Affinity::Upstream {
+                    range.start < native_index && native_index <= range.end
+                } else {
+                    range.start <= native_index && native_index < range.end
+                }
+            })
+            .or_else(|| {
+                if native_index == 0 {
+                    prepared.styles.first()
+                } else if native_index == prepared.text.len() {
+                    prepared.styles.last()
+                } else {
+                    None
+                }
+            })
+            .and_then(|(_, style)| {
+                native
+                    .lines()
+                    .find(|line| {
+                        let metrics = line.metrics();
+                        metrics.block_min_coord == expected.y0 as f32
+                            && metrics.block_max_coord == expected.y1 as f32
+                    })
+                    .map(|line| {
+                        let metrics = line.metrics();
+                        typography_baseline_shift(
+                            &style.typography,
+                            metrics.ascent,
+                            metrics.descent,
+                            metrics.line_height,
+                        )
+                    })
+            })
+            .unwrap_or(0.0);
+        let context = format!(
+            "caret byte {}, {affinity:?}, align {:?}, direction {:?}, native index {native_index}, baseline shift {baseline_shift}",
+            caret.index, style.text_align, style.text_direction,
+        );
+        close(
+            caret.position.x,
+            expected.x0 as f32,
+            &format!("{context}, x"),
+        );
+        close(
+            caret.position.y,
+            expected.y0 as f32 + baseline_shift,
+            &format!("{context}, top"),
+        );
+        close(
+            caret.height,
+            (expected.y1 - expected.y0) as f32,
+            &format!("{context}, height"),
+        );
         assert!(rich.text.is_char_boundary(caret.index));
     }
     assert_eq!(resolved.inline_boxes.len(), expected_boxes.len());
     for (actual, expected) in resolved.inline_boxes.iter().zip(expected_boxes) {
         assert_eq!(actual.id, expected.id);
-        close(actual.x, expected.x);
-        close(actual.y, expected.y);
+        close(
+            actual.x,
+            expected.x,
+            &format!("inline box {}, x", actual.id),
+        );
+        close(
+            actual.y,
+            expected.y,
+            &format!("inline box {}, y", actual.id),
+        );
     }
     resolved
 }
@@ -207,5 +276,105 @@ fn empty_intrinsic_styled_paragraph_has_finite_geometry() {
         assert!(resolved.caret_stops.iter().all(|caret| {
             caret.index == 0 && caret.position.x.is_finite() && caret.position.y.is_finite()
         }));
+    }
+}
+
+#[test]
+fn alignment_preserves_fissions_existing_baseline_and_leading_policy() {
+    let measurer = VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())));
+    let mut run =
+        text_run("A paragraph with authored baseline positioning wraps onto another line");
+    run.style.typography.baseline = fission_ir::op::TextBaseline::Ideographic;
+    let runs = [run];
+    let plain = measurer.resolve_rich_text(&runs, Some(150.0));
+    for text_direction in [TextDirection::Auto, TextDirection::Ltr] {
+        let aligned = measurer.resolve_rich_text_with_paragraph_style(
+            &runs,
+            Some(150.0),
+            TextParagraphLayoutStyle {
+                indent: 0.0,
+                text_align: TextAlign::Center,
+                text_direction,
+            },
+        );
+        assert_eq!(plain.lines, aligned.lines);
+        assert!(!plain.caret_stops.is_empty());
+        assert_eq!(plain.caret_stops.len(), aligned.caret_stops.len());
+        assert!(plain
+            .caret_stops
+            .iter()
+            .any(|caret| caret.position.y != 0.0));
+        for (before, after) in plain.caret_stops.iter().zip(&aligned.caret_stops) {
+            assert_eq!(
+                (before.index, before.upstream),
+                (after.index, after.upstream)
+            );
+            close(
+                after.position.y,
+                before.position.y,
+                &format!("caret byte {}, top", before.index),
+            );
+            close(
+                after.height,
+                before.height,
+                &format!("caret byte {}, height", before.index),
+            );
+        }
+        for (before, after) in plain.clusters.iter().zip(&aligned.clusters) {
+            close(
+                after.rect.y(),
+                before.rect.y(),
+                &format!("cluster byte {}, top", before.start_index),
+            );
+        }
+        for (before, after) in plain.glyphs.iter().zip(&aligned.glyphs) {
+            close(after.position.y, before.position.y, "glyph baseline");
+        }
+    }
+}
+
+#[test]
+fn mixed_height_wrap_affinities_use_their_actual_native_line_metrics() {
+    let measurer = VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())));
+    let mut small =
+        text_run("Small text needs several short wrapped lines before the large heading starts. ");
+    small.style.font_size = 12.0;
+    small.style.line_height = Some(16.0);
+    let mut large = text_run("large words wrap here");
+    large.style.font_size = 30.0;
+    large.style.line_height = Some(44.0);
+    // An explicit inline badge guarantees one taller line independently of
+    // platform font/run metric aggregation. Both sides still soft-wrap.
+    let mut badge = text_run("");
+    badge.style.font_family = Some(encode_inline_widget_marker(9, 18.0, 80.0));
+    let runs = [small, badge, large];
+    for text_direction in [TextDirection::Auto, TextDirection::Ltr] {
+        let resolved = assert_native_geometry(
+            &measurer,
+            &runs,
+            90.0,
+            TextParagraphLayoutStyle {
+                indent: 0.0,
+                text_align: TextAlign::Center,
+                text_direction,
+            },
+        );
+        assert!(resolved.lines.len() > 1);
+        let boundary = resolved
+            .lines
+            .windows(2)
+            .find(|lines| lines[0].height != lines[1].height)
+            .unwrap_or_else(|| {
+                panic!(
+                    "fixture must cross into a taller inline-badge line: {:?}",
+                    resolved.lines
+                )
+            })[1]
+            .start_index;
+        assert_ne!(
+            resolved.caret(boundary, true).unwrap().position.y,
+            resolved.caret(boundary, false).unwrap().position.y,
+            "upstream/downstream stops at byte {boundary} must retain distinct wrapped lines",
+        );
     }
 }

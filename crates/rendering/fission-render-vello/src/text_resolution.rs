@@ -104,6 +104,23 @@ fn remove_direction_prefix(resolved: &mut ResolvedParagraphLayout, prefix_len: u
         caret.index -= prefix_len;
         true
     });
+    // The synthetic mark has no place in the source's start affinity. Both
+    // original byte-zero stops must refer to the first real text cluster.
+    if let Some(start) = resolved
+        .caret_stops
+        .iter()
+        .find(|caret| caret.index == 0 && !caret.upstream)
+        .copied()
+    {
+        for caret in resolved
+            .caret_stops
+            .iter_mut()
+            .filter(|caret| caret.index == 0)
+        {
+            caret.position = start.position;
+            caret.height = start.height;
+        }
+    }
 }
 
 pub(super) fn resolve_layout(
@@ -135,21 +152,25 @@ pub(super) fn resolve_layout(
         let top = metrics.baseline - metrics.ascent;
         let cluster_height = (metrics.ascent + metrics.descent).max(1.0);
         for run in line.runs() {
-            let run_range = run.text_range();
-            let typography = rich
-                .styles
-                .iter()
-                .find(|(range, _)| range.start < run_range.end && range.end > run_range.start)
-                .map(|(_, style)| style.typography.clone())
-                .unwrap_or_default();
-            let baseline_shift = typography_baseline_shift(
-                &typography,
-                metrics.ascent,
-                metrics.descent,
-                metrics.line_height,
-            );
             for cluster in run.visual_clusters() {
                 let range = cluster.text_range();
+                // Parley can share one font run between styles whose only
+                // difference is Fission's baseline/leading policy. In particular,
+                // a synthetic direction mark must not override the real text.
+                let typography = rich
+                    .styles
+                    .iter()
+                    .find(|(style_range, _)| {
+                        style_range.start < range.end && style_range.end > range.start
+                    })
+                    .map(|(_, style)| style.typography.clone())
+                    .unwrap_or_default();
+                let baseline_shift = typography_baseline_shift(
+                    &typography,
+                    metrics.ascent,
+                    metrics.descent,
+                    metrics.line_height,
+                );
                 let caret_cluster = cache_caret_cluster(&cluster);
                 clusters_by_start.insert(range.start, caret_cluster);
                 clusters_by_end.insert(range.end, caret_cluster);
@@ -219,13 +240,32 @@ pub(super) fn resolve_layout(
             let baseline_shift = rich
                 .styles
                 .iter()
-                .find(|(range, _)| range.start <= index && index <= range.end)
+                .find(|(range, _)| {
+                    if upstream {
+                        range.start < index && index <= range.end
+                    } else {
+                        range.start <= index && index < range.end
+                    }
+                })
+                .or_else(|| {
+                    if index == 0 {
+                        rich.styles.first()
+                    } else if index == rich.text.len() {
+                        rich.styles.last()
+                    } else {
+                        None
+                    }
+                })
                 .and_then(|(_, style)| {
                     layout
                         .lines()
                         .find(|line| {
-                            let range = line.text_range();
-                            range.start <= index && index <= range.end
+                            // These coordinates came from this line's native
+                            // metrics, not an estimated source-boundary match.
+                            // At a soft wrap the same byte has two line affinities.
+                            let metrics = line.metrics();
+                            metrics.block_min_coord == caret_y
+                                && metrics.block_max_coord == caret_bottom
                         })
                         .map(|line| {
                             let metrics = line.metrics();

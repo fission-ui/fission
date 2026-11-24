@@ -171,6 +171,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             },
         }),
         annotations: vec![RichTextAnnotation {
+            hyperlink: None,
             range: 0..8,
             semantics_label: Some("Paragraph".into()),
             semantics_identifier: Some("hero-copy".into()),

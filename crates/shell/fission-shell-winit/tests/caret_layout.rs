@@ -317,9 +317,22 @@ fn text_input_display_break_keeps_byte_selection_and_moves_caret_and_hit_test() 
     assert!(first_page_selection
         .iter()
         .any(|rect| rect.bottom() <= gap.y()));
-    assert!(second_page_selection
+    // The gap uses native line-block coordinates; authored leading can move
+    // glyph/selection ink slightly above that block. Verify the exact page
+    // translation of the same typography rather than treating ink top as the
+    // block boundary.
+    let first_ink_top = first_page_selection
         .iter()
-        .any(|rect| rect.y() >= gap.bottom()));
+        .map(|rect| rect.y())
+        .fold(f32::INFINITY, f32::min);
+    let second_ink_top = second_page_selection
+        .iter()
+        .map(|rect| rect.y())
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        (second_ink_top - gap.bottom() - first_ink_top).abs() < 0.01,
+        "page gap must translate selection ink without changing its leading: first={first_page_selection:?}, second={second_page_selection:?}, gap={gap:?}"
+    );
 
     let baseline_ir = input_ir_with_breaks(
         &env,
