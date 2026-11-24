@@ -1,6 +1,157 @@
 use super::*;
 
 #[test]
+fn rich_text_hyperlink_wraps_its_visible_words_once_with_complete_metadata() {
+    let rendered = render_test_widget(RichText::new(vec![
+        fission_core::ui::RichTextRun::new("Read "),
+        fission_core::ui::RichTextRun::new("guide")
+            .semantics_identifier("inline-guide")
+            .hyperlink(
+                fission_ir::Hyperlink::new("https://example.com/guide?part=1&lang=en")
+                    .target(fission_ir::LinkTarget::NewWindow)
+                    .rel("external")
+                    .download("guide.html"),
+            ),
+        fission_core::ui::RichTextRun::new(" next."),
+    ]));
+    assert_eq!(
+        rendered.body_html.matches("<a ").count(),
+        1,
+        "no trailing empty semantic anchor"
+    );
+    let anchor = rendered
+        .body_html
+        .split_once("<a ")
+        .unwrap()
+        .1
+        .split_once("</a>")
+        .unwrap()
+        .0;
+    let (attributes, contents) = anchor.split_once('>').unwrap();
+    assert!(attributes.contains("href=\"https://example.com/guide?part=1&amp;lang=en\""));
+    assert!(attributes.contains("target=\"_blank\""));
+    assert!(attributes.contains("rel=\"external\""));
+    assert!(attributes.contains("download=\"guide.html\""));
+    assert!(attributes.contains("data-fission-semantics=\"inline-guide\""));
+    assert!(
+        contents.contains(">guide</span>"),
+        "the visible word must be inside the anchor: {contents}"
+    );
+    assert!(!contents.contains("Read ") && !contents.contains(" next."));
+}
+
+#[test]
+fn rich_text_hyperlink_does_not_remove_real_inline_widgets() {
+    let rendered = render_test_widget(RichText::from_spans([
+        RichTextChild::from(RichTextSpan::new("Before ")),
+        RichTextChild::from(
+            RichTextSpan::new("guide").hyperlink(fission_ir::Hyperlink::new("/guide")),
+        ),
+        RichTextChild::from(WidgetSpan::new(Text::new("badge"), 40.0, 16.0)),
+        RichTextChild::from(RichTextSpan::new(" after")),
+    ]));
+    assert_eq!(rendered.body_html.matches("<a ").count(), 1);
+    let before = rendered.body_html.find(">Before </span>").unwrap();
+    let guide = rendered.body_html.find(">guide</span>").unwrap();
+    let badge = rendered.body_html.find(">badge</span>").unwrap();
+    let after = rendered.body_html.find("> after</span>").unwrap();
+    assert!(
+        before < guide && guide < badge && badge < after,
+        "real inline children retain their authored order"
+    );
+}
+
+#[test]
+fn rich_text_hyperlink_keeps_different_styles_in_one_anchor() {
+    let rendered = render_test_widget(RichText::from_spans([
+        RichTextSpan::new("Read ")
+            .semantics_identifier("styled-guide")
+            .hyperlink(fission_ir::Hyperlink::new("/guide"))
+            .children([
+                RichTextSpan::new("the guide").weight(700),
+                RichTextSpan::new(" carefully").italic(true),
+            ]),
+        RichTextSpan::new(" outside"),
+    ]));
+    let body = &rendered.body_html;
+    assert_eq!(
+        body.matches("<a ").count(),
+        1,
+        "one link, not one per style"
+    );
+    assert_eq!(
+        body.matches("data-fission-semantics=\"styled-guide\"")
+            .count(),
+        1
+    );
+    let anchor = body
+        .split_once("<a ")
+        .unwrap()
+        .1
+        .split_once("</a>")
+        .unwrap()
+        .0;
+    assert!(anchor.contains("href=\"guide\""));
+    for words in ["Read ", "the guide", " carefully"] {
+        assert!(anchor.contains(&format!(">{words}</span>")), "{anchor}");
+    }
+    assert!(!anchor.contains(" outside"));
+    assert!(rendered.html.contains("font-weight:700"));
+    assert!(rendered.html.contains("font-style:italic"));
+}
+
+#[test]
+fn rich_text_nested_hyperlinks_split_outer_anchor_without_nesting() {
+    let rendered = render_test_widget(RichText::from_spans([RichTextSpan::new("Outer before ")
+        .hyperlink(fission_ir::Hyperlink::new("/outer"))
+        .children([
+            RichTextSpan::new("inner").hyperlink(fission_ir::Hyperlink::new("/inner")),
+            RichTextSpan::new(" outer after"),
+        ])]));
+    let body = &rendered.body_html;
+    assert_eq!(body.matches("<a ").count(), 3, "{body}");
+    let anchors = body
+        .split("<a ")
+        .skip(1)
+        .map(|fragment| {
+            let (anchor, after) = fragment.split_once("</a>").unwrap();
+            assert!(!after.contains("</a>"), "anchors must not nest: {body}");
+            anchor
+        })
+        .collect::<Vec<_>>();
+    for (anchor, destination, words) in [
+        (anchors[0], "outer", "Outer before "),
+        (anchors[1], "inner", "inner"),
+        (anchors[2], "outer", " outer after"),
+    ] {
+        assert!(
+            anchor.contains(&format!("href=\"{destination}\"")),
+            "{anchor}"
+        );
+        assert!(anchor.contains(&format!(">{words}</span>")), "{anchor}");
+    }
+}
+
+#[test]
+fn markdown_hyperlink_keeps_different_styles_in_one_anchor() {
+    let rendered = render_test_widget(RichText::from_spans([RichTextSpan::new("Read ")
+        .semantics_identifier("markdown-link:/guide")
+        .children([RichTextSpan::new("the guide").weight(700)])]));
+    let body = &rendered.body_html;
+    assert_eq!(body.matches("<a ").count(), 1, "{body}");
+    let anchor = body
+        .split_once("<a ")
+        .unwrap()
+        .1
+        .split_once("</a>")
+        .unwrap()
+        .0;
+    assert!(anchor.contains("fission-site-markdown-link"));
+    assert!(anchor.contains("href=\"guide\""));
+    assert!(anchor.contains(">Read </span>") && anchor.contains(">the guide</span>"));
+}
+
+#[test]
 fn generic_semantics_hyperlinks_render_complete_anchor_metadata() {
     let rendered = render_test_widget(
         SemanticsRegion::new(Text::new("Open details"))

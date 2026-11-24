@@ -3544,12 +3544,19 @@ impl HtmlRenderer<'_> {
     ) -> Result<String> {
         let mut content = String::new();
         let mut rendered_inline_children = HashSet::new();
+        let mut active_link: Option<&RichTextAnnotation> = None;
         let mut run_start = 0usize;
         for run in runs {
             let run_end = run_start.saturating_add(run.text.len());
             if run.text.is_empty() {
                 if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref())
                 {
+                    // A real inline widget may itself contain an interactive
+                    // element. Keep it outside text links rather than nesting
+                    // anchors or buttons inside an anchor.
+                    if active_link.take().is_some() {
+                        content.push_str("</a>");
+                    }
                     if let Ok(child_index) = usize::try_from(marker.id) {
                         if let Some(child_id) = node.children.get(child_index) {
                             if rendered_inline_children.insert(*child_id) {
@@ -3598,14 +3605,65 @@ impl HtmlRenderer<'_> {
                 segment_annotations.sort_by_key(|annotation| {
                     annotation.range.end.saturating_sub(annotation.range.start)
                 });
+                // A style change does not create a new link or another Tab
+                // stop. Nested annotations select the innermost destination;
+                // HTML anchors cannot nest, so resume the outer link afterward.
+                let segment_link = segment_annotations.iter().copied().find(|annotation| {
+                    annotation.hyperlink.is_some()
+                        || annotation
+                            .semantics_identifier
+                            .as_deref()
+                            .is_some_and(|id| id.starts_with("markdown-link:"))
+                });
+                let same_link = match (active_link, segment_link) {
+                    (Some(active), Some(next)) => std::ptr::eq(active, next),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !same_link {
+                    if active_link.is_some() {
+                        content.push_str("</a>");
+                    }
+                    if let Some(annotation) = segment_link {
+                        content.push_str(&self.rich_text_link_opening(annotation));
+                    }
+                    active_link = segment_link;
+                }
                 for annotation in segment_annotations {
+                    if annotation.hyperlink.is_some()
+                        || annotation
+                            .semantics_identifier
+                            .as_deref()
+                            .is_some_and(|id| id.starts_with("markdown-link:"))
+                    {
+                        continue;
+                    }
                     rendered = self.render_rich_text_annotation(rendered, annotation);
                 }
                 content.push_str(&rendered);
             }
             run_start = run_end;
         }
+        if active_link.is_some() {
+            content.push_str("</a>");
+        }
         for child_id in &node.children {
+            // Inline hyperlink semantics exist for retained focus and native
+            // accessibility. Their visible content was rendered from the
+            // annotation range above; do not append a second empty anchor.
+            let generated_link = self.ir.nodes.get(child_id).is_some_and(|child| {
+                child.children.is_empty()
+                    && matches!(&child.op, Op::Semantics(semantics)
+                    if semantics.role == Role::Link
+                        && semantics.hyperlink.is_some()
+                        && annotations.iter().any(|annotation| {
+                            annotation.hyperlink == semantics.hyperlink
+                                && annotation.semantics_identifier == semantics.identifier
+                        }))
+            });
+            if generated_link {
+                continue;
+            }
             if rendered_inline_children.insert(*child_id) {
                 content.push_str(&self.render_node(*child_id)?);
             }
@@ -3613,11 +3671,7 @@ impl HtmlRenderer<'_> {
         Ok(content)
     }
 
-    fn render_rich_text_annotation(
-        &self,
-        content: String,
-        annotation: &RichTextAnnotation,
-    ) -> String {
+    fn rich_text_annotation_attrs(&self, annotation: &RichTextAnnotation) -> String {
         let mut attrs = String::new();
         if let Some(label) = annotation.semantics_label.as_deref() {
             attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
@@ -3627,13 +3681,32 @@ impl HtmlRenderer<'_> {
                 " data-fission-semantics=\"{}\"",
                 escape_attr(identifier)
             ));
-            if let Some(target) = identifier.strip_prefix("markdown-link:") {
-                let link_attrs = self.link_destination_attrs(target);
-                return format!(
-                    "<a class=\"fission-site-link fission-site-markdown-link\"{link_attrs}{attrs}>{content}</a>",
-                );
-            }
         }
+        attrs
+    }
+
+    fn rich_text_link_opening(&self, annotation: &RichTextAnnotation) -> String {
+        let attrs = self.rich_text_annotation_attrs(annotation);
+        if let Some(hyperlink) = annotation.hyperlink.as_ref() {
+            let link_attrs = self.hyperlink_attrs(hyperlink);
+            format!("<a class=\"fission-site-link\"{link_attrs}{attrs}>")
+        } else {
+            let target = annotation
+                .semantics_identifier
+                .as_deref()
+                .and_then(|id| id.strip_prefix("markdown-link:"))
+                .expect("link annotations have a destination");
+            let link_attrs = self.link_destination_attrs(target);
+            format!("<a class=\"fission-site-link fission-site-markdown-link\"{link_attrs}{attrs}>")
+        }
+    }
+
+    fn render_rich_text_annotation(
+        &self,
+        content: String,
+        annotation: &RichTextAnnotation,
+    ) -> String {
+        let mut attrs = self.rich_text_annotation_attrs(annotation);
         if annotation.spell_out.unwrap_or(false) {
             attrs.push_str(" role=\"text\"");
         }

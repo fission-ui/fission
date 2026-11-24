@@ -155,15 +155,6 @@ where
         self
     }
 
-    /// Registers a persistent reducer for logical viewport-size changes.
-    pub fn with_viewport_resize_handler(
-        mut self,
-        handler: fission_core::registry::Handler<S, fission_core::ViewportResized>,
-    ) -> Self {
-        self.inner = self.inner.with_viewport_resize_handler(handler);
-        self
-    }
-
     /// Installs a generated design system's theme and packaged fonts.
     pub fn with_design_system<D: fission_theme::DesignSystem>(
         mut self,

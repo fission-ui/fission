@@ -80,31 +80,6 @@ The public variants are:
 
 This normalization is a major reason cross-platform behavior stays consistent and testable.
 
-Running shells dispatch the typed [`ViewportResized`](#viewport-resize-reducers)
-action when the committed logical viewport changes. The initial viewport is
-available from `Env.viewport_size` during the first build and does not produce
-a resize action.
-
-## Viewport resize reducers
-
-Use `with_viewport_resize_handler` when app state must react to a viewport
-change, such as restoring selection-dependent scroll position after a phone
-window becomes narrower. The handler runs before the shell builds the next
-frame, receives the new logical size, and participates in the normal persistent
-reducer path:
-
-```rust,ignore
-DesktopApp::<AppState, _>::new(App)
-    .with_viewport_resize_handler(|state, resize, _ctx| {
-        state.viewport = resize.size;
-    })
-    .run()
-```
-
-The same builder method is available on Web, Mobile, and Terminal apps. Use
-`Env.viewport_size` for responsive presentation; use the reducer when durable
-app state needs to be reconciled with the new size.
-
 Reducer actions may also carry an `ActionInput`. The action envelope holds the
 application-defined, serialized action, while `ActionInput` carries transient
 runtime facts that should not be substituted into that payload. Typed accessors

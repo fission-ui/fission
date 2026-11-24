@@ -267,6 +267,8 @@ fn test_operation_capability_effect() {
 struct CallbackLifetimeState {
     probes: Vec<std::sync::Weak<()>>,
     completions: usize,
+    non_job_first: bool,
+    shared_service: bool,
 }
 
 impl GlobalState for CallbackLifetimeState {}
@@ -500,4 +502,164 @@ fn cancelling_a_job_keeps_reusable_registered_action_reducers() {
             .completions,
         1
     );
+}
+
+struct CallbackService;
+
+impl crate::ServiceSpec for CallbackService {
+    type Config = ();
+    type Command = ();
+    type CommandOk = ();
+    type CommandErr = String;
+    type Event = ();
+    type StartErr = String;
+    const NAME: &'static str = "callback-lifetime-service";
+}
+
+fn add_non_job_continuation(
+    effects: &mut crate::Effects<CallbackLifetimeState>,
+    callback: ActionEnvelope,
+    service: bool,
+) {
+    if service {
+        effects
+            .start_service(
+                crate::ServiceSlot::singleton(crate::ServiceType::<CallbackService>::new(
+                    "callback-lifetime-service",
+                )),
+                (),
+            )
+            .on_event(callback);
+    } else {
+        effects
+            .capability(
+                UPLOAD_FILE,
+                UploadFileRequest {
+                    path: "fixture.bin".into(),
+                },
+            )
+            .on_ok(callback);
+    }
+}
+
+fn count_shared_completion(state: &mut CallbackLifetimeState, _: UploadFinished) {
+    state.completions += 1;
+}
+
+fn start_callback_shared_with_another_effect(
+    state: &mut CallbackLifetimeState,
+    _: UploadRequested,
+    ctx: &mut ReducerContext<CallbackLifetimeState>,
+) {
+    let retained = std::sync::Arc::new(());
+    state.probes.push(std::sync::Arc::downgrade(&retained));
+    let shared = ctx.effects.bind(UploadFinished, CapturedCallback(retained));
+    let selected = ctx.effects.bind(
+        UploadFinished,
+        count_shared_completion as fn(&mut CallbackLifetimeState, UploadFinished),
+    );
+    if state.non_job_first {
+        add_non_job_continuation(ctx.effects, shared.clone(), state.shared_service);
+    }
+    ctx.effects
+        .app(crate::JobRef::<CallbackJob>::new(CallbackJob::NAME), ())
+        .on_ok(selected)
+        .on_err(shared.clone());
+    if !state.non_job_first {
+        add_non_job_continuation(ctx.effects, shared, state.shared_service);
+    }
+}
+
+#[test]
+fn finishing_a_job_does_not_steal_a_shared_capability_or_service_continuation() {
+    for shared_service in [false, true] {
+        for non_job_first in [false, true] {
+            for cancelled in [false, true] {
+                let mut runtime = Runtime::default();
+                runtime
+                    .add_app_state(Box::new(CallbackLifetimeState {
+                        shared_service,
+                        non_job_first,
+                        ..Default::default()
+                    }))
+                    .unwrap();
+                let mut registry = crate::ActionRegistry::new();
+                registry.register(
+                    start_callback_shared_with_another_effect
+                        as crate::registry::Handler<CallbackLifetimeState, UploadRequested>,
+                );
+                runtime.absorb_persistent_registry(registry);
+                runtime
+                    .dispatch(UploadRequested.into(), crate::WidgetId::from_u128(0))
+                    .unwrap();
+                let pending = std::mem::take(&mut runtime.pending_effects);
+                let job = pending
+                    .iter()
+                    .find(|effect| matches!(&effect.effect, Effect::Job(_)))
+                    .unwrap();
+                let other = pending
+                    .iter()
+                    .find(|effect| !matches!(&effect.effect, Effect::Job(_)))
+                    .unwrap();
+                if cancelled {
+                    runtime
+                        .queue_runtime_effect(crate::RuntimeEffect::Cancel { req_id: job.req_id });
+                } else {
+                    runtime
+                        .dispatch_with_input(
+                            job.on_ok.clone().unwrap(),
+                            crate::WidgetId::from_u128(0),
+                            &crate::ActionInput::JobOk {
+                                job_name: CallbackJob::NAME.into(),
+                                req_id: job.req_id,
+                                payload: serde_json::to_vec(&()).unwrap(),
+                            },
+                        )
+                        .unwrap();
+                }
+                assert!(runtime
+                    .get_app_state::<CallbackLifetimeState>()
+                    .unwrap()
+                    .probes[0]
+                    .upgrade()
+                    .is_some());
+                let (continuation, input) = if shared_service {
+                    (
+                        other
+                            .service_bindings
+                            .as_ref()
+                            .unwrap()
+                            .on_event
+                            .clone()
+                            .unwrap(),
+                        crate::ActionInput::ServiceEvent {
+                            service_name: "callback-lifetime-service".into(),
+                            slot_key: "singleton".into(),
+                            instance_id: 1,
+                            payload: serde_json::to_vec(&()).unwrap(),
+                        },
+                    )
+                } else {
+                    (
+                        other.on_ok.clone().unwrap(),
+                        crate::ActionInput::CapabilityOk {
+                            capability: "upload-file".into(),
+                            req_id: other.req_id,
+                            payload: serde_json::to_vec(&UploadFileOk { bytes: 11 }).unwrap(),
+                        },
+                    )
+                };
+                runtime
+                    .dispatch_with_input(continuation, crate::WidgetId::from_u128(0), &input)
+                    .unwrap();
+                let state = runtime.get_app_state::<CallbackLifetimeState>().unwrap();
+                assert!(
+                    state.probes[0].upgrade().is_none(),
+                    "one-shot service/capability capture must be released after delivery"
+                );
+                assert_eq!(state.completions, if cancelled { 1 } else { 2 });
+                assert_eq!(runtime.discard_pending_effects(), 0);
+            }
+        }
+    }
 }

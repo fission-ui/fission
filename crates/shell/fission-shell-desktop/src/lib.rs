@@ -420,15 +420,6 @@ where
         self
     }
 
-    /// Registers a persistent reducer for logical viewport-size changes.
-    pub fn with_viewport_resize_handler(
-        mut self,
-        handler: fission_core::registry::Handler<S, fission_core::ViewportResized>,
-    ) -> Self {
-        self.inner = self.inner.with_viewport_resize_handler(handler);
-        self
-    }
-
     /// Registers one host-owned reducer in the persistent action registry.
     pub fn register_reducer(
         &mut self,

@@ -395,7 +395,7 @@ pub mod public {
 
     pub use crate::action::{
         Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, UpdateTextInput,
-        UpdateTextSelection, ViewportResized,
+        UpdateTextSelection,
     };
     pub use crate::async_runtime::{
         AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCancellationToken,
@@ -620,7 +620,7 @@ mod tests;
 
 pub use action::{
     Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged,
-    UpdateTextInput, UpdateTextSelection, ViewportResized,
+    UpdateTextInput, UpdateTextSelection,
 };
 pub use async_runtime::{
     AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCancellationToken, JobCtx,
@@ -1025,6 +1025,10 @@ pub(crate) struct EffectCallbackRegistry {
 struct EffectCallbackEntry {
     reducers: Vec<BoxedReducer>,
     job_requests: Vec<u64>,
+    // Jobs cannot retire a callback also handed to another effect or a service
+    // lifecycle binding. That existing one-shot lifetime still ends at take()
+    // (or clear/runtime drop), not at the end of an unrelated job request.
+    non_job_owner: bool,
 }
 
 impl EffectCallbackRegistry {
@@ -1042,24 +1046,43 @@ impl EffectCallbackRegistry {
             .or_insert_with(|| EffectCallbackEntry {
                 reducers: Vec::new(),
                 job_requests: Vec::new(),
+                non_job_owner: false,
             })
             .reducers
             .push(reducer);
     }
 
-    pub(crate) fn associate_job(&self, effect: &EffectEnvelope) {
-        if !matches!(&effect.effect, Effect::Job(_)) {
-            return;
-        }
+    pub(crate) fn associate_effect(&self, effect: &EffectEnvelope) {
+        let is_job = matches!(&effect.effect, Effect::Job(_));
         let mut reducers = self
             .reducers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for action in effect.on_ok.iter().chain(effect.on_err.iter()) {
+        let terminal = effect
+            .on_ok
+            .iter()
+            .chain(effect.on_err.iter())
+            .map(|action| (action, is_job));
+        let service = effect.service_bindings.iter().flat_map(|bindings| {
+            [
+                bindings.on_started.as_ref(),
+                bindings.on_start_failed.as_ref(),
+                bindings.on_event.as_ref(),
+                bindings.on_stopped.as_ref(),
+                bindings.on_command_ok.as_ref(),
+                bindings.on_command_err.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|action| (action, false))
+        });
+        for (action, job_owned) in terminal.chain(service) {
             // Only callbacks created by Effects::bind belong to this registry.
             // Ordinary reusable action reducers must not acquire one-shot ownership.
             if let Some(entry) = reducers.get_mut(&action.id) {
-                if !entry.job_requests.contains(&effect.req_id) {
+                if !job_owned {
+                    entry.non_job_owner = true;
+                } else if !entry.job_requests.contains(&effect.req_id) {
                     entry.job_requests.push(effect.req_id);
                 }
             }
@@ -1077,7 +1100,10 @@ impl EffectCallbackRegistry {
             // Cancellation selects neither handler. A completion keeps its chosen
             // handler until take(), and drops the unused terminal alternative.
             // A callback explicitly shared with another job stays alive for it.
-            !associated || selected == Some(*action_id) || !entry.job_requests.is_empty()
+            !associated
+                || selected == Some(*action_id)
+                || !entry.job_requests.is_empty()
+                || entry.non_job_owner
         });
     }
 

@@ -1094,8 +1094,9 @@ pub struct Semantics {
     ///
     /// Checked before the framework's own handling for that key, so a node that
     /// explicitly asks for Enter gets Enter rather than default activation.
-    /// Tab is the exception: focus traversal belongs to the framework and is
-    /// never overridden, or a single widget could trap focus for the whole app.
+    /// Ordinary bindings cannot override Tab traversal. A focused text editor
+    /// may explicitly opt in through `TextInput::on_tab`; ancestor bindings
+    /// cannot capture Tab for the whole subtree.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub key_actions: Vec<KeyAction>,
     /// Structured InfiniteCanvas target metadata for contextual gesture input.

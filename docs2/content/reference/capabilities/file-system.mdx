@@ -65,9 +65,10 @@ On Web, `pick_save_file` requires `showSaveFilePicker`. If the browser cannot pr
 | Target | Behavior |
 | --- | --- |
 | Web | Open-file selection through an HTML file input; save-file and directory selection use the File System Access API and return `unsupported` if unavailable. Direct host paths are unsupported. Granted handles can be persisted in IndexedDB. Save and directory pickers require a secure context. |
-| macOS, Windows, Linux | Direct OS paths plus native open/save and folder pickers. Picked save files use path destinations. |
-| Android | Direct OS paths plus system open/save and document-tree pickers, persisted URI grants, and document-provider operations. |
-| iOS | Direct OS paths plus system open/save and folder pickers, security-scoped access, and persisted bookmarks. |
+| macOS | Direct OS paths plus native open/save and folder pickers. Picked save files use opaque `WritableFile` destinations that retain the selected file's security-scoped access until release. |
+| Windows, Linux | Direct OS paths plus native open/save and folder pickers. Picked save files use path-backed `Location` destinations. |
+| Android | Direct OS paths plus system open/save and document-tree pickers, persisted URI grants, and document-provider operations. Picked save files use opaque `WritableFile` destinations. |
+| iOS | Direct OS paths plus system open/save and folder pickers, security-scoped access, and persisted bookmarks. Picked save files use opaque `WritableFile` destinations. |
 | Terminal, Static site, SSR | No interactive file or directory picker provider. |
 
 Web persistence stores only a granted browser handle. It is not an IndexedDB-backed virtual filesystem and it never copies the user's files. Browser permissions can return to `prompt` or `denied` after restoration.

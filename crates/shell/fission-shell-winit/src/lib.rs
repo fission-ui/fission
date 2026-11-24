@@ -5731,20 +5731,6 @@ where
         self
     }
 
-    /// Registers an app reducer for committed logical viewport-size changes.
-    ///
-    /// The handler runs before the next widget build and can reconcile
-    /// selection-dependent state using the new size.
-    pub fn with_viewport_resize_handler(
-        mut self,
-        handler: fission_core::registry::Handler<S, fission_core::ViewportResized>,
-    ) -> Self {
-        let mut registry = ActionRegistry::<S>::new();
-        registry.register::<fission_core::ViewportResized, _>(handler);
-        self.runtime.absorb_persistent_registry(registry);
-        self
-    }
-
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,
@@ -9395,12 +9381,6 @@ where
                                 pipeline.prev_ir.is_some(),
                                 &mut invalidations,
                             );
-                            if let Err(error) = runtime.dispatch_viewport_resize_if_changed(
-                                last_built_viewport,
-                                build_viewport,
-                            ) {
-                                eprintln!("viewport resize reducer failed: {error:#}");
-                            }
                             env.viewport_size = build_viewport;
                             env.window_insets =
                                 window_safe_area_insets(window, viewport_state.scale_factor);

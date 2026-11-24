@@ -5,7 +5,7 @@ mod scroll;
 #[path = "runtime_text_focus.rs"]
 mod text_focus;
 
-use crate::action::{Action, ActionEnvelope, ActionId, GlobalState, ViewportResized};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
     ActionInput, Effect, EffectEnvelope, KeyPressInput, RuntimeEffect, ScrollAlignment, ScrollAxis,
@@ -613,34 +613,13 @@ impl Runtime {
         self.dispatch_with_input(action, target, &ActionInput::None)
     }
 
-    /// Notify persistent app reducers when a shell commits a new logical viewport.
-    ///
-    /// The initial size is not a resize notification. Shells should pass the
-    /// previous committed size, if any, and the newly committed size before
-    /// building the next frame.
-    pub fn dispatch_viewport_resize_if_changed(
-        &mut self,
-        previous: Option<LayoutSize>,
-        current: LayoutSize,
-    ) -> Result<bool> {
-        if previous.is_some_and(|previous| previous != current) {
-            self.dispatch(
-                ViewportResized { size: current }.into(),
-                WidgetId::from_u128(0),
-            )?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
     fn enqueue_effect(&mut self, mut envelope: EffectEnvelope) {
         envelope.req_id = self.next_req_id;
         self.next_req_id = self
             .next_req_id
             .checked_add(1)
             .expect("Fission effect request IDs exhausted");
-        self.effect_callbacks.associate_job(&envelope);
+        self.effect_callbacks.associate_effect(&envelope);
         self.pending_effects.push(envelope);
     }
 
@@ -813,7 +792,7 @@ impl Runtime {
         // Reducer builders already reserved these IDs from this runtime's counter.
         // Renumbering here would invalidate IDs returned to reducers for cancellation.
         for effect in &effects {
-            self.effect_callbacks.associate_job(effect);
+            self.effect_callbacks.associate_effect(effect);
         }
         self.pending_effects.extend(effects);
 

@@ -85,6 +85,9 @@ jobs:
       - name: Test native paragraph geometry and screenshot fidelity
         run: cargo test --locked -p fission-render-vello --lib
 
+      - name: Test rich-text links in the shared Static site and SSR renderer
+        run: cargo test --locked -p fission-shell-site --lib rich_text_hyperlink
+
       - name: Test presenter pixels and asynchronous job cancellation
         run: |
           cargo test --locked -p fission-shell-winit --lib surface_blitter::tests

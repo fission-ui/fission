@@ -7,12 +7,19 @@ check_absent() {
   local pattern="$3"
   local tree
   local matches
+  local search_status
 
   tree="$(cargo tree -p "$crate" --edges normal --prefix none)"
-  if matches="$(rg "$pattern" <<<"$tree")"; then
+  if matches="$(grep -E -- "$pattern" <<<"$tree")"; then
     echo "dependency boundary violation in $crate: $reason" >&2
     printf '%s\n' "$matches" >&2
     exit 1
+  else
+    search_status=$?
+    if [[ "$search_status" -ne 1 ]]; then
+      echo "could not check dependency boundaries for $crate: search failed with status $search_status" >&2
+      exit "$search_status"
+    fi
   fi
 }
 

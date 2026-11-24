@@ -991,7 +991,7 @@ pub fn declared_key_action(
 /// need to commit an edit and then move their own selection. Requiring the
 /// action to live on the focused text-editing node prevents an ancestor from
 /// trapping focus for its whole subtree.
-pub fn declared_text_input_tab_action(
+pub(crate) fn declared_text_input_tab_action(
     ir: &CoreIR,
     focused: Option<WidgetId>,
     modifiers: u8,

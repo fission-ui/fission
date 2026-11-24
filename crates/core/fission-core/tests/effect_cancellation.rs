@@ -136,6 +136,47 @@ fn start_local_job(
     state.0.push(context.effects.app(TEST_JOB, ()).req_id());
 }
 
+fn start_local_job_with_app_state_callback(
+    _state: &mut LocalJobState,
+    _: StartTestJob,
+    context: &mut ReducerContext<LocalJobState>,
+) {
+    let handler: fission_core::registry::Handler<LocalJobState, StartTestJob> = start_local_job;
+    let completion = context.effects.bind(StartTestJob, handler);
+    context.effects.app(TEST_JOB, ()).on_ok(completion);
+}
+
+#[test]
+#[should_panic(expected = "Effects::bind requires a runtime or action registry")]
+fn local_reducers_do_not_bind_completion_captures_to_an_unrelated_global_state() {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_app_state(Box::new(TestState::default()))
+        .unwrap();
+    // Sharing a Rust type must not make a local field's callback mutate this
+    // unrelated global instance instead of the field that requested the job.
+    runtime
+        .add_app_state(Box::new(LocalJobState::default()))
+        .unwrap();
+    let env = fission_core::Env::default();
+    let state = runtime.get_app_state::<TestState>().unwrap();
+    let view = fission_core::View::new(state, &runtime.runtime_state, &env, None);
+    let mut ctx = fission_core::authoring::BuildCtx::new();
+    let action = fission_core::build::enter(&mut ctx, &view, || {
+        let field = fission_core::StateField::new(
+            "local-callback-owner",
+            "field",
+            LocalJobState::default(),
+        );
+        let (build, _) = fission_core::build::current::<TestState>();
+        let handler: fission_core::registry::Handler<LocalJobState, StartTestJob> =
+            start_local_job_with_app_state_callback;
+        build.bind_local(StartTestJob, field, handler)
+    });
+    runtime.absorb_registry(ctx.registry);
+    runtime.dispatch(action, WidgetId::from_u128(0)).unwrap();
+}
+
 #[test]
 fn local_state_reducers_reserve_ids_from_the_same_runtime_counter() {
     let mut runtime = Runtime::default();
