@@ -18,3 +18,8 @@ wasm-bindgen \
   "$target_dir/wasm32-unknown-unknown/release/fission_store_sqlite_duplicate_source_link.wasm" \
   --target web \
   --out-dir "$target_dir/duplicate-sqlite-source-package"
+
+# Exercise the packaged bindings too, so a dead-stripped source identity cannot
+# make the descriptor regression appear to pass without retaining both calls.
+node --experimental-default-type=module \
+  "$fixture/check-package.mjs" "$target_dir/duplicate-sqlite-source-package"
