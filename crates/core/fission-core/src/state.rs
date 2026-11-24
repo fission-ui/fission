@@ -69,22 +69,12 @@ type BoxedLocalValue = Box<dyn Any + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct LocalStateStore {
-    values: Arc<Mutex<LocalStateValues>>,
-}
-
-#[derive(Default)]
-struct LocalStateValues {
-    values: HashMap<LocalStateKey, BoxedLocalValue>,
-    subtree_revisions: HashMap<Vec<String>, u64>,
+    values: Arc<Mutex<HashMap<LocalStateKey, BoxedLocalValue>>>,
 }
 
 impl fmt::Debug for LocalStateStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let len = self
-            .values
-            .lock()
-            .map(|values| values.values.len())
-            .unwrap_or(0);
+        let len = self.values.lock().map(|values| values.len()).unwrap_or(0);
         f.debug_struct("LocalStateStore")
             .field("len", &len)
             .finish()
@@ -103,8 +93,7 @@ impl LocalStateStore {
             .lock()
             .expect("Fission local widget state store mutex poisoned");
         let entry = values
-            .values
-            .entry(key.clone())
+            .entry(key)
             .or_insert_with(|| Box::new(make_default()) as BoxedLocalValue);
         entry
             .downcast_ref::<T>()
@@ -125,7 +114,7 @@ impl LocalStateStore {
             .values
             .lock()
             .map_err(|_| anyhow!("Fission local widget state store mutex poisoned"))?;
-        let value = values.values.get_mut(key).ok_or_else(|| {
+        let value = values.get_mut(key).ok_or_else(|| {
             anyhow!(
                 "Fission local widget state field `{}` on `{}` was not found",
                 key.field,
@@ -140,64 +129,22 @@ impl LocalStateStore {
             )
         })?;
         update(value);
-        for length in 1..=key.key_path.len() {
-            let prefix = key.key_path[..length].to_vec();
-            let revision = values.subtree_revisions.entry(prefix).or_insert(0);
-            *revision = revision
-                .checked_add(1)
-                .expect("Fission local widget subtree revision exhausted");
-        }
         Ok(())
-    }
-
-    pub fn read<T: Clone + Send + Sync + 'static>(&self, key: &LocalStateKey) -> Option<T> {
-        self.values
-            .lock()
-            .ok()?
-            .values
-            .get(key)?
-            .downcast_ref::<T>()
-            .cloned()
-    }
-
-    pub(crate) fn subtree_revision(&self, prefix: &[String]) -> u64 {
-        self.values
-            .lock()
-            .expect("Fission local widget state store mutex poisoned")
-            .subtree_revisions
-            .get(prefix)
-            .copied()
-            .unwrap_or_default()
     }
 
     pub fn len(&self) -> usize {
         self.values
             .lock()
-            .map(|values| values.values.len())
+            .map(|values| values.len())
             .unwrap_or_default()
     }
 
-    pub(crate) fn retain_active(
-        &self,
-        active: &std::collections::HashSet<LocalStateKey>,
-        active_prefixes: &std::collections::HashSet<Vec<String>>,
-    ) {
+    pub(crate) fn retain_active(&self, active: &std::collections::HashSet<LocalStateKey>) {
         let mut values = self
             .values
             .lock()
             .expect("Fission local widget state store mutex poisoned");
-        let is_active = |key: &LocalStateKey| {
-            active.contains(key)
-                || (0..key.key_path.len())
-                    .any(|index| active_prefixes.contains(&key.key_path[..=index]))
-        };
-        values.values.retain(|key, _| is_active(key));
-        values.subtree_revisions.retain(|prefix, _| {
-            active_prefixes
-                .iter()
-                .any(|active| prefix.starts_with(active) || active.starts_with(prefix))
-                || active.iter().any(|key| key.key_path.starts_with(prefix))
-        });
+        values.retain(|key, _| active.contains(key));
     }
 }
 

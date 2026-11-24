@@ -19,7 +19,6 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub(crate) struct ActionDeserializationError;
@@ -111,7 +110,7 @@ impl<S: GlobalState, A> IntoHandler<S, A>
 }
 
 // Internal typed reducer storage
-type TypedReducer<S> = Arc<
+type TypedReducer<S> = Box<
     dyn for<'a, 'b, 'c> Fn(
             &mut S,
             &ActionEnvelope,
@@ -163,7 +162,7 @@ fn into_boxed_runtime_reducer<S: GlobalState>(
 pub struct ActionRegistry<S: GlobalState> {
     handlers: BTreeMap<ActionId, Vec<TypedReducer<S>>>,
     bound_handlers: BTreeMap<ActionId, TypedReducer<S>>,
-    runtime_handlers: BTreeMap<ActionId, Arc<Mutex<BoxedReducer>>>,
+    runtime_handlers: BTreeMap<ActionId, BoxedReducer>,
 }
 
 impl<S: GlobalState> Default for ActionRegistry<S> {
@@ -226,7 +225,7 @@ impl<S: GlobalState> ActionRegistry<S> {
     fn typed_reducer<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
         handler: H,
     ) -> TypedReducer<S> {
-        Arc::new(
+        Box::new(
             move |state: &mut S,
                   envelope: &ActionEnvelope,
                   _target,
@@ -256,28 +255,7 @@ impl<S: GlobalState> ActionRegistry<S> {
     }
 
     pub(crate) fn register_runtime_reducer(&mut self, action_id: ActionId, reducer: BoxedReducer) {
-        self.runtime_handlers
-            .entry(action_id)
-            .or_insert_with(|| Arc::new(Mutex::new(reducer)));
-    }
-
-    pub(crate) fn merge_from(&mut self, other: &Self) {
-        for (action_id, reducers) in &other.handlers {
-            self.handlers
-                .entry(*action_id)
-                .or_default()
-                .extend(reducers.iter().cloned());
-        }
-        for (action_id, reducer) in &other.bound_handlers {
-            self.bound_handlers
-                .entry(*action_id)
-                .or_insert_with(|| reducer.clone());
-        }
-        for (action_id, reducer) in &other.runtime_handlers {
-            self.runtime_handlers
-                .entry(*action_id)
-                .or_insert_with(|| reducer.clone());
-        }
+        self.runtime_handlers.entry(action_id).or_insert(reducer);
     }
 
     pub fn dispatch_with_input(
@@ -321,17 +299,7 @@ impl<S: GlobalState> ActionRegistry<S> {
         let state_type_id = TypeId::of::<S>();
 
         for (action_id, reducer) in self.runtime_handlers {
-            runtime_reducers
-                .entry(action_id)
-                .or_default()
-                .push(Box::new(
-                    move |states, action, target, effects, input, callback_registry| {
-                        let mut reducer = reducer
-                            .lock()
-                            .expect("Fission cached runtime reducer mutex poisoned");
-                        reducer(states, action, target, effects, input, callback_registry)
-                    },
-                ));
+            runtime_reducers.entry(action_id).or_default().push(reducer);
         }
 
         for (action_id, typed_reducers) in self.handlers {
@@ -799,12 +767,6 @@ impl ResourceRegistry {
         let index = self.declarations.len();
         self.seen_keys.insert(declaration.key.clone(), index);
         self.declarations.push(declaration);
-    }
-
-    pub(crate) fn merge_from(&mut self, other: &Self) {
-        for declaration in &other.declarations {
-            self.push(declaration.clone());
-        }
     }
 }
 

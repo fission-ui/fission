@@ -224,25 +224,6 @@ impl<S: GlobalState> BuildCtx<S> {
     pub fn video_controls(&self, target: WidgetId) -> VideoControlCtx {
         VideoControlCtx { target }
     }
-
-    pub(crate) fn merge_from(&mut self, other: &Self) {
-        self.registry.merge_from(&other.registry);
-        self.resources.merge_from(&other.resources);
-        self.motion_declarations
-            .extend(other.motion_declarations.iter().cloned());
-        self.scroll_build_dependencies
-            .extend(other.scroll_build_dependencies.iter().copied());
-        self.video_nodes.extend(other.video_nodes.iter().cloned());
-        self.web_nodes.extend(other.web_nodes.iter().cloned());
-        for entry in &other.portals {
-            let mut entry = entry.clone();
-            entry.seq = self.portal_seq_for_scoped_build();
-            self.portals.push(entry);
-        }
-        if let Some(outcome) = other.route_outcome.clone() {
-            self.declare_route_outcome(outcome);
-        }
-    }
 }
 
 fn scoped_action_id<A: Action>(owner: WidgetId, name: &str) -> ActionId {

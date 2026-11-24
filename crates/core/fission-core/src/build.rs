@@ -25,7 +25,6 @@ struct BuildScope {
     layout: Option<*const crate::LayoutSnapshot>,
     local_state_ordinals: HashMap<(crate::WidgetId, &'static str, &'static str), usize>,
     local_state_seen: HashSet<crate::state::LocalStateKey>,
-    local_state_prefixes: HashSet<Vec<String>>,
     widget_id_stack: Vec<crate::WidgetId>,
     identity_stack: Vec<crate::WidgetId>,
     /// Next implicit identity ordinal for each parent identity and widget kind.
@@ -40,14 +39,6 @@ thread_local! {
 #[derive(Debug)]
 pub struct BuildCtxHandle<S: GlobalState> {
     _state: PhantomData<fn() -> S>,
-}
-
-struct MemoizedSubtree<S: GlobalState, D> {
-    dependencies: D,
-    child: crate::Widget,
-    build_ctx: std::sync::Arc<BuildCtx<S>>,
-    local_state_prefix: Vec<String>,
-    local_state_revision: u64,
 }
 
 impl<S: GlobalState> Clone for BuildCtxHandle<S> {
@@ -114,7 +105,6 @@ where
                 .map(|layout| layout as *const crate::LayoutSnapshot),
             local_state_ordinals: HashMap::new(),
             local_state_seen: HashSet::new(),
-            local_state_prefixes: HashSet::new(),
             widget_id_stack: Vec::new(),
             identity_stack: vec![root_id],
             implicit_widget_seq: HashMap::new(),
@@ -134,13 +124,10 @@ where
                     unsafe {
                         (*scope.runtime)
                             .local_widget_state
-                            .retain_active(&scope.local_state_seen, &scope.local_state_prefixes);
+                            .retain_active(&scope.local_state_seen);
                     }
                 } else if let Some(parent) = scopes.last_mut() {
                     parent.local_state_seen.extend(scope.local_state_seen);
-                    parent
-                        .local_state_prefixes
-                        .extend(scope.local_state_prefixes);
                 }
             });
         }
@@ -148,114 +135,6 @@ where
 
     let _guard = PopGuard;
     f()
-}
-
-struct NestedBuildScopeGuard {
-    active: bool,
-}
-
-impl NestedBuildScopeGuard {
-    fn pop(&mut self) -> HashSet<crate::state::LocalStateKey> {
-        if !self.active {
-            return HashSet::new();
-        }
-        self.active = false;
-        BUILD_SCOPES.with(|scopes| {
-            let mut scopes = scopes.borrow_mut();
-            let Some(scope) = scopes.pop() else {
-                return HashSet::new();
-            };
-            let seen = scope.local_state_seen;
-            if let Some(parent) = scopes.last_mut() {
-                parent.local_state_seen.extend(seen.iter().cloned());
-                parent
-                    .local_state_prefixes
-                    .extend(scope.local_state_prefixes.iter().cloned());
-            } else {
-                unsafe {
-                    (*scope.runtime)
-                        .local_widget_state
-                        .retain_active(&seen, &scope.local_state_prefixes);
-                }
-            }
-            seen
-        })
-    }
-}
-
-impl Drop for NestedBuildScopeGuard {
-    fn drop(&mut self) {
-        let _ = self.pop();
-    }
-}
-
-fn with_nested_build_scope<S, R>(
-    ctx: &mut BuildCtx<S>,
-    f: impl FnOnce() -> R,
-) -> (R, HashSet<crate::state::LocalStateKey>)
-where
-    S: GlobalState,
-{
-    let inherited = BUILD_SCOPES.with(|scopes| {
-        let scopes = scopes.borrow();
-        let parent = scopes
-            .last()
-            .expect("nested Fission build scope requires an active parent scope");
-        assert_eq!(
-            parent.state_type,
-            TypeId::of::<S>(),
-            "nested Fission build scope must use the active GlobalState type"
-        );
-        (
-            parent.state_name,
-            parent.view,
-            parent.runtime,
-            parent.env,
-            parent.layout,
-            parent.widget_id_stack.clone(),
-            parent.identity_stack.clone(),
-        )
-    });
-
-    BUILD_SCOPES.with(|scopes| {
-        scopes.borrow_mut().push(BuildScope {
-            state_type: TypeId::of::<S>(),
-            state_name: inherited.0,
-            ctx: (ctx as *mut BuildCtx<S>).cast::<()>(),
-            view: inherited.1,
-            resources: &mut ctx.resources,
-            motion_declarations: &mut ctx.motion_declarations,
-            video_nodes: &mut ctx.video_nodes,
-            web_nodes: &mut ctx.web_nodes,
-            portals: &mut ctx.portals,
-            route_outcome: &mut ctx.route_outcome,
-            next_portal_seq: next_portal_seq::<S>,
-            register_runtime_reducer: register_runtime_reducer::<S>,
-            runtime: inherited.2,
-            env: inherited.3,
-            layout: inherited.4,
-            local_state_ordinals: HashMap::new(),
-            local_state_seen: HashSet::new(),
-            local_state_prefixes: HashSet::new(),
-            widget_id_stack: inherited.5,
-            identity_stack: inherited.6,
-            implicit_widget_seq: HashMap::new(),
-            providers: HashMap::new(),
-        });
-    });
-
-    let mut guard = NestedBuildScopeGuard { active: true };
-    let result = f();
-    let seen = guard.pop();
-    (result, seen)
-}
-
-fn mark_local_state_prefix_active(prefix: &[String]) {
-    BUILD_SCOPES.with(|scopes| {
-        if let Some(scope) = scopes.borrow_mut().last_mut() {
-            scope.local_state_prefixes.insert(prefix.to_vec());
-        }
-    });
 }
 
 unsafe fn next_portal_seq<S: GlobalState>(ctx: *mut ()) -> u64 {
@@ -631,11 +510,9 @@ pub fn try_register_portal(
 /// several alternative panels, uses this to register its shared surface once.
 pub fn portal_is_registered(id: crate::WidgetId) -> bool {
     BUILD_SCOPES.with(|scopes| {
-        scopes
-            .borrow()
-            .iter()
-            .rev()
-            .any(|scope| unsafe { (*scope.portals).iter().any(|entry| entry.id == Some(id)) })
+        scopes.borrow().last().is_some_and(|scope| unsafe {
+            (*scope.portals).iter().any(|entry| entry.id == Some(id))
+        })
     })
 }
 
@@ -746,81 +623,6 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         // Handles only resolve while that scope is active, so this raw
         // pointer never outlives the build pass that created it.
         unsafe { f(&mut *ctx) }
-    }
-
-    /// Builds and retains a subtree until its explicit dependencies or local
-    /// widget state change.
-    ///
-    /// `owner` must be a stable, unique identity for this retained subtree. The
-    /// dependency value must include every app state, property, environment,
-    /// and layout input that affects the subtree's output. On a cache hit the
-    /// child conversion is skipped, while its action bindings, runtime
-    /// registrations, and local-state liveness are restored for the current
-    /// build. Mutating descendant local state invalidates the cached view.
-    pub fn memoized_subtree<D>(
-        &self,
-        owner: crate::WidgetId,
-        dependencies: D,
-        build: impl FnOnce() -> crate::Widget,
-    ) -> crate::Widget
-    where
-        D: Clone + PartialEq + Send + Sync + 'static,
-    {
-        let (_, view) = current::<S>();
-        let store = view.runtime().local_widget_state.clone();
-
-        crate::build::with_implicit_widget_id(owner, || {
-            let cache =
-                crate::StateField::new_with("fission.core.memoized_subtree", "entry", || {
-                    None::<std::sync::Arc<MemoizedSubtree<S, D>>>
-                });
-            let previous = cache.get();
-            if let Some(previous) = previous.filter(|entry| {
-                entry.dependencies == dependencies
-                    && store.subtree_revision(&entry.local_state_prefix)
-                        == entry.local_state_revision
-            }) {
-                mark_local_state_prefix_active(&previous.local_state_prefix);
-                self.with_exact_ctx(|ctx| ctx.merge_from(&previous.build_ctx));
-                return crate::ui::Composite {
-                    id: Some(owner),
-                    child: previous.child.clone(),
-                    ..Default::default()
-                }
-                .into();
-            }
-
-            let mut child_ctx = BuildCtx::new();
-            let (child, _) =
-                with_nested_build_scope(&mut child_ctx, || build().resolve_as_child(owner, 0));
-            let local_state_prefix = cache.key().key_path().to_vec();
-            let local_state_revision = store
-                .subtree_revision(&local_state_prefix)
-                .checked_add(1)
-                .expect("Fission local widget subtree revision exhausted");
-            let build_ctx = std::sync::Arc::new(child_ctx);
-            let entry = std::sync::Arc::new(MemoizedSubtree {
-                dependencies,
-                child: child.clone(),
-                build_ctx: build_ctx.clone(),
-                local_state_prefix,
-                local_state_revision,
-            });
-
-            self.with_exact_ctx(|ctx| ctx.merge_from(&build_ctx));
-            store
-                .update::<Option<std::sync::Arc<MemoizedSubtree<S, D>>>>(cache.key(), |slot| {
-                    *slot = Some(entry);
-                })
-                .expect("failed to update Fission memoized subtree state");
-
-            crate::ui::Composite {
-                id: Some(owner),
-                child,
-                ..Default::default()
-            }
-            .into()
-        })
     }
 
     /// Binds an action payload to one handler per action type in this build.

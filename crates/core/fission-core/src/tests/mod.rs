@@ -6,7 +6,6 @@ pub mod focus_scope_test;
 pub mod focus_traversal_test;
 pub mod hero_layout_test;
 pub mod layout_repro;
-pub mod memoized_subtree_test;
 pub mod responsive_focus_test;
 pub mod safe_area_test;
 pub mod text_layout_test;
