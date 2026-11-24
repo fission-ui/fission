@@ -140,6 +140,95 @@ fn state(runtime: &Runtime) -> &DragState {
 }
 
 #[test]
+fn internal_drag_captures_the_stable_payload_owner_when_its_painted_child_is_replaced() -> Result<()>
+{
+    let (mut ir, mut layout, _, source, _) = drag_tree();
+    let painted = WidgetId::explicit("drag.source.idle.paint");
+    ir.add_node(
+        painted,
+        Op::Paint(fission_ir::PaintOp::DrawRect {
+            fill: Some(fission_ir::op::Fill::Solid(fission_ir::op::Color::RED)),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            corner_radii: None,
+            border_sides: None,
+        }),
+        Vec::new(),
+    );
+    ir.nodes.get_mut(&painted).unwrap().parent = Some(source);
+    ir.nodes.get_mut(&source).unwrap().children.push(painted);
+    layout.nodes.insert(painted, layout.nodes[&source].clone());
+    let mut runtime = runtime()?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(20.0, 20.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    assert_eq!(runtime.runtime_state.gesture.target_node, Some(painted));
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(60.0, 20.0),
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    assert_eq!(runtime.runtime_state.gesture.target_node, Some(source));
+    assert_eq!(
+        runtime
+            .runtime_state
+            .gesture
+            .drag_session
+            .as_ref()
+            .unwrap()
+            .source_node,
+        Some(source)
+    );
+
+    // The active panel may rebuild its paint, but the draggable itself remains.
+    ir.nodes.remove(&painted);
+    ir.nodes.get_mut(&source).unwrap().children.clear();
+    layout.nodes.remove(&painted);
+    runtime.reconcile_ir(&ir);
+    assert!(runtime.runtime_state.gesture.drag_session.is_some());
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(150.0, 30.0),
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    assert!(runtime.runtime_state.gesture.drag_session.is_some());
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(150.0, 30.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    assert!(state(&runtime)
+        .events
+        .contains(&"drop:internal:card-1".into()));
+    Ok(())
+}
+
+#[test]
 fn internal_drag_dispatches_drop_payload_and_drag_boundaries() -> Result<()> {
     let (ir, layout, _, _, _) = drag_tree();
     let mut runtime = runtime()?;

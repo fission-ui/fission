@@ -542,13 +542,16 @@ mod tests {
             "active_descendant",
             "sequential_focusable",
             "text_editable",
-            "scene_target",
         ];
         let mut encoded = serde_json::to_value(Semantics::default()).unwrap();
         let object = encoded.as_object_mut().unwrap();
         for field in added_fields {
             assert!(object.remove(field).is_some(), "missing test field {field}");
         }
+        // None is intentionally omitted from serialized scene targets. Supply
+        // a real target in its own round-trip tests; an old-IR fixture must not
+        // require an omitted optional field to have existed in the first place.
+        assert!(!object.contains_key("scene_target"));
 
         let decoded: Semantics = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded.selected, None);

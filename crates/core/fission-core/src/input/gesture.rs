@@ -255,7 +255,8 @@ impl InputController for GestureController {
                             ctx.gesture.dragging_payload =
                                 matches!(button, crate::event::PointerButton::Primary)
                                     .then(|| self.find_drag_payload(ctx, hit))
-                                    .flatten();
+                                    .flatten()
+                                    .map(|(_, payload)| payload);
                         } else {
                             ctx.gesture.target_node = None;
                             ctx.gesture.dragging_payload = None;
@@ -342,7 +343,14 @@ impl InputController for GestureController {
                             {
                                 ctx.gesture.is_panning = true;
                                 if let Some(payload) = ctx.gesture.dragging_payload.clone() {
-                                    let target = ctx.gesture.target_node;
+                                    // Capture the semantic payload owner, not a painted
+                                    // descendant that an active/hover visual may replace.
+                                    // Until the threshold is crossed the original hit stays
+                                    // intact so ordinary child clicks keep their behavior.
+                                    let target = ctx.gesture.target_node.and_then(|hit| {
+                                        self.find_drag_payload(ctx, hit).map(|(owner, _)| owner)
+                                    });
+                                    ctx.gesture.target_node = target;
                                     let source_identifier =
                                         target.and_then(|id| self.semantic_identifier(ctx, id));
                                     ctx.gesture.drag_session = Some(DragSessionState {
@@ -843,13 +851,17 @@ impl GestureController {
         handled
     }
 
-    fn find_drag_payload(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<Vec<u8>> {
+    fn find_drag_payload(
+        &self,
+        ctx: &ControllerContext,
+        start_node: WidgetId,
+    ) -> Option<(WidgetId, Vec<u8>)> {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(sem) = &node.op {
                     if let Some(p) = &sem.drag_payload {
-                        return Some(p.clone());
+                        return Some((node_id, p.clone()));
                     }
                 }
                 current_id = node.parent;
