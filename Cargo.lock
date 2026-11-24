@@ -3129,7 +3129,6 @@ dependencies = [
 [[package]]
 name = "fission-glifo"
 version = "0.3.0-fission.1"
-source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-vello-common",
@@ -3593,7 +3592,6 @@ dependencies = [
 [[package]]
 name = "fission-vello-common"
 version = "0.2.0-fission.1"
-source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3608,7 +3606,6 @@ dependencies = [
 [[package]]
 name = "fission-vello-cpu"
 version = "0.2.0-fission.1"
-source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-glifo",
@@ -3621,7 +3618,6 @@ dependencies = [
 [[package]]
 name = "fission-vello-gpu"
 version = "0.2.0-fission.2"
-source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "bytemuck",
  "fission-glifo",
@@ -3636,7 +3632,6 @@ dependencies = [
 [[package]]
 name = "fission-vello-gpu-shaders"
 version = "0.2.0-fission.1"
-source = "git+https://github.com/worka-ai/vello?rev=be43d4273b57cf80055ec25db448a00431f3627e#be43d4273b57cf80055ec25db448a00431f3627e"
 dependencies = [
  "naga",
  "wesl",
