@@ -68,6 +68,42 @@ pub(crate) struct SemanticRecord {
     pub(crate) id: WidgetId,
     pub(crate) semantics: Semantics,
     pub(crate) node: fission_test_driver::SemanticNode,
+    /// Per-line hit rectangles for links embedded in rich text.
+    pub(crate) link_fragments: Vec<fission_test_driver::Bounds>,
+}
+
+/// Finds the nearest measured layout node that represents a semantic node.
+/// `SemanticsRegion` is an accessibility wrapper, so its own IR node often has
+/// no layout geometry even though its child subtree does.
+pub(crate) fn layout_target_for_semantic(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    semantic_id: WidgetId,
+) -> Option<WidgetId> {
+    if snap.get_node_geometry(semantic_id).is_some() {
+        return Some(semantic_id);
+    }
+
+    let mut frontier = ir.nodes.get(&semantic_id)?.children.clone();
+    let mut visited = HashSet::new();
+    while !frontier.is_empty() {
+        frontier.sort_unstable_by_key(|id| id.as_u128());
+        let mut next = Vec::new();
+        for descendant_id in frontier {
+            if !visited.insert(descendant_id) {
+                continue;
+            }
+            if snap.get_node_geometry(descendant_id).is_some() {
+                return Some(descendant_id);
+            }
+            if let Some(descendant) = ir.nodes.get(&descendant_id) {
+                next.extend(descendant.children.iter().copied());
+            }
+        }
+        frontier = next;
+    }
+
+    None
 }
 
 pub(crate) fn collect_semantic_records(
@@ -117,11 +153,39 @@ fn semantic_record_for_node(
     let fission_ir::Op::Semantics(semantics) = &node.op else {
         return None;
     };
-    let logical = snap
-        .get_node_rect(id)
-        .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-    let visual = visual_rect_for_node(ir, snap, scroll, id);
-    let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
+    let layout_target = layout_target_for_semantic(ir, snap, id).unwrap_or(id);
+    let inline_link_rects =
+        fission_core::ui::widgets::text::rich_text_link_rects(ir, snap, id).map(|(_, rects)| rects);
+    let (logical, visual, visible, link_fragments) = if let Some(rects) = inline_link_rects {
+        let visual_rects = rects
+            .iter()
+            .filter_map(|rect| visual_rect_for_layout_rect(ir, scroll, id, *rect))
+            .collect::<Vec<_>>();
+        let visible_rects = visual_rects
+            .iter()
+            .filter_map(|rect| clipped_visible_rect_for_layout_rect(ir, snap, scroll, id, *rect))
+            .collect::<Vec<_>>();
+        let fragments = visible_rects
+            .iter()
+            .map(|rect| bounds_from_rect(*rect))
+            .collect();
+        (
+            union_layout_rects(&rects).unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0)),
+            union_layout_rects(&visual_rects),
+            union_layout_rects(&visible_rects),
+            fragments,
+        )
+    } else {
+        let logical = snap
+            .get_node_rect(layout_target)
+            .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+        (
+            logical,
+            visual_rect_for_node(ir, snap, scroll, layout_target),
+            clipped_visible_rect_for_node(ir, snap, scroll, layout_target),
+            Vec::new(),
+        )
+    };
     let visibility = visibility_state(visual, visible);
     let visible_bounds = visible.map(bounds_from_rect);
     let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {
@@ -200,7 +264,74 @@ fn semantic_record_for_node(
         id,
         semantics: semantics.clone(),
         node: semantic_node,
+        link_fragments,
     })
+}
+
+fn visual_rect_for_layout_rect(
+    ir: &CoreIR,
+    scroll: &fission_core::ScrollStateMap,
+    node_id: WidgetId,
+    mut rect: LayoutRect,
+) -> Option<LayoutRect> {
+    let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        let parent = ir.nodes.get(&parent_id)?;
+        if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &parent.op {
+            let offset = scroll.get_offset(parent_id);
+            match direction {
+                fission_ir::FlexDirection::Row => rect.origin.x -= offset,
+                fission_ir::FlexDirection::Column => rect.origin.y -= offset,
+            }
+        }
+        current = parent.parent;
+    }
+    Some(rect)
+}
+
+fn clipped_visible_rect_for_layout_rect(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+    node_id: WidgetId,
+    rect: LayoutRect,
+) -> Option<LayoutRect> {
+    let viewport = LayoutRect::new(
+        0.0,
+        0.0,
+        snap.viewport_size.width,
+        snap.viewport_size.height,
+    );
+    let mut visible = intersect_rect(rect, viewport)?;
+    let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        let parent = ir.nodes.get(&parent_id)?;
+        if matches!(
+            parent.op,
+            fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. })
+                | fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. })
+        ) {
+            visible = intersect_rect(visible, visual_rect_for_node(ir, snap, scroll, parent_id)?)?;
+        }
+        current = parent.parent;
+    }
+    Some(visible)
+}
+
+fn union_layout_rects(rects: &[LayoutRect]) -> Option<LayoutRect> {
+    let first = *rects.first()?;
+    let (left, top, right, bottom) = rects.iter().skip(1).fold(
+        (first.x(), first.y(), first.right(), first.bottom()),
+        |(left, top, right, bottom), rect| {
+            (
+                left.min(rect.x()),
+                top.min(rect.y()),
+                right.max(rect.right()),
+                bottom.max(rect.bottom()),
+            )
+        },
+    );
+    Some(LayoutRect::new(left, top, right - left, bottom - top))
 }
 
 fn selector_matches_semantics(

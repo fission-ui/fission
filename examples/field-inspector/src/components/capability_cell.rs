@@ -5,7 +5,7 @@ fission_component! {
     pub CapabilityCell<FieldInspectorState> { line: CapabilityLine }
     view(cell, _state, cx) {
         let tokens = &cx.view.env().theme.tokens; let typography = &tokens.typography;
-        let semantic_identifier = format!("field-inspector.capability.{}", cell.line.title.to_ascii_lowercase().replace([' ', '/'], "-"));
+        let semantic_identifier = format!("field-inspector.capability.{}", cell.line.id);
         let semantic_label = cell.line.title;
     } =>
         SemanticsRegion(

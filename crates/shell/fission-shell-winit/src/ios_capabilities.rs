@@ -278,7 +278,7 @@ fn ios_capture_photo_bytes(request: CameraCaptureRequest) -> Result<IosPhotoByte
                 return Err(CameraError::new(
                     "timeout",
                     "iOS did not produce a photo before the request timed out",
-                ))
+                ));
             }
         };
         let (width, height) = image_dimensions(&bytes).unwrap_or_else(|| {

@@ -25,9 +25,9 @@ fission_component! {
                     ActionButton("field-inspector.security.passkey-register".to_string(), "Register passkey".to_string(), register, ButtonVariant::SecondaryColor),
                     ActionButton("field-inspector.security.passkey-authenticate".to_string(), "Authenticate passkey".to_string(), authenticate, ButtonVariant::SecondaryGray),
                 ]),
-                ResponsiveGrid(vec![
-                    Metric::new("Protected notes".to_string(), if state.sensitive_unlocked { "Unlocked" } else { "Locked" }.to_string()).into(),
-                    Metric::new("Account proof".to_string(), if state.passkey_verified { "Passkey verified" } else { "Pending" }.to_string()).into(),
+                ResponsiveGrid([
+                    Metric("Protected notes".to_string(), if state.sensitive_unlocked { "Unlocked" } else { "Locked" }.to_string(), key: "security.protected-notes"),
+                    Metric("Account proof".to_string(), if state.passkey_verified { "Passkey verified" } else { "Pending" }.to_string(), key: "security.account-proof"),
                 ], DEFAULT_ITEM_MIN_WIDTH),
                 ProtectedNotes(),
             ],

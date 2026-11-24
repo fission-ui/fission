@@ -255,7 +255,8 @@ impl InputController for GestureController {
                             ctx.gesture.dragging_payload =
                                 matches!(button, crate::event::PointerButton::Primary)
                                     .then(|| self.find_drag_payload(ctx, hit))
-                                    .flatten();
+                                    .flatten()
+                                    .map(|(_, payload)| payload);
                         } else {
                             ctx.gesture.target_node = None;
                             ctx.gesture.dragging_payload = None;
@@ -342,7 +343,14 @@ impl InputController for GestureController {
                             {
                                 ctx.gesture.is_panning = true;
                                 if let Some(payload) = ctx.gesture.dragging_payload.clone() {
-                                    let target = ctx.gesture.target_node;
+                                    // Capture the semantic payload owner, not a painted
+                                    // descendant that an active/hover visual may replace.
+                                    // Until the threshold is crossed the original hit stays
+                                    // intact so ordinary child clicks keep their behavior.
+                                    let target = ctx.gesture.target_node.and_then(|hit| {
+                                        self.find_drag_payload(ctx, hit).map(|(owner, _)| owner)
+                                    });
+                                    ctx.gesture.target_node = target;
                                     let source_identifier =
                                         target.and_then(|id| self.semantic_identifier(ctx, id));
                                     ctx.gesture.drag_session = Some(DragSessionState {
@@ -797,17 +805,10 @@ impl GestureController {
         trigger: ActionTrigger,
         point: LayoutPoint,
     ) -> bool {
-        let Some(action_entry) = annotation
+        let action_entry = annotation
             .actions
             .iter()
-            .find(|entry| entry.trigger == trigger)
-        else {
-            return false;
-        };
-        let Some(payload) = &action_entry.payload_data else {
-            return false;
-        };
-
+            .find(|entry| entry.trigger == trigger);
         let input = crate::input::scoped_action_input(
             ctx.ir,
             node_id,
@@ -818,24 +819,49 @@ impl GestureController {
                 delta_y: 0.0,
             },
         );
-        ctx.dispatched_actions.push((
-            node_id,
-            ActionEnvelope {
-                id: ActionId::from_u128(action_entry.action_id),
-                payload: payload.clone(),
-            },
-            input,
-        ));
-        true
+        let mut handled = false;
+        if let Some(action_entry) = action_entry {
+            ctx.dispatched_actions.push((
+                node_id,
+                ActionEnvelope {
+                    id: ActionId::from_u128(action_entry.action_id),
+                    payload: action_entry.payload_data.clone().unwrap_or_default(),
+                },
+                input.clone(),
+            ));
+            handled = true;
+        }
+
+        let navigation_already_bound = annotation.actions.iter().any(|entry| {
+            entry.trigger == ActionTrigger::Default
+                && ActionId::from_u128(entry.action_id) == crate::NavigationRequested::static_id()
+        });
+        if trigger == ActionTrigger::Default && !navigation_already_bound {
+            if let Some(hyperlink) = annotation.hyperlink.clone() {
+                ctx.dispatched_actions.push((
+                    node_id,
+                    crate::NavigationRequested::new(crate::NavigationCommand::Open(hyperlink))
+                        .into(),
+                    input,
+                ));
+                handled = true;
+            }
+        }
+
+        handled
     }
 
-    fn find_drag_payload(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<Vec<u8>> {
+    fn find_drag_payload(
+        &self,
+        ctx: &ControllerContext,
+        start_node: WidgetId,
+    ) -> Option<(WidgetId, Vec<u8>)> {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(sem) = &node.op {
                     if let Some(p) = &sem.drag_payload {
-                        return Some(p.clone());
+                        return Some((node_id, p.clone()));
                     }
                 }
                 current_id = node.parent;

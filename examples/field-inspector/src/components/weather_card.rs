@@ -23,9 +23,9 @@ fission_component! {
                 if let Some(weather) = card.snapshot.data() {
                     ResponsiveGrid(
                         [
-                            Metric("Weather".to_string(), weather.label.clone()),
-                            Metric("Temperature".to_string(), format!("{:.1} C", weather.temperature_c)),
-                            Metric("Wind".to_string(), format!("{:.0} kph", weather.wind_speed_kph)),
+                            Metric("Weather".to_string(), weather.label.clone(), key: "weather_card.summary"),
+                            Metric("Temperature".to_string(), format!("{:.1} C", weather.temperature_c), key: "weather_card.temperature"),
+                            Metric("Wind".to_string(), format!("{:.0} kph", weather.wind_speed_kph), key: "weather_card.wind"),
                         ],
                         crate::components::ui::DEFAULT_ITEM_MIN_WIDTH,
                     )

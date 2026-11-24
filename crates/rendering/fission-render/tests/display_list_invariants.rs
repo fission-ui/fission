@@ -143,6 +143,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             text_offset: 4,
             gap_after: 24.0,
         }],
+        paragraph_styles: Vec::new(),
         position: LayoutPoint::new(8.0, 12.0),
         bounds,
         node_id: None,
@@ -170,6 +171,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             },
         }),
         annotations: vec![RichTextAnnotation {
+            hyperlink: None,
             range: 0..8,
             semantics_label: Some("Paragraph".into()),
             semantics_identifier: Some("hero-copy".into()),

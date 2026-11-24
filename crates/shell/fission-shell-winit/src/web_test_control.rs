@@ -1,5 +1,5 @@
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
@@ -26,6 +26,8 @@ enum PendingResponse {
 
 const MAX_PENDING_RESPONSES: usize = 1024;
 const MAX_COMMAND_JSON_BYTES: usize = 4 * 1024 * 1024;
+const DISPATCH_STATUS_WAKE: u32 = 0b01;
+const DISPATCH_STATUS_ACCEPTED: u32 = 0b10;
 const POLL_STAGE_ENTERED: u32 = 1;
 const POLL_STAGE_RESPONSE_READY: u32 = 2;
 const POLL_STAGE_JSON_READY: u32 = 3;
@@ -35,6 +37,10 @@ static WEB_WAKE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_REDRAW_WAIT_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_EVENT_LOOP_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEB_TEST_WAIT_LOOP_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_WAKE_DISPATCH_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_WAKE_COMPLETE_TRACE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WEB_LAST_QUEUE_DEFER_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
+static WEB_LAST_WAKE_GATE_RELEASE_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 static WEB_LAST_PENDING_WORK_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 static WEB_LAST_REDRAW_PENDING_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
 static WEB_LAST_REDRAW_REQUEST_TRACE: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -76,11 +82,22 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         std::ptr::read_volatile(std::ptr::addr_of!(marker));
     }
 
+    if should_log_diagnostic(stage, iteration) {
+        web_sys::console::log_1(&JsValue::from_str(&format!(
+            "FISSION_WEB_TEST_TRACE {stage} {iteration}"
+        )));
+    }
+}
+
+fn should_log_diagnostic(stage: u32, iteration: u32) -> bool {
     // LiveTest can become unable to evaluate JavaScript while the Wasm main
     // thread is stuck in synchronous work. Keep useful boundaries visible
-    // through CDP, but avoid logging every idle-loop step and every Wake: a
-    // trace flood can itself delay browser tasks and obscure the original bug.
-    let should_log = match stage {
+    // through CDP, but avoid logging every idle-loop step, every poll, and
+    // every Wake. Poll exports are called synchronously from JS and must stay
+    // cheap; logging each poll both floods CDP and risks JS re-entry while the
+    // bridge's UnsafeCell is borrowed.
+    match stage {
+        _ if super::web_test_diagnostic_is_poll_stage(stage) => false,
         300..=353 => true,
         // These markers can run for every browser event-loop iteration. Keep a
         // sparse heartbeat for 360 and report state changes for the other
@@ -90,23 +107,48 @@ pub(crate) fn record_diagnostic(stage: u32, iteration: u32) {
         364 => WEB_LAST_PENDING_WORK_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         365 => WEB_LAST_REDRAW_PENDING_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
         366 => WEB_LAST_REDRAW_REQUEST_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
-        400 | 402 | 410 | 411 | 414 | 416 | 417 | 418 | 419 | 420 | 424 | 430 | 432 | 435 => true,
+        400
+        | 402
+        | 410
+        | 411
+        | 414
+        | 416
+        | 417
+        | 418
+        | 419
+        | 420
+        | 424
+        | 425
+        | 426
+        | 427
+        | 436
+        | 480
+        | 481
+        | 483
+        | 485..=490
+        | 499..=514
+        | 552..=556
+        | 558..=559 => true,
+        428 => WEB_WAKE_DISPATCH_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 16 == 0,
+        429 => WEB_WAKE_COMPLETE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 16 == 0,
+        550 | 551 => WEB_LAST_QUEUE_DEFER_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
+        557 => WEB_LAST_WAKE_GATE_RELEASE_TRACE.swap(iteration, Ordering::Relaxed) != iteration,
+        482 => iteration > 0,
+        484 => iteration == 0,
         473 if iteration == 1 => {
             WEB_REDRAW_WAIT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
-        437 if iteration == 42 => true,
+        437 if iteration == 42 || iteration == 43 || iteration == 44 => true,
         437 if iteration == 31 => WEB_WAKE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 4096 == 0,
         479 if iteration == 1 => {
             WEB_TEST_WAIT_LOOP_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) % 256 == 0
         }
-        450..=470 | 474 | 475 | 476 => true,
+        // The event handler reports 0 for ordinary Winit events. Keep the
+        // redraw boundaries useful without logging every idle-loop event.
+        492 => iteration != 0,
+        450..=470 | 474 | 475 | 476 | 491 | 493..=498 => true,
         90 | 91 if iteration == 42 => true,
         _ => false,
-    };
-    if should_log {
-        web_sys::console::log_1(&JsValue::from_str(&format!(
-            "FISSION_WEB_TEST_TRACE {stage} {iteration}"
-        )));
     }
 }
 
@@ -129,6 +171,7 @@ static mut COMMAND_JSON: [u8; MAX_COMMAND_JSON_BYTES] = [0; MAX_COMMAND_JSON_BYT
 struct WebTestBridgeState {
     next_request_id: u32,
     responses: HashMap<u32, PendingResponse>,
+    pending_capture_requests: VecDeque<mpsc::Sender<TestResponse>>,
     frame: Option<WebTestFrame>,
     poll_json: Vec<u8>,
     event_proxy: Option<EventLoopProxy<TestEvent>>,
@@ -139,6 +182,7 @@ impl Default for WebTestBridgeState {
         Self {
             next_request_id: 1,
             responses: HashMap::new(),
+            pending_capture_requests: VecDeque::new(),
             frame: None,
             poll_json: Vec::new(),
             event_proxy: None,
@@ -282,7 +326,26 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         &JsValue::from_str("fission_web_test_dispatch_command"),
     )
     .unwrap_or(JsValue::UNDEFINED);
-    if !dispatch_command.is_function() {
+    let wake_event_loop = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_wake_event_loop"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let capture_requests_pending = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_capture_requests_pending"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    let deferred_wake_scheduled = Reflect::get(
+        &exports,
+        &JsValue::from_str("fission_web_test_deferred_wake_scheduled"),
+    )
+    .unwrap_or(JsValue::UNDEFINED);
+    if !dispatch_command.is_function()
+        || !wake_event_loop.is_function()
+        || !capture_requests_pending.is_function()
+        || !deferred_wake_scheduled.is_function()
+    {
         return false;
     }
     let poll_diagnostics_address = std::ptr::addr_of!(LAST_POLL_STAGE) as usize;
@@ -397,6 +460,52 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
     true
 }
 
+/// Drain captures queued by the Web LiveTest bridge. This is called from the
+/// event loop's periodic `AboutToWait` pass as a delivery fallback: the browser
+/// event proxy may accept a message before Winit actually runs its microtask.
+pub(crate) fn take_pending_capture_requests() -> Option<Vec<mpsc::Sender<TestResponse>>> {
+    let pending = with_bridge_state(|state| {
+        (!state.pending_capture_requests.is_empty()).then(|| {
+            std::mem::take(&mut state.pending_capture_requests)
+                .into_iter()
+                .collect::<Vec<_>>()
+        })
+    });
+    if let Some(pending) = &pending {
+        record_diagnostic(482, pending.len() as u32);
+    }
+    pending
+}
+
+pub(crate) fn take_next_pending_capture_request() -> Option<mpsc::Sender<TestResponse>> {
+    with_bridge_state(|state| super::take_one(&mut state.pending_capture_requests))
+}
+
+pub(crate) fn requeue_pending_capture_request(
+    response_tx: mpsc::Sender<TestResponse>,
+) -> Result<(), mpsc::Sender<TestResponse>> {
+    let result = with_bridge_state(|state| {
+        super::enqueue_bounded(
+            &mut state.pending_capture_requests,
+            response_tx,
+            MAX_PENDING_RESPONSES,
+        )
+    });
+    record_diagnostic(484, u32::from(result.is_ok()));
+    result
+}
+
+pub(crate) fn fail_pending_capture_requests() {
+    if let Some(pending) = take_pending_capture_requests() {
+        for response_tx in pending {
+            let _ = response_tx.send(TestResponse::Error {
+                message: "Fission browser event loop is closed".into(),
+            });
+        }
+        record_diagnostic(483, 1);
+    }
+}
+
 // Keep these as plain Wasm exports. The `#[wasm_bindgen]` synchronous wrapper
 // routes calls through `maybe_catch_unwind`, which consults thread-local panic
 // state and can trap in a long-running Web LiveTest session.
@@ -475,10 +584,37 @@ pub extern "C" fn fission_web_test_submit_json(length: u32) -> u32 {
 // to a later browser task so the CDP command can return its request id first.
 #[cfg(fission_web_test_control)]
 #[no_mangle]
-pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) {
+pub extern "C" fn fission_web_test_dispatch_command(request_id: u32) -> u32 {
     record_diagnostic(417, request_id);
-    dispatch_queued_command(request_id);
+    // Bit 1 acknowledges that Rust consumed the queued request. Bit 0 asks
+    // JavaScript to schedule a separate wake for screenshot capture. Keeping
+    // these signals separate lets the adapter retry a request when a stale or
+    // early dispatch attempt did not find it in the queue.
+    let dispatch_status = dispatch_queued_command(request_id);
     record_diagnostic(419, request_id);
+    dispatch_status
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_wake_event_loop() -> u32 {
+    record_diagnostic(426, 1);
+    let proxy = with_bridge_state(|state| state.event_proxy.clone());
+    let sent = proxy.is_some_and(|proxy| proxy.send_event(TestEvent::Wake).is_ok());
+    record_diagnostic(427, u32::from(sent));
+    u32::from(sent)
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_capture_requests_pending() -> u32 {
+    with_bridge_state(|state| u32::from(!state.pending_capture_requests.is_empty()))
+}
+
+#[cfg(fission_web_test_control)]
+#[no_mangle]
+pub extern "C" fn fission_web_test_deferred_wake_scheduled() {
+    record_diagnostic(425, 1);
 }
 
 #[cfg(fission_web_test_control)]
@@ -495,14 +631,18 @@ pub extern "C" fn fission_web_test_poll_json_len(request_id: u32) -> u32 {
         None => "null".to_owned(),
     };
     record_diagnostic(433, json.len() as u32);
-    with_bridge_state(|state| {
+    let length = with_bridge_state(|state| {
         record_diagnostic(434, request_id);
         state.poll_json.clear();
         state.poll_json.extend_from_slice(json.as_bytes());
         record_poll_stage(request_id, POLL_STAGE_JSON_READY);
-        record_diagnostic(435, state.poll_json.len() as u32);
         state.poll_json.len() as u32
-    })
+    });
+    // Keep this marker outside the bridge-state borrow. record_diagnostic can
+    // call into JavaScript for CDP tracing, and JS must never re-enter an
+    // export while `WebTestBridgeState` is mutably borrowed.
+    record_diagnostic(435, length);
+    length
 }
 
 #[cfg(fission_web_test_control)]
@@ -574,22 +714,30 @@ fn queue_command(command: Result<TestCommand, String>) -> u32 {
     request_id
 }
 
-fn dispatch_queued_command(request_id: u32) {
-    let (command, proxy) = with_bridge_state(|state| {
-        let command = match state.responses.remove(&request_id) {
-            Some(PendingResponse::Queued(command)) => Some(command),
+/// Returns 0 if no queued request was consumed, 2 if dispatch completed, and
+/// 3 if dispatch completed and a browser-task wake is required.
+fn dispatch_queued_command(request_id: u32) -> u32 {
+    let (command, proxy, already_consumed) =
+        with_bridge_state(|state| match state.responses.remove(&request_id) {
+            Some(PendingResponse::Queued(command)) => {
+                (Some(command), state.event_proxy.clone(), false)
+            }
             Some(response) => {
                 state.responses.insert(request_id, response);
-                None
+                (None, state.event_proxy.clone(), true)
             }
-            None => None,
-        };
-        (command, state.event_proxy.clone())
-    });
+            None => (None, state.event_proxy.clone(), false),
+        });
     record_diagnostic(418, u32::from(command.is_some()));
     let Some(command) = command else {
-        return;
+        return if already_consumed {
+            DISPATCH_STATUS_ACCEPTED
+        } else {
+            0
+        };
     };
+
+    let wake_after_dispatch = matches!(&command, Ok(TestCommand::CaptureScreenshot {}));
 
     let response = match (command, proxy) {
         (Ok(command), Some(proxy)) => dispatch(command, &proxy),
@@ -601,6 +749,12 @@ fn dispatch_queued_command(request_id: u32) {
     with_bridge_state(|state| {
         state.responses.insert(request_id, response);
     });
+    DISPATCH_STATUS_ACCEPTED
+        | if wake_after_dispatch {
+            DISPATCH_STATUS_WAKE
+        } else {
+            0
+        }
 }
 
 fn response_json_string(response: &TestResponse) -> String {
@@ -911,9 +1065,7 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             ms,
             response_tx,
         }),
-        TestCommand::CaptureScreenshot {} => query(proxy, |response_tx| {
-            TestEvent::CaptureScreenshot { response_tx }
-        }),
+        TestCommand::CaptureScreenshot {} => queue_capture_screenshot(),
         TestCommand::CaptureAt { ms } => query(proxy, |response_tx| TestEvent::CaptureAt {
             ms,
             response_tx,
@@ -950,6 +1102,26 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
         | TestCommand::Screenshot { .. } => PendingResponse::Ready(TestResponse::Error {
             message: "command is handled by the browser test host".into(),
         }),
+    }
+}
+
+fn queue_capture_screenshot() -> PendingResponse {
+    let (response_tx, response_rx) = mpsc::channel();
+    let queued = with_bridge_state(|state| {
+        super::enqueue_bounded(
+            &mut state.pending_capture_requests,
+            response_tx,
+            MAX_PENDING_RESPONSES,
+        )
+        .is_ok()
+    });
+    record_diagnostic(480, u32::from(queued));
+    if queued {
+        PendingResponse::Waiting(response_rx)
+    } else {
+        PendingResponse::Ready(TestResponse::Error {
+            message: "too many pending browser screenshot requests".into(),
+        })
     }
 }
 

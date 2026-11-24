@@ -665,6 +665,12 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         self.with_exact_ctx(|ctx| ctx.register::<A, H>(handler));
     }
 
+    /// Binds a reducer to one retained local-state field.
+    ///
+    /// Effects emitted here use the runtime's request IDs, but `Effects::bind`
+    /// cannot create completion reducers for this field: that API binds app
+    /// state, not a retained field's owner/key. Bind a local continuation during
+    /// the build with `bind_local` and pass its action to `on_ok` or `on_err`.
     pub fn bind_local<T, A, H>(
         &self,
         action: A,
@@ -684,7 +690,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                   _target,
                   _effects,
                   _input,
-                  _callback_registry|
+                  _callback_registry,
+                  next_req_id|
                   -> anyhow::Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(crate::registry::ActionDeserializationError::new)?;
@@ -694,7 +701,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 else {
                     anyhow::bail!("Fission local widget state store is not registered in Runtime");
                 };
-                let mut effects_builder = crate::Effects::<T>::new_headless(0);
+                let mut effects_builder = crate::Effects::<T>::new_headless(*next_req_id);
                 let mut reducer_ctx = crate::ReducerContext {
                     effects: &mut effects_builder,
                     input: _input,
@@ -702,6 +709,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 store.update::<T>(&field_key, |value| {
                     handler.call(value, action, &mut reducer_ctx)
                 })?;
+                *next_req_id = effects_builder.next_request_id();
                 _effects.extend(effects_builder.out);
                 Ok(())
             },

@@ -414,6 +414,9 @@ pub enum ActionTrigger {
     LongPress,
     /// An active drag ended without committing, for example after pointer cancellation.
     DragCancel,
+    /// Platform-produced text was committed to a focused non-editing control,
+    /// or its IME composition changed.
+    TextEntry,
 }
 
 #[cfg(test)]
@@ -453,11 +456,16 @@ mod tests {
         assert_eq!(ActionTrigger::Key as u8, 25);
         assert_eq!(ActionTrigger::LongPress as u8, 26);
         assert_eq!(ActionTrigger::DragCancel as u8, 27);
+        assert_eq!(ActionTrigger::TextEntry as u8, 28);
     }
 
     #[test]
-    fn appended_gesture_triggers_round_trip_through_ir_serialization() {
-        for trigger in [ActionTrigger::LongPress, ActionTrigger::DragCancel] {
+    fn appended_action_triggers_round_trip_through_ir_serialization() {
+        for trigger in [
+            ActionTrigger::LongPress,
+            ActionTrigger::DragCancel,
+            ActionTrigger::TextEntry,
+        ] {
             let encoded = serde_json::to_string(&trigger).expect("serialize gesture trigger");
             let decoded: ActionTrigger =
                 serde_json::from_str(&encoded).expect("deserialize gesture trigger");
@@ -534,13 +542,16 @@ mod tests {
             "active_descendant",
             "sequential_focusable",
             "text_editable",
-            "scene_target",
         ];
         let mut encoded = serde_json::to_value(Semantics::default()).unwrap();
         let object = encoded.as_object_mut().unwrap();
         for field in added_fields {
             assert!(object.remove(field).is_some(), "missing test field {field}");
         }
+        // None is intentionally omitted from serialized scene targets. Supply
+        // a real target in its own round-trip tests; an old-IR fixture must not
+        // require an omitted optional field to have existed in the first place.
+        assert!(!object.contains_key("scene_target"));
 
         let decoded: Semantics = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded.selected, None);
@@ -1083,8 +1094,9 @@ pub struct Semantics {
     ///
     /// Checked before the framework's own handling for that key, so a node that
     /// explicitly asks for Enter gets Enter rather than default activation.
-    /// Tab is the exception: focus traversal belongs to the framework and is
-    /// never overridden, or a single widget could trap focus for the whole app.
+    /// Ordinary bindings cannot override Tab traversal. A focused text editor
+    /// may explicitly opt in through `TextInput::on_tab`; ancestor bindings
+    /// cannot capture Tab for the whole subtree.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub key_actions: Vec<KeyAction>,
     /// Structured InfiniteCanvas target metadata for contextual gesture input.

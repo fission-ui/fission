@@ -29,6 +29,8 @@ fn node(
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 

@@ -317,6 +317,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
     for (id, node) in &ir.nodes {
         let mut rich_text_content: Option<Vec<fission_ir::op::TextRun>> = None;
         let mut display_breaks_content = Vec::new();
+        let mut paragraph_styles_content = Vec::new();
         let mut inherited_box = None;
         if let Some(parent_id) = parent_map.get(id) {
             if let Some(parent) = ir.nodes.get(parent_id) {
@@ -719,6 +720,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
             Op::Paint(PaintOp::DrawRichText {
                 runs,
                 display_breaks,
+                paragraph_styles,
                 wrap: _,
                 caret_index: _,
                 caret_color: _,
@@ -736,6 +738,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
 
                 rich_text_content = Some(runs.clone());
                 display_breaks_content = display_breaks.clone();
+                paragraph_styles_content = paragraph_styles.clone();
                 if !runs.iter().any(|run| {
                     decode_inline_widget_marker(run.style.font_family.as_deref()).is_some()
                 }) {
@@ -821,6 +824,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
             flex_shrink,
             rich_text: rich_text_content,
             display_breaks: display_breaks_content,
+            paragraph_styles: paragraph_styles_content,
         });
     }
 

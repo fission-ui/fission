@@ -29,6 +29,8 @@ fn scroll_children_stretch_cross_axis() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let scroll = LayoutInputNode {
@@ -54,6 +56,8 @@ fn scroll_children_stretch_cross_axis() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let child = LayoutInputNode {
@@ -78,6 +82,8 @@ fn scroll_children_stretch_cross_axis() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let nodes = vec![root, scroll, child];

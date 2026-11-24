@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Space activation, keep button capture stable when the focus ring changes,
   and avoid starting a window drag from a child control's expanded hit area.
 
+- **Writable file handle lifecycle** - Applications can explicitly release a
+  picked or restored save-file handle after the last write, dropping retained
+  host handles without deleting the file or its persisted browser grant.
+
 ## [0.16.0] - 2026-11-13
 
 ### Added

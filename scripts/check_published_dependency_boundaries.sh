@@ -6,6 +6,19 @@ cd "$repo_root"
 
 manifest_paths=(Cargo.toml)
 while IFS= read -r manifest; do
+  # Standalone regression fixtures may deliberately link two source revisions.
+  # They are not publishable crates; verify that explicitly before excluding them.
+  if [[ "$manifest" == */tests/fixtures/*/Cargo.toml ]] &&
+     python3 - "$manifest" <<'PY'
+import sys
+import tomllib
+with open(sys.argv[1], "rb") as source:
+    manifest = tomllib.load(source)
+sys.exit(0 if manifest.get("package", {}).get("publish") is False else 1)
+PY
+  then
+    continue
+  fi
   manifest_paths+=("$manifest")
 done < <(find crates -name Cargo.toml -type f | sort)
 

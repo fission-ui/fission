@@ -6,6 +6,7 @@ impl FieldInspectorState {
     pub fn capability_lines(&self) -> Vec<CapabilityLine> {
         vec![
             CapabilityLine {
+                id: "notifications",
                 title: "Notifications",
                 detail: self
                     .notification_settings
@@ -31,6 +32,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "deep-links",
                 title: "Deep links",
                 detail: self
                     .last_deep_link
@@ -44,6 +46,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "geolocation",
                 title: "Geolocation",
                 detail: self
                     .position
@@ -68,6 +71,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "camera",
                 title: "Camera and flashlight",
                 detail: self
                     .photo_capture
@@ -100,6 +104,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "barcode",
                 title: "Barcode scanner",
                 detail: self
                     .scanned_barcode
@@ -114,6 +119,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "nfc",
                 title: "NFC",
                 detail: self
                     .scanned_nfc
@@ -134,6 +140,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "microphone",
                 title: "Microphone",
                 detail: self
                     .voice_note
@@ -161,6 +168,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "bluetooth",
                 title: "Bluetooth",
                 detail: self
                     .bluetooth_connection
@@ -197,6 +205,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "wifi",
                 title: "Wi-Fi",
                 detail: self
                     .wifi_availability
@@ -222,6 +231,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "secure-authentication",
                 title: "Biometrics and passkeys",
                 detail: if self.sensitive_unlocked && self.passkey_verified {
                     "Sensitive panel unlocked and account verified".into()
@@ -251,6 +261,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "clipboard",
                 title: "Clipboard",
                 detail: self
                     .copied_summary
@@ -264,6 +275,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "haptics",
                 title: "Haptics",
                 detail: "Selection, scan, success, and error feedback".into(),
                 state: if self.logs.iter().any(|log| log.title.contains("Haptic")) {
@@ -273,6 +285,7 @@ impl FieldInspectorState {
                 },
             },
             CapabilityLine {
+                id: "volume",
                 title: "Volume control",
                 detail: self
                     .volume_level

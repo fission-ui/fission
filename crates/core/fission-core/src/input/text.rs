@@ -896,6 +896,45 @@ impl TextInputController {
         None
     }
 
+    fn dispatch_text_entry(ctx: &mut ControllerContext, input: crate::TextEntryInput) -> bool {
+        let Some(focused_id) = ctx.interaction.focused else {
+            return false;
+        };
+        if crate::hit_test::is_interaction_inert(ctx.ir, focused_id)
+            || Self::text_input_semantics(ctx, focused_id).is_some()
+        {
+            return false;
+        }
+
+        let mut current_id = Some(focused_id);
+        while let Some(node_id) = current_id {
+            let Some(node) = ctx.ir.nodes.get(&node_id) else {
+                return false;
+            };
+            if let Op::Semantics(semantics) = &node.op {
+                if !semantics.disabled {
+                    if let Some(entry) = semantics.actions.entries.iter().find(|entry| {
+                        entry.trigger == fission_ir::semantics::ActionTrigger::TextEntry
+                    }) {
+                        let envelope = ActionEnvelope {
+                            id: ActionId::from_u128(entry.action_id),
+                            payload: entry.payload_data.clone().unwrap_or_default(),
+                        };
+                        let input = crate::input::scoped_action_input(
+                            ctx.ir,
+                            node_id,
+                            crate::ActionInput::TextEntry(input),
+                        );
+                        ctx.dispatched_actions.push((node_id, envelope, input));
+                        return true;
+                    }
+                }
+            }
+            current_id = node.parent;
+        }
+        false
+    }
+
     fn handle_key_with_produced_text(
         &mut self,
         ctx: &mut ControllerContext,
@@ -917,7 +956,15 @@ impl TextInputController {
             return false;
         };
         let Some(semantics) = Self::text_input_semantics(ctx, focused_id) else {
-            return false;
+            return Self::dispatch_text_entry(
+                ctx,
+                crate::TextEntryInput {
+                    text: text.to_owned(),
+                    source: crate::TextEditSource::Keyboard,
+                    phase: crate::TextEntryPhase::Committed,
+                    cursor: None,
+                },
+            );
         };
         if semantics.disabled || semantics.read_only {
             return true;
@@ -969,6 +1016,17 @@ impl TextInputController {
         let semantics = if let Some(s) = semantics_node {
             s
         } else {
+            if key_code == KeyCode::Space && modifiers == 0 {
+                return Self::dispatch_text_entry(
+                    ctx,
+                    crate::TextEntryInput {
+                        text: " ".into(),
+                        source: crate::TextEditSource::Keyboard,
+                        phase: crate::TextEntryPhase::Committed,
+                        cursor: None,
+                    },
+                );
+            }
             return false;
         };
 
@@ -1608,120 +1666,6 @@ impl TextInputController {
         }
     }
 
-    fn handle_ime(&mut self, ctx: &mut ControllerContext, ime: &crate::event::ImeEvent) -> bool {
-        match ime {
-            crate::event::ImeEvent::Commit { text } => {
-                if let Some(focused_id) = ctx.interaction.focused {
-                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
-                        if let Op::Semantics(semantics) = &node.op {
-                            if semantics.supports_text_editing() {
-                                if semantics.disabled || semantics.read_only {
-                                    return true;
-                                }
-                                Self::sync_runtime_state(
-                                    ctx,
-                                    focused_id,
-                                    semantics.value.as_deref().unwrap_or(""),
-                                );
-                                let (value, start, end) = {
-                                    let st = ctx.text_edit.get_mut_or_default(focused_id);
-                                    if let Some(preedit) = &st.preedit {
-                                        let (start, end) = preedit.range;
-                                        let committed = st.committed_text();
-                                        // Legacy IME preedit is a display projection over the
-                                        // committed buffer. Remove that projection before the
-                                        // canonical transaction replaces its original range;
-                                        // otherwise the replacement is compared with the already
-                                        // projected display value and is incorrectly treated as a
-                                        // no-op.
-                                        st.clear_preedit();
-                                        (committed, start, end)
-                                    } else {
-                                        let value = st.editing_value();
-                                        let range = value.selection_range();
-                                        (
-                                            value.text,
-                                            range.start.utf8_offset(),
-                                            range.end.utf8_offset(),
-                                        )
-                                    }
-                                };
-
-                                if let Some(filtered_text) =
-                                    Self::prepare_inserted_text(semantics, &value, start, end, text)
-                                {
-                                    if let Some(result) = Self::apply_text_edit_transaction(
-                                        ctx,
-                                        semantics,
-                                        focused_id,
-                                        start..end,
-                                        filtered_text,
-                                        crate::TextEditSource::Ime,
-                                    ) {
-                                        let caret = result.new_value.selection.extent.utf8_offset();
-                                        let anchor = result.new_value.selection.base.utf8_offset();
-                                        self.dispatch_edit_result(
-                                            ctx, semantics, focused_id, result,
-                                        );
-                                        Self::dispatch_cursor_change(
-                                            ctx, semantics, focused_id, caret, anchor,
-                                        );
-                                    }
-                                } else {
-                                    ctx.text_edit.get_mut_or_default(focused_id).clear_preedit();
-                                }
-
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            crate::event::ImeEvent::Preedit { text, cursor } => {
-                if let Some(focused_id) = ctx.interaction.focused {
-                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
-                        if let Op::Semantics(semantics) = &node.op {
-                            if semantics.disabled || semantics.read_only {
-                                return true;
-                            }
-                            Self::sync_runtime_state(
-                                ctx,
-                                focused_id,
-                                semantics.value.as_deref().unwrap_or(""),
-                            );
-                        }
-                    }
-                    ctx.interaction.clear_active_descendant(focused_id);
-                    let st = ctx.text_edit.get_mut_or_default(focused_id);
-                    st.set_preedit(text.clone(), *cursor);
-                    Self::auto_scroll_textinput(ctx, focused_id);
-                    return true;
-                }
-            }
-            crate::event::ImeEvent::Cancel => {
-                if let Some(focused_id) = ctx.interaction.focused {
-                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
-                        if let Op::Semantics(semantics) = &node.op {
-                            if semantics.disabled || semantics.read_only {
-                                return true;
-                            }
-                            Self::sync_runtime_state(
-                                ctx,
-                                focused_id,
-                                semantics.value.as_deref().unwrap_or(""),
-                            );
-                        }
-                    }
-                    let st = ctx.text_edit.get_mut_or_default(focused_id);
-                    st.clear_preedit();
-                    Self::auto_scroll_textinput(ctx, focused_id);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     fn dispatch_change(
         &self,
         ctx: &mut ControllerContext,
@@ -1932,4 +1876,5 @@ impl TextInputController {
 }
 
 mod geometry;
+mod ime;
 pub use geometry::caret_from_point_in_text;

@@ -222,8 +222,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     }
 
     pub fn add(&mut self, effect: Effect) -> u64 {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
 
         self.out.push(EffectEnvelope {
             req_id,
@@ -241,8 +240,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         capability: CapabilityType<C>,
         request: C::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let request =
             serde_json::to_vec(&request).expect("capability request serialization must succeed");
 
@@ -428,8 +426,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         job: JobRef<J>,
         request: J::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let payload = serde_json::to_vec(&request).expect("job request serialization must succeed");
         let index = self.out.len();
         self.out.push(EffectEnvelope {
@@ -456,8 +453,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         &mut self,
         request: E::Request,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let payload =
             serde_json::to_vec(&request).expect("app effect request serialization must succeed");
         let index = self.out.len();
@@ -484,8 +480,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         slot: ServiceSlot<Svc>,
         config: Svc::Config,
     ) -> ServiceStartBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         let config =
             serde_json::to_vec(&config).expect("service config serialization must succeed");
@@ -512,8 +507,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         slot: ServiceSlot<Svc>,
         command: Svc::Command,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         let payload =
             serde_json::to_vec(&command).expect("service command serialization must succeed");
@@ -539,8 +533,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         &mut self,
         slot: ServiceSlot<Svc>,
     ) -> EffectBuilder<'_, 'a, S> {
-        let req_id = self.next_req_id;
-        self.next_req_id += 1;
+        let req_id = self.allocate_req_id();
         let index = self.out.len();
         self.out.push(EffectEnvelope {
             req_id,
@@ -557,6 +550,18 @@ impl<'a, S: GlobalState> Effects<'a, S> {
             effects: self,
             index,
         }
+    }
+
+    fn allocate_req_id(&mut self) -> u64 {
+        let req_id = self.next_req_id;
+        self.next_req_id = req_id
+            .checked_add(1)
+            .expect("Fission effect request IDs exhausted");
+        req_id
+    }
+
+    pub(crate) fn next_request_id(&self) -> u64 {
+        self.next_req_id
     }
 
     pub fn cancel(&mut self, req_id: u64) {
@@ -1558,6 +1563,16 @@ pub struct EffectBuilder<'a, 'b, S: GlobalState> {
 }
 
 impl<'a, 'b, S: GlobalState> EffectBuilder<'a, 'b, S> {
+    /// Returns the request id assigned to this effect.
+    ///
+    /// Keep this id when cancelling an in-flight app job with
+    /// [`Effects::cancel`]. Runtime-created reducer effects retain this id when
+    /// they are queued, so it remains the id delivered to the job context and
+    /// completion action.
+    pub fn req_id(&self) -> u64 {
+        self.effects.out[self.index].req_id
+    }
+
     pub fn on_ok(self, action: ActionEnvelope) -> Self {
         self.effects.out[self.index].on_ok = Some(action);
         self

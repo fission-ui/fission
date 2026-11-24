@@ -8,6 +8,7 @@ pub use fission_ir::op::{
     TextDecorationStyle, TextDisplayBreak, TextHyphenation, TextLeadingDistribution,
     TextLineBreakPolicy, TextShadow, TextTypography,
 };
+use fission_ir::semantics::Hyperlink;
 use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
@@ -18,10 +19,13 @@ use fission_ir::{
         TextRun as IrTextRun, TextWidthBasis as IrTextWidthBasis,
     },
     semantics::ActionTrigger,
-    ActionEntry, CompositeStyle, Role, Semantics, WidgetId,
+    ActionEntry, CompositeStyle, CoreIR, Role, Semantics, WidgetId,
 };
+use fission_layout::{LayoutRect, LayoutSnapshot};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+mod lowering;
 
 /// The content source for a [`Text`] widget.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,6 +264,9 @@ pub struct RichTextRun {
     pub semantics_identifier: Option<String>,
     #[serde(default)]
     pub spell_out: Option<bool>,
+    /// Optional navigational destination for this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<Hyperlink>,
 }
 
 impl RichTextRun {
@@ -270,6 +277,7 @@ impl RichTextRun {
             semantics_label: None,
             semantics_identifier: None,
             spell_out: None,
+            hyperlink: None,
         }
     }
 
@@ -377,6 +385,12 @@ impl RichTextRun {
         self
     }
 
+    /// Makes this run a navigable link while preserving its authored text style.
+    pub fn hyperlink(mut self, hyperlink: impl Into<Hyperlink>) -> Self {
+        self.hyperlink = Some(hyperlink.into());
+        self
+    }
+
     pub fn into_span(self) -> RichTextSpan {
         RichTextSpan::from(self)
     }
@@ -456,10 +470,70 @@ pub struct RichTextSpan {
     pub mouse_cursor: Option<IrMouseCursor>,
     #[serde(default)]
     pub actions: Vec<ActionEntry>,
+    /// Optional navigational destination for this span.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<Hyperlink>,
 }
 
 pub type TextSpan = RichTextSpan;
 pub type WidgetSpan = InlineWidgetSpan;
+
+/// Returns the shaped visual rectangles for a retained hyperlink semantics node.
+///
+/// Rich-text links have their own semantics and focus identity, while layout
+/// belongs to the containing paragraph. This resolves the link's annotation
+/// range against that paragraph's shared shaped layout.
+pub fn rich_text_link_rects(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    semantics_id: WidgetId,
+) -> Option<(WidgetId, Vec<LayoutRect>)> {
+    let semantics_identifier = ir
+        .nodes
+        .get(&semantics_id)
+        .and_then(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == Role::Link => {
+                semantics.identifier.as_deref()
+            }
+            _ => None,
+        })?;
+
+    let mut current = ir.nodes.get(&semantics_id).and_then(|node| node.parent);
+    while let Some(node_id) = current {
+        let Some(node) = ir.nodes.get(&node_id) else {
+            break;
+        };
+        if matches!(node.op, Op::Paint(PaintOp::DrawRichText { .. })) {
+            let annotations = ir
+                .custom_render_objects
+                .get(&node_id)
+                .and_then(|sidecar| sidecar.downcast_ref::<Vec<IrRichTextAnnotation>>())?;
+            let annotation = annotations.iter().find(|annotation| {
+                annotation.hyperlink.is_some()
+                    && annotation.semantics_identifier.as_deref() == Some(semantics_identifier)
+            })?;
+            let paragraph = layout.get_resolved_paragraph(node_id)?;
+            let paragraph_rect = layout.get_node_rect(node_id)?;
+            let rects = paragraph
+                .selection_rects(annotation.range.start, annotation.range.end)
+                .into_iter()
+                .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
+                .map(|rect| {
+                    LayoutRect::new(
+                        paragraph_rect.x() + rect.x(),
+                        paragraph_rect.y() + rect.y(),
+                        rect.width(),
+                        rect.height(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            return (!rects.is_empty()).then_some((node_id, rects));
+        }
+        current = node.parent;
+    }
+
+    None
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineWidgetSpan {
@@ -592,6 +666,13 @@ impl RichTextSpan {
         self
     }
 
+    /// Makes this span a navigable link while preserving its authored text style.
+    pub fn hyperlink(mut self, hyperlink: impl Into<Hyperlink>) -> Self {
+        self.hyperlink = Some(hyperlink.into());
+        self.mouse_cursor = Some(IrMouseCursor::Pointer);
+        self
+    }
+
     pub fn mouse_cursor(mut self, mouse_cursor: IrMouseCursor) -> Self {
         self.mouse_cursor = Some(mouse_cursor);
         self
@@ -675,6 +756,7 @@ impl RichTextSpan {
                         semantics_label: None,
                         semantics_identifier: None,
                         spell_out: None,
+                        hyperlink: None,
                     });
                 }
             }
@@ -710,8 +792,14 @@ impl RichTextSpan {
     }
 
     fn collect_semantics_identifier(&self) -> Option<String> {
-        if let Some(identifier) = &self.semantics_identifier {
-            return Some(identifier.clone());
+        // A hyperlink's identifier belongs to its retained inline Link node.
+        // Promoting it to the enclosing paragraph creates duplicate semantic
+        // identifiers and turns the link into an ordinary Text node for
+        // consumers that select the first matching identifier.
+        if self.hyperlink.is_none() {
+            if let Some(identifier) = &self.semantics_identifier {
+                return Some(identifier.clone());
+            }
         }
         for child in &self.children {
             if let RichTextChild::Span(child) = child {
@@ -729,6 +817,7 @@ impl RichTextSpan {
                 && self.semantics_identifier.is_none()
                 && self.spell_out.is_none()
                 && self.mouse_cursor.is_none()
+                && self.hyperlink.is_none()
                 && self.actions.is_empty())
         {
             return None;
@@ -741,12 +830,14 @@ impl RichTextSpan {
             spell_out: self.spell_out,
             mouse_cursor: self.mouse_cursor,
             actions: self.actions.clone(),
+            hyperlink: self.hyperlink.clone(),
         })
     }
 }
 
 impl From<RichTextRun> for RichTextSpan {
     fn from(value: RichTextRun) -> Self {
+        let mouse_cursor = value.hyperlink.as_ref().map(|_| IrMouseCursor::Pointer);
         Self {
             text: value.text,
             style: RichTextSpanStyle {
@@ -768,7 +859,8 @@ impl From<RichTextRun> for RichTextSpan {
             semantics_label: value.semantics_label,
             semantics_identifier: value.semantics_identifier,
             spell_out: value.spell_out,
-            mouse_cursor: None,
+            hyperlink: value.hyperlink,
+            mouse_cursor,
             actions: Vec::new(),
         }
     }
@@ -1157,6 +1249,7 @@ impl RichText {
             run.semantics_label.is_some()
                 || run.semantics_identifier.is_some()
                 || run.spell_out.is_some()
+                || run.hyperlink.is_some()
         }) {
             return Self::from_spans(runs);
         }
@@ -1237,6 +1330,7 @@ impl RichText {
                         semantics_label: None,
                         semantics_identifier: None,
                         spell_out: None,
+                        hyperlink: None,
                     });
                     if let Some(label) = &widget.semantics_label {
                         semantics_text.push_str(label);
@@ -1450,6 +1544,7 @@ fn push_rich_text_run(runs: &mut Vec<RichTextRun>, text: &str, style: &TextRunSt
         semantics_label: None,
         semantics_identifier: None,
         spell_out: None,
+        hyperlink: None,
     });
 }
 
@@ -1721,219 +1816,4 @@ fn wrap_selectable_context_menu(
     text: &str,
 ) -> WidgetId {
     wrap_implicit_selection_affordances(cx, owner, visual_id, config, selection, text)
-}
-
-impl Lower for Text {
-    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
-        let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        let layout_node_id = if self.selectable {
-            cx.next_node_id()
-        } else {
-            owner_id
-        };
-        let resolved_text = self.resolve_text(cx);
-        let style = self.resolved_style(cx);
-        let paragraph_style = paragraph_style_metadata(
-            self.text_align,
-            self.text_direction,
-            self.text_width_basis,
-            self.max_lines,
-            self.overflow,
-            self.strut_line_height,
-            self.text_height_behavior,
-        );
-        let max_height = cap_max_height(
-            self.max_height,
-            self.max_lines,
-            paragraph_line_height(
-                resolve_line_height(style.font_size, style.line_height),
-                self.strut_line_height,
-            ),
-        );
-        let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let runtime_selection = if self.selectable {
-            cx.runtime_state.selectable_text.selection_range(owner_id)
-        } else {
-            None
-        };
-        let selection_range = runtime_selection.or(self.selection_range);
-
-        // `Text` always paints through rich-text IR, so plain and rich text
-        // share a single paragraph path.
-        //
-        // Style resolution falls back to the theme's sans family, so a resolved
-        // style always carries a font family. Emitting a bare `DrawText` here
-        // would drop that family and leave the renderer on the host's emergency
-        // fallback face, which is exactly the design-authority leak this node is
-        // meant to prevent. One paint primitive also means one shaping path per
-        // shell rather than two that can disagree about wrapping and metrics.
-        let runs = apply_selection_to_runs(
-            vec![IrTextRun {
-                text: resolved_text.clone(),
-                style: style.clone(),
-            }],
-            selection_range,
-            self.selection_color,
-            self.selection_text_color,
-        );
-        let paint_node_id = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRichText {
-                runs,
-                display_breaks: self.display_breaks.clone(),
-                wrap: self.wrap,
-                caret_index: None,
-                caret_color: None,
-                caret_width: None,
-                caret_height: None,
-                caret_radius: None,
-                paragraph_style,
-            }),
-        )
-        .build(cx);
-
-        let layout_node_id = wrap_paint_in_layout(
-            cx,
-            layout_node_id,
-            paint_node_id,
-            self.width,
-            self.height,
-            self.min_width,
-            self.max_width,
-            self.min_height,
-            max_height,
-            clip_to_bounds,
-            self.flex_grow,
-            self.flex_shrink,
-        );
-
-        if self.selectable {
-            let visual_id = wrap_selectable_context_menu(
-                cx,
-                owner_id,
-                layout_node_id,
-                &self.context_menu,
-                selection_range,
-                &resolved_text,
-            );
-            let semantics = selectable_text_semantics(
-                self.semantics.clone(),
-                resolved_text,
-                false,
-                runtime_selection,
-                self.context_menu.enabled,
-            );
-            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
-            builder.add_child(visual_id);
-            builder.build(cx)
-        } else {
-            maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), false)
-        }
-    }
-}
-
-impl Lower for RichText {
-    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
-        let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        let layout_node_id = if self.selectable {
-            cx.next_node_id()
-        } else {
-            owner_id
-        };
-        let runs = self.lower_runs(cx);
-        let plain_text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
-        let runtime_selection = if self.selectable {
-            cx.runtime_state.selectable_text.selection_range(owner_id)
-        } else {
-            None
-        };
-        let selection_range = runtime_selection.or(self.selection_range);
-        let runs = apply_selection_to_runs(
-            runs,
-            selection_range,
-            self.selection_color,
-            self.selection_text_color,
-        );
-        let paragraph_style = paragraph_style_metadata(
-            self.text_align,
-            self.text_direction,
-            self.text_width_basis,
-            self.max_lines,
-            self.overflow,
-            self.strut_line_height,
-            self.text_height_behavior,
-        );
-        let max_height = cap_max_height(
-            self.max_height,
-            self.max_lines,
-            rich_text_line_height(
-                &runs,
-                cx.env.theme.tokens.typography.body_medium_size,
-                self.strut_line_height,
-            ),
-        );
-        let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let mut paint_builder = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRichText {
-                runs,
-                display_breaks: self.display_breaks.clone(),
-                wrap: self.wrap,
-                caret_index: None,
-                caret_color: None,
-                caret_width: None,
-                caret_height: None,
-                caret_radius: None,
-                paragraph_style,
-            }),
-        );
-        for inline_widget in &self.inline_widgets {
-            let child_id = inline_widget.widget.lower(cx);
-            paint_builder.add_child(child_id);
-        }
-        let paint_node_id = paint_builder.build(cx);
-        if !self.annotations.is_empty() {
-            cx.ir
-                .custom_render_objects
-                .insert(paint_node_id, Arc::new(self.annotations.clone()));
-        }
-
-        let layout_node_id = wrap_paint_in_layout(
-            cx,
-            layout_node_id,
-            paint_node_id,
-            self.width,
-            self.height,
-            self.min_width,
-            self.max_width,
-            self.min_height,
-            max_height,
-            clip_to_bounds,
-            self.flex_grow,
-            self.flex_shrink,
-        );
-
-        if self.selectable {
-            let visual_id = wrap_selectable_context_menu(
-                cx,
-                owner_id,
-                layout_node_id,
-                &self.context_menu,
-                selection_range,
-                &plain_text,
-            );
-            let semantics = selectable_text_semantics(
-                self.semantics.clone(),
-                plain_text,
-                true,
-                runtime_selection,
-                self.context_menu.enabled,
-            );
-            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
-            builder.add_child(visual_id);
-            builder.build(cx)
-        } else {
-            maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), true)
-        }
-    }
 }

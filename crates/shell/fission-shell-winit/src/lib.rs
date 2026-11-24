@@ -21,10 +21,9 @@ macro_rules! eprintln {
 }
 
 use anyhow::Result;
-use base64::Engine;
 use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, HashSet, VecDeque};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -142,6 +141,19 @@ pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
     let _ = proxy.send_event(TestEvent::Wake);
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+fn release_web_wake_gate_after_event_cycle(
+    wake_dispatched_in_cycle: &mut bool,
+    wake_event_pending: &AtomicBool,
+) -> bool {
+    if std::mem::take(wake_dispatched_in_cycle) {
+        wake_event_pending.store(false, Ordering::Release);
+        true
+    } else {
+        false
+    }
+}
+
 // Vello / WGPU
 #[cfg(not(target_arch = "wasm32"))]
 use pollster::block_on;
@@ -152,10 +164,21 @@ mod gpu_context;
 #[path = "native_document_write.rs"]
 mod native_document_write_tests;
 mod semantic_records;
+mod surface_blitter;
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_gpu_queue;
+#[cfg(target_arch = "wasm32")]
+use web_gpu_queue::arm_webgpu_completion_timeout_diagnostic;
+#[cfg(any(target_arch = "wasm32", test))]
+use web_gpu_queue::{should_defer_webgpu_redraw, WebGpuQueueBackpressure};
+#[cfg(target_arch = "wasm32")]
+mod web_screenshot;
 use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
 use semantic_records::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, Clamped, JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use web_screenshot::gpu_screenshot_async;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -295,6 +318,26 @@ fn record_web_test_diagnostic(stage: u32, iteration: u32) {
     web_test_control::record_diagnostic(stage, iteration);
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (stage, iteration);
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Result<(), T> {
+    if queue.len() >= capacity {
+        Err(value)
+    } else {
+        queue.push_back(value);
+        Ok(())
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn take_one<T>(queue: &mut VecDeque<T>) -> Option<T> {
+    queue.pop_front()
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
+    matches!(stage, 430 | 432 | 435)
 }
 
 type EffectResult = AsyncMessage;
@@ -513,6 +556,14 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
             Err::<fission_core::WritableFilePermissionResult, _>(
                 fission_core::FileSystemError::unsupported("writable_file_permission"),
             )
+        },
+    );
+    async_registry.register_operation_capability(
+        fission_core::RELEASE_WRITABLE_FILE,
+        |_request: fission_core::ReleaseWritableFileRequest, _| async move {
+            Err::<(), _>(fission_core::FileSystemError::unsupported(
+                "release_writable_file",
+            ))
         },
     );
 }
@@ -924,6 +975,18 @@ impl WebCanvasPresenter {
 struct WebGpuPresenter {
     render_cx: RenderContext,
     render_state: RenderState<'static>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WebGpuPresenter {
+    fn drop(&mut self) {
+        // Releasing only Rust's wgpu handles leaves destruction of browser WebGPU
+        // resources to later JS garbage collection. Explicitly destroy the device
+        // when Winit suspends a page into the BFCache or the application exits.
+        self.render_cx.devices[self.render_state.surface.dev_id]
+            .device
+            .destroy();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1590,10 +1653,12 @@ async fn create_webgpu_presenter(
     let device_handle = &render_cx.devices[surface.dev_id];
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
     surface.config.alpha_mode = preferred_web_surface_alpha_mode(&surface_caps.alpha_modes);
-    surface.blitter =
-        wgpu::util::TextureBlitterBuilder::new(&device_handle.device, surface.config.format)
-            .blend_state(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
-            .build();
+    surface.blitter = surface_blitter::SurfaceBlitter::new(
+        &device_handle.device,
+        surface.config.format,
+        &surface.target_view,
+        Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+    );
     log::info!(
         "Fission WebGPU canvas surface: format={:?}, alpha_mode={:?}, supported_alpha_modes={:?}",
         surface.config.format,
@@ -1805,6 +1870,22 @@ async fn preflight_webgpu_main_renderer(
         },
     );
     device_handle.queue.submit(Some(encoder.finish()));
+
+    // Some browser WebGPU implementations do not complete a MAP_READ request until the
+    // submission which wrote the buffer has completed. The screenshot path uses this same
+    // queue fence before mapping its readback buffer; keep renderer startup on that path too.
+    let queue = device_handle.queue.clone();
+    let work_done = js_sys::Promise::new(&mut |resolve, _reject| {
+        let resolve = resolve.clone();
+        queue.on_submitted_work_done(move || {
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        });
+    });
+    wasm_bindgen_futures::JsFuture::from(work_done)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("webgpu Vello preflight queue completion failed: {error:?}")
+        })?;
 
     let promise = js_sys::Promise::new(&mut |resolve, reject| {
         let resolve = resolve.clone();
@@ -2149,6 +2230,19 @@ fn request_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState)
     true
 }
 
+fn request_capture_redraw_once(window: &Window, frame_schedule: &mut FrameScheduleState) -> bool {
+    let scheduled = request_redraw_once(window, frame_schedule);
+    #[cfg(target_arch = "wasm32")]
+    frame_schedule.request_capture_fallback();
+    scheduled
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+fn prepare_capture_redraw(redraw_pending: &mut bool, frame_schedule: &mut FrameScheduleState) {
+    frame_schedule.redraw_started();
+    *redraw_pending = false;
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget,
@@ -2206,7 +2300,10 @@ struct FrameScheduleState {
 struct WebRedrawScheduler {
     window: web_sys::Window,
     callback: wasm_bindgen::closure::Closure<dyn FnMut(f64)>,
+    fallback_callback: wasm_bindgen::closure::Closure<dyn FnMut()>,
     handle: Rc<Cell<Option<i32>>>,
+    fallback_handle: Rc<Cell<Option<i32>>>,
+    scheduled: Rc<Cell<bool>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2217,37 +2314,99 @@ impl WebRedrawScheduler {
         let window =
             web_sys::window().ok_or_else(|| anyhow::anyhow!("browser window is unavailable"))?;
         let handle = Rc::new(Cell::new(None));
+        let fallback_handle = Rc::new(Cell::new(None));
+        let scheduled = Rc::new(Cell::new(false));
         let callback_handle = handle.clone();
+        let callback_fallback_handle = fallback_handle.clone();
+        let callback_scheduled = scheduled.clone();
+        let callback_window = window.clone();
+        let callback_proxy = proxy.clone();
         let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_timestamp: f64| {
+            if !callback_scheduled.replace(false) {
+                return;
+            }
             callback_handle.set(None);
+            if let Some(fallback_handle) = callback_fallback_handle.take() {
+                let _ = callback_window.clear_timeout_with_handle(fallback_handle);
+            }
             record_web_test_diagnostic(438, 1);
-            let _ = proxy.send_event(TestEvent::WebRedrawFrame);
+            let _ = callback_proxy.send_event(TestEvent::WebRedrawFrame);
         }) as Box<dyn FnMut(f64)>);
+        let fallback_window = window.clone();
+        let fallback_handle_for_callback = fallback_handle.clone();
+        let fallback_raf_handle = handle.clone();
+        let fallback_scheduled = scheduled.clone();
+        let fallback_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+            if !fallback_scheduled.replace(false) {
+                return;
+            }
+            fallback_handle_for_callback.set(None);
+            if let Some(handle) = fallback_raf_handle.take() {
+                let _ = fallback_window.cancel_animation_frame(handle);
+            }
+            record_web_test_diagnostic(485, 1);
+            // A LiveTest capture must not wait indefinitely for a paused or
+            // starved animation-frame callback. This event enters the same
+            // redraw path as the regular RAF callback.
+            let sent = proxy.send_event(TestEvent::HeadlessFrame).is_ok();
+            record_web_test_diagnostic(491, u32::from(sent));
+        })
+            as Box<dyn FnMut()>);
 
         Ok(Self {
             window,
             callback,
+            fallback_callback,
             handle,
+            fallback_handle,
+            scheduled,
         })
     }
 
     fn request(&self) -> Result<(), String> {
         use wasm_bindgen::JsCast;
 
-        if self.handle.get().is_some() {
+        if self.scheduled.replace(true) {
             return Ok(());
         }
-        let handle = self
+        let handle = match self
             .window
             .request_animation_frame(self.callback.as_ref().unchecked_ref())
-            .map_err(js_error_to_string)?;
+        {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.scheduled.set(false);
+                return Err(js_error_to_string(error));
+            }
+        };
         self.handle.set(Some(handle));
         Ok(())
     }
 
+    fn request_fallback(&self, delay_ms: i32) -> Result<(), String> {
+        use wasm_bindgen::JsCast;
+
+        if !self.scheduled.get() || self.fallback_handle.get().is_some() {
+            return Ok(());
+        }
+        let handle = self
+            .window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                self.fallback_callback.as_ref().unchecked_ref(),
+                delay_ms,
+            )
+            .map_err(js_error_to_string)?;
+        self.fallback_handle.set(Some(handle));
+        Ok(())
+    }
+
     fn cancel(&self) {
+        self.scheduled.set(false);
         if let Some(handle) = self.handle.take() {
             let _ = self.window.cancel_animation_frame(handle);
+        }
+        if let Some(handle) = self.fallback_handle.take() {
+            let _ = self.window.clear_timeout_with_handle(handle);
         }
     }
 }
@@ -2304,6 +2463,15 @@ impl FrameScheduleState {
     ) -> anyhow::Result<()> {
         self.web_redraw = Some(WebRedrawScheduler::new(proxy)?);
         Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn request_capture_fallback(&self) {
+        if let Some(web_redraw) = self.web_redraw.as_ref() {
+            if let Err(error) = web_redraw.request_fallback(250) {
+                eprintln!("failed to schedule Web capture redraw fallback: {error}");
+            }
+        }
     }
 
     fn redraw_timing(
@@ -2660,6 +2828,9 @@ fn process_pending_effects(
                     },
                 );
                 if runtime.queue_runtime_effect(runtime_effect.clone()) {
+                    for req_id in runtime.take_pending_job_cancellations() {
+                        async_registry.cancel_job(req_id);
+                    }
                     dispatched_callback = true;
                     (wake)();
                 }
@@ -2809,6 +2980,7 @@ fn process_pending_effects(
 fn drain_effect_results(
     runtime: &mut Runtime,
     effect_rx: &mpsc::Receiver<AsyncMessage>,
+    async_registry: &AsyncRegistry,
     active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
     service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
 ) -> bool {
@@ -2823,6 +2995,9 @@ fn drain_effect_results(
                 on_ok,
                 resource,
             } => {
+                if async_registry.finish_job(req_id) {
+                    continue;
+                }
                 if let Some(resource) = resource.as_ref() {
                     if !runtime.is_resource_current(resource) {
                         continue;
@@ -2849,6 +3024,9 @@ fn drain_effect_results(
                 message,
                 resource,
             } => {
+                if async_registry.finish_job(req_id) {
+                    continue;
+                }
                 if let Some(resource) = resource.as_ref() {
                     if !runtime.is_resource_current(resource) {
                         continue;
@@ -4486,9 +4664,15 @@ fn handle_scroll_into_view_selector(
             let needs_scroll =
                 record.node.visibility != fission_test_driver::VisibilityState::FullyVisible;
             if needs_scroll {
+                let target = pipeline
+                    .prev_ir
+                    .as_ref()
+                    .zip(pipeline.last_snapshot.as_ref())
+                    .and_then(|(ir, snapshot)| layout_target_for_semantic(ir, snapshot, record.id))
+                    .unwrap_or(record.id);
                 runtime.queue_scroll_into_view(ScrollIntoViewRequest {
                     container: None,
-                    target: record.id,
+                    target,
                     axis: ScrollAxis::Both,
                     alignment: ScrollAlignment::Nearest,
                     padding: [8.0, 8.0, 8.0, 8.0],
@@ -5850,6 +6034,8 @@ where
         let mut web_renderer_reported = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
+        #[cfg(target_arch = "wasm32")]
+        let mut webgpu_queue_backpressure = WebGpuQueueBackpressure::default();
 
         let mut runtime = self.runtime;
         let mut env = self.env;
@@ -6054,14 +6240,33 @@ where
             let _keep_navigation_listeners_alive = &web_navigation_listeners;
             #[cfg(target_arch = "wasm32")]
             let _keep_motion_preference_listener_alive = &web_motion_preference_listener;
+            #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+            record_web_test_diagnostic(
+                492,
+                match &event {
+                    Event::UserEvent(TestEvent::HeadlessFrame) => 1,
+                    Event::UserEvent(TestEvent::WebRedrawFrame) => 2,
+                    Event::WindowEvent {
+                        event: WindowEvent::RedrawRequested,
+                        ..
+                    } => 3,
+                    _ => 0,
+                },
+            );
             elwt.set_control_flow(ControlFlow::Wait);
             // A covered window receives no redraws, so live test commands waiting on a frame run
             // one through this event instead.
             let event = match event {
                 Event::UserEvent(TestEvent::HeadlessFrame) => {
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    record_web_test_diagnostic(493, 1);
                     let Some(window_id) = platform_window.active_window_id() else {
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        record_web_test_diagnostic(494, 0);
                         return;
                     };
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    record_web_test_diagnostic(494, 1);
                     Event::WindowEvent {
                         window_id,
                         event: WindowEvent::RedrawRequested,
@@ -7213,6 +7418,7 @@ where
                         );
                     }
                     TestEvent::Screenshot { path, response_tx } => {
+                        record_web_test_diagnostic(346, 0);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7229,10 +7435,32 @@ where
                         // A capture reads the complete retained target texture. Force every
                         // compositor layer to repaint so the image cannot contain only the
                         // regions damaged by the preceding interaction.
+                        // A capture is a barrier: discard a coalesced web RAF request that may
+                        // have gone stale while browser test commands continued to arrive.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_capture_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
+                        #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                        if pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some()
+                        {
+                            if let Err(response_tx) =
+                                web_test_control::requeue_pending_capture_request(response_tx)
+                            {
+                                let _ =
+                                    response_tx.send(fission_test_driver::TestResponse::Error {
+                                        message: "too many pending browser screenshot requests"
+                                            .into(),
+                                    });
+                            }
+                            return;
+                        }
+                        record_web_test_diagnostic(481, 1);
+                        record_web_test_diagnostic(346, 1);
                         let Some(window) = platform_window.active_window() else {
                             let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                                 message: "window not ready".into(),
@@ -7246,8 +7474,12 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        // Keep LiveTest captures from waiting behind an older coalesced RAF.
+                        #[cfg(target_arch = "wasm32")]
+                        prepare_capture_redraw(&mut redraw_pending, &mut frame_trace);
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        let scheduled = request_capture_redraw_once(window, &mut frame_trace);
+                        record_web_test_diagnostic(347, u32::from(scheduled));
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
@@ -7296,7 +7528,7 @@ where
                             live_resize.is_live(Instant::now()),
                         );
                         invalidations.mark_paint();
-                        request_redraw_once(window, &mut frame_trace);
+                        request_capture_redraw_once(window, &mut frame_trace);
                     }
                     TestEvent::MotionStatus { response_tx } => {
                         let finite = runtime
@@ -7346,6 +7578,7 @@ where
                         if drain_effect_results(
                             &mut runtime,
                             &effect_result_rx,
+                            &async_registry,
                             &mut active_services,
                             &mut service_bindings,
                         ) {
@@ -7407,7 +7640,7 @@ where
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            request_redraw_once(window, &mut frame_trace);
+                            request_capture_redraw_once(window, &mut frame_trace);
                         }
                     }
                     // Mapped to a redraw before dispatch.
@@ -7701,6 +7934,7 @@ where
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
+                        webgpu_queue_backpressure.reset();
                         web_renderer = None;
                         webgpu_init_in_flight = false;
                         webgpu_init_started_at = None;
@@ -7723,6 +7957,25 @@ where
                     }
                 }
                 Event::LoopExiting => {
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    web_test_control::fail_pending_capture_requests();
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // Programmatic exit may leave the document alive. Release
+                        // owned GPU resources instead of assuming browser teardown.
+                        webgpu_init_generation.set(webgpu_init_generation.get().wrapping_add(1));
+                        if let Some(renderer) = web_renderer.take() {
+                            drop(renderer);
+                        }
+                        if let Some(Ok(presenter)) = pending_webgpu_init.borrow_mut().take() {
+                            drop(presenter);
+                        }
+                        webgpu_init_in_flight = false;
+                        webgpu_init_started_at = None;
+                        record_web_test_diagnostic(497, 0);
+                        record_web_test_diagnostic(498, 0);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
                     native_surface_handlers.detach_host();
                 }
                 // ═══════════════════════════════════════════════════════
@@ -7733,8 +7986,16 @@ where
                         TestEvent::Pump { .. } => 30,
                         TestEvent::Wake => 31,
                         TestEvent::FillText { .. } => 42,
+                        TestEvent::CaptureScreenshot { .. } => 43,
+                        TestEvent::Screenshot { .. } => 44,
                         _ => 0,
                     };
+                    if matches!(diagnostic_kind, 43 | 44) {
+                        record_web_test_diagnostic(436, diagnostic_kind);
+                    }
+                    if matches!(&test_event, TestEvent::Wake) {
+                        record_web_test_diagnostic(428, 1);
+                    }
                     #[cfg(target_arch = "wasm32")]
                     if matches!(&test_event, TestEvent::Wake) {
                         web_wake_dispatched_in_cycle = true;
@@ -7748,6 +8009,9 @@ where
                         return;
                     }
                     handle_test_event(test_event);
+                    if diagnostic_kind == 31 {
+                        record_web_test_diagnostic(429, 1);
+                    }
                     record_web_test_diagnostic(437, diagnostic_kind);
                 }
 
@@ -7756,11 +8020,26 @@ where
                 // ═══════════════════════════════════════════════════════
                 Event::AboutToWait => {
                     record_web_test_diagnostic(360, 0);
+                    // A successful EventLoopProxy send only means Winit accepted
+                    // the channel message; Web dispatches it in a later task.
+                    // Keep capture requests in the bridge until the regular
+                    // LiveTest event-loop pass can hand them to the render path.
+                    #[cfg(all(target_arch = "wasm32", fission_web_test_control))]
+                    if let Some(response_tx) = web_test_control::take_next_pending_capture_request()
+                    {
+                        handle_test_event(TestEvent::CaptureScreenshot { response_tx });
+                    }
                     let Some(window) = platform_window.active_window() else {
                         elwt.set_control_flow(ControlFlow::Wait);
                         #[cfg(target_arch = "wasm32")]
-                        if std::mem::take(&mut web_wake_dispatched_in_cycle) {
-                            WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                        if release_web_wake_gate_after_event_cycle(
+                            &mut web_wake_dispatched_in_cycle,
+                            &WEB_WAKE_EVENT_PENDING,
+                        ) {
+                            record_web_test_diagnostic(
+                                557,
+                                presented_frames.try_into().unwrap_or(u32::MAX),
+                            );
                         }
                         return;
                     };
@@ -7798,15 +8077,15 @@ where
                                                 WidgetId::from_u128(0),
                                             ) {
                                                 eprintln!(
-                                                "fission-shell-winit: navigation dispatch failed: {error}"
-                                            );
+                                                    "fission-shell-winit: navigation dispatch failed: {error}"
+                                                );
                                             }
                                             invalidations.mark_build();
                                         }
                                     }
                                     Err(error) => eprintln!(
-                                    "fission-shell-winit: cannot read browser location: {error}"
-                                ),
+                                        "fission-shell-winit: cannot read browser location: {error}"
+                                    ),
                                 }
                             }
                             Ok(false) => {}
@@ -8160,6 +8439,7 @@ where
                     let effect_results_dispatched = drain_effect_results(
                         &mut runtime,
                         &effect_result_rx,
+                        &async_registry,
                         &mut active_services,
                         &mut service_bindings,
                     );
@@ -8310,6 +8590,38 @@ where
                     let active_keys = active_animation_keys(&runtime);
                     record_web_test_diagnostic(364, has_pending_work as u32);
 
+                    #[cfg(target_arch = "wasm32")]
+                    if webgpu_queue_backpressure.is_work_in_flight() {
+                        let redraw_expected = has_pending_work
+                            || animation_frame.is_some()
+                            || blink_wake_at.is_some()
+                            || frame_hook_wake_at.is_some()
+                            || long_press_wake_at.is_some()
+                            || timer_wake_at.is_some()
+                            || image_cache_pending
+                            || pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some();
+                        if redraw_expected {
+                            webgpu_queue_backpressure.defer_redraw();
+                            record_web_test_diagnostic(
+                                551,
+                                presented_frames.try_into().unwrap_or(u32::MAX),
+                            );
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        if release_web_wake_gate_after_event_cycle(
+                            &mut web_wake_dispatched_in_cycle,
+                            &WEB_WAKE_EVENT_PENDING,
+                        ) {
+                            record_web_test_diagnostic(
+                                557,
+                                presented_frames.try_into().unwrap_or(u32::MAX),
+                            );
+                        }
+                        elwt.set_control_flow(ControlFlow::Wait);
+                        return;
+                    }
+
                     if has_pending_work {
                         let pending_frame = pending_work_redraw_interval(
                             invalidations,
@@ -8347,6 +8659,15 @@ where
                             &mut frame_trace,
                             redraw_reason,
                         );
+                        // A capture can need more than one frame to settle after a resize.
+                        // Keep the timer fallback armed for those follow-up frames too, so a
+                        // paused browser RAF cannot strand the screenshot response.
+                        #[cfg(target_arch = "wasm32")]
+                        if pending_screenshot_path.is_some()
+                            || pending_screenshot_response_tx.is_some()
+                        {
+                            frame_trace.request_capture_fallback();
+                        }
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
                                 "about_to_wait",
@@ -8496,8 +8817,14 @@ where
                     // state work; clearing here coalesces those reentrant requests while still
                     // allowing later browser tasks to enqueue a follow-up wake.
                     #[cfg(target_arch = "wasm32")]
-                    if std::mem::take(&mut web_wake_dispatched_in_cycle) {
-                        WEB_WAKE_EVENT_PENDING.store(false, Ordering::Release);
+                    if release_web_wake_gate_after_event_cycle(
+                        &mut web_wake_dispatched_in_cycle,
+                        &WEB_WAKE_EVENT_PENDING,
+                    ) {
+                        record_web_test_diagnostic(
+                            557,
+                            presented_frames.try_into().unwrap_or(u32::MAX),
+                        );
                     }
                 }
 
@@ -8619,7 +8946,57 @@ where
                             }
                         }
                         WindowEvent::RedrawRequested => {
+                            #[cfg(target_arch = "wasm32")]
+                            if webgpu_queue_backpressure.take_device_lost() {
+                                record_web_test_diagnostic(556, 1);
+                                let request = web_renderer_request();
+                                if request.is_explicit_gpu() {
+                                    panic!("webgpu-vello device was lost after initialization");
+                                }
+                                let viewport = WindowViewportState::from_window(window);
+                                match WebCanvasPresenter::new(window) {
+                                    Ok(mut presenter) => {
+                                        presenter.report = RendererReport::new(
+                                            "canvas2d-software",
+                                            request,
+                                            None,
+                                            None,
+                                            Some("webgpu_vello_device_lost".to_string()),
+                                            viewport.physical_size.width,
+                                            viewport.physical_size.height,
+                                            viewport.scale_factor,
+                                        );
+                                        publish_web_renderer_report(&presenter.report);
+                                        web_renderer = Some(WebRenderer::Canvas2d(presenter));
+                                        web_renderer_reported = true;
+                                    }
+                                    Err(error) => {
+                                        eprintln!(
+                                            "WebGPU device was lost and Canvas2D fallback failed: {error}"
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            if should_defer_webgpu_redraw(
+                                web_renderer.as_ref().is_some_and(|renderer| {
+                                    matches!(renderer, WebRenderer::WebGpu(_))
+                                }),
+                                webgpu_queue_backpressure.is_work_in_flight(),
+                            ) {
+                                frame_trace.redraw_started();
+                                redraw_pending = false;
+                                webgpu_queue_backpressure.defer_redraw();
+                                record_web_test_diagnostic(
+                                    550,
+                                    presented_frames.try_into().unwrap_or(u32::MAX),
+                                );
+                                return;
+                            }
+                            record_web_test_diagnostic(495, 1);
                             frame_trace.redraw_started();
+                            record_web_test_diagnostic(496, 1);
                             record_web_test_diagnostic(
                                 300,
                                 pipeline
@@ -8796,16 +9173,35 @@ where
                                     webgpu_init_started_at = None;
                                     match result {
                                         Ok(presenter) => {
+                                            let device_handle = &presenter.render_cx.devices
+                                                [presenter.render_state.surface.dev_id];
+                                            // Callbacks from an older device must never cancel or
+                                            // release the queue gate for its replacement.
+                                            webgpu_queue_backpressure =
+                                                WebGpuQueueBackpressure::default();
+                                            let queue_backpressure =
+                                                webgpu_queue_backpressure.clone();
+                                            let proxy = event_proxy.clone();
+                                            device_handle.device.set_device_lost_callback(
+                                                move |reason, message| {
+                                                    eprintln!(
+                                                        "Fission WebGPU device lost ({reason:?}): {message}"
+                                                    );
+                                                    queue_backpressure.mark_device_lost();
+                                                    record_web_test_diagnostic(555, 1);
+                                                    send_wake_event(&proxy);
+                                                },
+                                            );
                                             web_renderer = Some(WebRenderer::WebGpu(presenter));
                                         }
                                         Err(error) if request.is_explicit_gpu() => {
                                             eprintln!(
-                                                    "webgpu-vello renderer requested but initialization failed: {error}"
-                                                );
+                                                "webgpu-vello renderer requested but initialization failed: {error}"
+                                            );
                                             diag::end_frame(diag::FrameStats::default());
                                             panic!(
-                                                    "webgpu-vello renderer requested but initialization failed: {error}"
-                                                );
+                                                "webgpu-vello renderer requested but initialization failed: {error}"
+                                            );
                                         }
                                         Err(error) => match WebCanvasPresenter::new(window) {
                                             Ok(mut presenter) => {
@@ -8826,8 +9222,8 @@ where
                                             }
                                             Err(err) => {
                                                 eprintln!(
-                                                        "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
-                                                    );
+                                                    "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
+                                                );
                                                 request_redraw_logged(
                                                     &window,
                                                     elwt,
@@ -8865,6 +9261,8 @@ where
                                                         *pending.borrow_mut() = Some(result);
                                                         send_wake_event(&proxy);
                                                     }
+                                                    // A stale result is dropped normally: suspension
+                                                    // or app exit does not imply document destruction.
                                                 });
                                             }
                                             None => {
@@ -9408,6 +9806,14 @@ where
                                                         * 1000.0;
                                             }
                                             WebRenderer::WebGpu(presenter) => {
+                                                if test_control_enabled {
+                                                    fission_render_vello::trace_webgpu_frame(
+                                                        presented_frames
+                                                            .saturating_add(1)
+                                                            .try_into()
+                                                            .unwrap_or(u32::MAX),
+                                                    );
+                                                }
                                                 if swapchain_size.width
                                                     != presenter.render_state.surface.config.width
                                                     || swapchain_size.height
@@ -9459,13 +9865,23 @@ where
                                                     Ok(texture) => texture,
                                                     Err(err) => {
                                                         eprintln!(
-                                                                "failed to get webgpu surface texture: {err}"
-                                                            );
+                                                            "failed to get webgpu surface texture: {err}"
+                                                        );
                                                         diag::end_frame(diag::FrameStats::default());
                                                         return;
                                                     }
                                                 };
                                                 record_web_test_diagnostic(367, 2);
+                                                // Create the frame's surface view before Vello
+                                                // submits its render work. Keep this view alive
+                                                // through the later blit/present step instead of
+                                                // synchronously creating it while the GPU queue is
+                                                // busy with the frame submission.
+                                                let surface_view =
+                                                    surface_texture.texture.create_view(
+                                                        &wgpu::TextureViewDescriptor::default(),
+                                                    );
+                                                record_web_test_diagnostic(506, 0);
                                                 let device_handle = &presenter.render_cx.devices
                                                     [presenter.render_state.surface.dev_id];
 
@@ -9572,17 +9988,15 @@ where
                                                     MainRenderer::Software => {}
                                                 }
                                                 record_web_test_diagnostic(368, 2);
+                                                record_web_test_diagnostic(499, 0);
 
-                                                let surface_view =
-                                                    surface_texture.texture.create_view(
-                                                        &wgpu::TextureViewDescriptor::default(),
-                                                    );
                                                 let mut encoder =
                                                     device_handle.device.create_command_encoder(
                                                         &wgpu::CommandEncoderDescriptor {
                                                             label: Some("WebGPU Surface Blit"),
                                                         },
                                                     );
+                                                record_web_test_diagnostic(507, 0);
                                                 {
                                                     let _pass = encoder.begin_render_pass(
                                                         &wgpu::RenderPassDescriptor {
@@ -9609,14 +10023,22 @@ where
                                                         },
                                                     );
                                                 }
-                                                presenter.render_state.surface.blitter.copy(
-                                                    &device_handle.device,
-                                                    &mut encoder,
-                                                    &presenter.render_state.surface.target_view,
-                                                    &surface_view,
-                                                );
+                                                record_web_test_diagnostic(508, 0);
+                                                record_web_test_diagnostic(500, 0);
+                                                presenter
+                                                    .render_state
+                                                    .surface
+                                                    .blitter
+                                                    .copy(&mut encoder, &surface_view);
+                                                record_web_test_diagnostic(501, 0);
+                                                if test_control_enabled {
+                                                    fission_render_vello::trace_webgpu_queue_submission(4);
+                                                }
                                                 device_handle.queue.submit(Some(encoder.finish()));
+                                                record_web_test_diagnostic(502, 0);
                                                 surface_texture.present();
+                                                record_web_test_diagnostic(503, 0);
+                                                drop(surface_view);
                                                 record_web_test_diagnostic(369, 2);
                                             }
                                         }
@@ -9630,38 +10052,41 @@ where
                                                     pending_screenshot_response_tx.take()
                                                 {
                                                     if path == "__pump__" {
+                                                        record_web_test_diagnostic(504, 0);
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Ok {},
                                                         );
-                                                    } else if matches!(
-                                                        web_renderer.as_ref(),
-                                                        Some(WebRenderer::WebGpu(_))
-                                                    ) {
+                                                        record_web_test_diagnostic(505, 0);
+                                                    } else if let WebRenderer::WebGpu(presenter) =
+                                                        renderer
+                                                    {
                                                         record_web_test_diagnostic(367, 3);
-                                                        let screenshot_dimensions =
-                                                            layout_size_to_image_dimensions(
-                                                                target_viewport,
-                                                            );
-                                                        let rendered = pipeline.retained_scene().map(
-                                                            |scene| {
-                                                                fission_render_vello::cpu::render_to_rgba8(
-                                                                    scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    theme_background_render_color(&env),
-                                                                    scale_factor,
-                                                                    measurer.clone(),
-                                                                )
-                                                            },
+                                                        let screenshot_texture = &presenter
+                                                            .render_state
+                                                            .surface
+                                                            .target_texture;
+                                                        // Web captures describe the canvas backing store,
+                                                        // not its CSS-pixel layout size (which differs at DPR > 1).
+                                                        let screenshot_dimensions = (
+                                                            screenshot_texture.width(),
+                                                            screenshot_texture.height(),
+                                                        );
+                                                        let device_handle = &presenter
+                                                            .render_cx
+                                                            .devices
+                                                            [presenter.render_state.surface.dev_id];
+                                                        gpu_screenshot_async(
+                                                            &presenter.render_cx.instance,
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            screenshot_texture,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            response_tx,
                                                         );
                                                         record_web_test_diagnostic(368, 3);
-                                                        let response = covered_window_screenshot(
-                                                            rendered,
-                                                            render_target_size,
-                                                            screenshot_dimensions,
-                                                            None,
-                                                        );
-                                                        let _ = response_tx.send(response);
                                                     } else {
                                                         let _ = response_tx.send(
                                                             fission_test_driver::TestResponse::Error {
@@ -9671,6 +10096,54 @@ where
                                                     }
                                                 }
                                             }
+                                        }
+
+                                        #[cfg(target_arch = "wasm32")]
+                                        if let WebRenderer::WebGpu(presenter) = renderer {
+                                            let device_handle = &presenter.render_cx.devices
+                                                [presenter.render_state.surface.dev_id];
+                                            let queue = device_handle.queue.clone();
+                                            let queue_backpressure =
+                                                webgpu_queue_backpressure.clone();
+                                            let completion_proxy = event_proxy.clone();
+                                            let submitted_frame = presented_frames
+                                                .saturating_add(1)
+                                                .try_into()
+                                                .unwrap_or(u32::MAX);
+                                            let submitted_at = Instant::now();
+                                            let submission_generation =
+                                                queue_backpressure.mark_submitted();
+                                            if test_control_enabled
+                                                && fission_render_vello::webgpu_queue_diagnostics_enabled()
+                                            {
+                                                arm_webgpu_completion_timeout_diagnostic(
+                                                    queue_backpressure.clone(),
+                                                    submission_generation,
+                                                    submitted_frame,
+                                                );
+                                            }
+                                            record_web_test_diagnostic(552, submitted_frame);
+                                            queue.on_submitted_work_done(move || {
+                                                if !queue_backpressure
+                                                    .is_submission_in_flight(submission_generation)
+                                                {
+                                                    return;
+                                                }
+                                                record_web_test_diagnostic(553, submitted_frame);
+                                                let queue_wait_ms = Instant::now()
+                                                    .duration_since(submitted_at)
+                                                    .as_millis()
+                                                    .try_into()
+                                                    .unwrap_or(u32::MAX);
+                                                record_web_test_diagnostic(558, queue_wait_ms);
+                                                if queue_backpressure.complete_work() {
+                                                    record_web_test_diagnostic(
+                                                        554,
+                                                        submitted_frame,
+                                                    );
+                                                    send_wake_event(&completion_proxy);
+                                                }
+                                            });
                                         }
 
                                         pending_resize = None;
@@ -9821,8 +10294,8 @@ where
                                                             &render_state.surface.config,
                                                         );
                                                         eprintln!(
-                                                                "render surface became {error}; reconfigured and retrying"
-                                                            );
+                                                            "render surface became {error}; reconfigured and retrying"
+                                                        );
                                                     }
                                                     SurfaceAcquireRecovery::Retry => {
                                                         if matches!(
@@ -9869,7 +10342,7 @@ where
                                                                 env.theme.tokens.colors.background;
                                                             covered_window_screenshot(
                                                                 pipeline.retained_scene().map(|scene| {
-                                                                    fission_render_vello::cpu::render_to_rgba8(
+fission_render_vello::cpu::render_to_rgba8(
                                                                         scene,
                                                                         render_target_size.0,
                                                                         render_target_size.1,
@@ -10128,12 +10601,10 @@ where
                                                 },
                                             );
 
-                                        render_state.surface.blitter.copy(
-                                            &device_handle.device,
-                                            &mut encoder,
-                                            &render_state.surface.target_view,
-                                            &surface_view,
-                                        );
+                                        render_state
+                                            .surface
+                                            .blitter
+                                            .copy(&mut encoder, &surface_view);
 
                                         device_handle.queue.submit(Some(encoder.finish()));
 
@@ -10460,9 +10931,9 @@ where
                                     == Some("1")
                                 {
                                     eprintln!(
-                                            "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
-                                            delta, point.x, point.y, dx, dy
-                                        );
+                                        "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
+                                        delta, point.x, point.y, dx, dy
+                                    );
                                 }
                                 handle_scroll(
                                     point.x,
@@ -11135,2039 +11606,26 @@ fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
     }
 }
 
-fn clamp_copy_extent_to_texture(
-    requested_width: u32,
-    requested_height: u32,
-    actual_width: u32,
-    actual_height: u32,
-) -> (u32, u32) {
-    (
-        requested_width.min(actual_width).max(1),
-        requested_height.min(actual_height).max(1),
-    )
-}
+mod capture;
+#[cfg(test)]
+use capture::{clamp_copy_extent_to_texture, downscale_rgba_box};
+use capture::{covered_window_screenshot, gpu_screenshot, layout_size_to_image_dimensions};
 
-fn gpu_screenshot(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    texture: &wgpu::Texture,
-    texture_width: u32,
-    texture_height: u32,
-    output_width: u32,
-    output_height: u32,
-    path: Option<&str>,
-) -> fission_test_driver::TestResponse {
-    let actual_texture_width = texture.width();
-    let actual_texture_height = texture.height();
-    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
-        texture_width,
-        texture_height,
-        actual_texture_width,
-        actual_texture_height,
-    );
-    if output_width == 0 || output_height == 0 {
-        return fission_test_driver::TestResponse::Error {
-            message: "zero-size viewport".into(),
-        };
-    }
-
-    let bytes_per_pixel = 4u32;
-    let unpadded_bytes_per_row = texture_width * bytes_per_pixel;
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
-    let buffer_size = (padded_bytes_per_row * texture_height) as u64;
-
-    let staging = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("screenshot staging"),
-        size: buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("screenshot copy"),
-    });
-
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &staging,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded_bytes_per_row),
-                rows_per_image: Some(texture_height),
-            },
-        },
-        wgpu::Extent3d {
-            width: texture_width,
-            height: texture_height,
-            depth_or_array_layers: 1,
-        },
-    );
-
-    queue.submit(Some(encoder.finish()));
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    staging
-        .slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-    let _ = device.poll(wgpu::PollType::wait_indefinitely());
-
-    match rx.recv() {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            return fission_test_driver::TestResponse::Error {
-                message: format!("buffer map failed: {:?}", e),
-            };
-        }
-        Err(e) => {
-            return fission_test_driver::TestResponse::Error {
-                message: format!("buffer map channel error: {}", e),
-            };
-        }
-    }
-
-    let data = staging.slice(..).get_mapped_range();
-
-    // Remove row padding (texture is Rgba8Unorm, no swizzle needed)
-    let mut rgba = Vec::with_capacity((texture_width * texture_height * 4) as usize);
-    for row in 0..texture_height {
-        let start = (row * padded_bytes_per_row) as usize;
-        let end = start + (texture_width * bytes_per_pixel) as usize;
-        rgba.extend_from_slice(&data[start..end]);
-    }
-
-    drop(data);
-    staging.unmap();
-
-    rgba_screenshot_response(
-        rgba,
-        texture_width,
-        texture_height,
-        output_width,
-        output_height,
-        path,
-    )
-}
-
-/// Answers a screenshot from a software rendering of the retained scene when the presented surface
-/// cannot be read back reliably.
-fn covered_window_screenshot<E: std::fmt::Display>(
-    rendered: Option<Result<Vec<u8>, E>>,
-    render_size: (u32, u32),
-    output_size: (u32, u32),
-    path: Option<&str>,
-) -> fission_test_driver::TestResponse {
-    match rendered {
-        None => fission_test_driver::TestResponse::Error {
-            message: "nothing has been rendered yet".into(),
-        },
-        Some(Err(error)) => fission_test_driver::TestResponse::Error {
-            message: format!("software screenshot failed: {error}"),
-        },
-        Some(Ok(_)) if output_size.0 == 0 || output_size.1 == 0 => {
-            fission_test_driver::TestResponse::Error {
-                message: "zero-size viewport".into(),
-            }
-        }
-        Some(Ok(rgba)) => rgba_screenshot_response(
-            rgba,
-            render_size.0,
-            render_size.1,
-            output_size.0,
-            output_size.1,
-            path,
-        ),
-    }
-}
-
-/// Scales captured RGBA pixels to the output size, then writes them to `path` as a PNG or returns
-/// them in the response.
-fn rgba_screenshot_response(
-    rgba: Vec<u8>,
-    texture_width: u32,
-    texture_height: u32,
-    output_width: u32,
-    output_height: u32,
-    path: Option<&str>,
-) -> fission_test_driver::TestResponse {
-    let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
-    {
-        (rgba, texture_width, texture_height)
-    } else if let Some(resized) = downscale_rgba_box(
-        &rgba,
-        texture_width,
-        texture_height,
-        output_width,
-        output_height,
-    ) {
-        (resized, output_width, output_height)
-    } else {
-        let Some(image) = image::RgbaImage::from_raw(texture_width, texture_height, rgba) else {
-            return fission_test_driver::TestResponse::Error {
-                message: "failed to decode screenshot RGBA buffer".into(),
-            };
-        };
-        let resized = image::imageops::resize(
-            &image,
-            output_width,
-            output_height,
-            image::imageops::FilterType::Triangle,
-        );
-        (resized.into_raw(), output_width, output_height)
-    };
-
-    let mut png = Vec::new();
-    {
-        use image::ImageEncoder;
-        let encoder = image::codecs::png::PngEncoder::new(&mut png);
-        if let Err(e) = encoder.write_image(&rgba, width, height, image::ExtendedColorType::Rgba8) {
-            return fission_test_driver::TestResponse::Error {
-                message: format!("PNG encode failed: {}", e),
-            };
-        }
-    }
-
-    if let Some(path) = path {
-        match std::fs::write(path, &png) {
-            Ok(()) => fission_test_driver::TestResponse::Ok {},
-            Err(e) => fission_test_driver::TestResponse::Error {
-                message: format!("PNG save failed: {}", e),
-            },
-        }
-    } else {
-        fission_test_driver::TestResponse::Screenshot {
-            png_base64: base64::engine::general_purpose::STANDARD.encode(png),
-            width,
-            height,
-        }
-    }
-}
-
-fn downscale_rgba_box(
-    rgba: &[u8],
-    input_width: u32,
-    input_height: u32,
-    output_width: u32,
-    output_height: u32,
-) -> Option<Vec<u8>> {
-    if output_width == 0
-        || output_height == 0
-        || input_width % output_width != 0
-        || input_height % output_height != 0
-    {
-        return None;
-    }
-
-    let scale_x = input_width / output_width;
-    let scale_y = input_height / output_height;
-    if scale_x <= 1 && scale_y <= 1 {
-        return None;
-    }
-
-    let samples_per_pixel = scale_x.checked_mul(scale_y)?;
-    let mut out = vec![0u8; (output_width * output_height * 4) as usize];
-
-    for out_y in 0..output_height {
-        let src_y0 = out_y * scale_y;
-        for out_x in 0..output_width {
-            let src_x0 = out_x * scale_x;
-            let mut sum = [0u32; 4];
-            for dy in 0..scale_y {
-                let src_y = src_y0 + dy;
-                let row_offset = ((src_y * input_width) * 4) as usize;
-                for dx in 0..scale_x {
-                    let src_x = src_x0 + dx;
-                    let src_index = row_offset + (src_x * 4) as usize;
-                    sum[0] += rgba[src_index] as u32;
-                    sum[1] += rgba[src_index + 1] as u32;
-                    sum[2] += rgba[src_index + 2] as u32;
-                    sum[3] += rgba[src_index + 3] as u32;
-                }
-            }
-
-            let dst_index = (((out_y * output_width) + out_x) * 4) as usize;
-            out[dst_index] = (sum[0] / samples_per_pixel) as u8;
-            out[dst_index + 1] = (sum[1] / samples_per_pixel) as u8;
-            out[dst_index + 2] = (sum[2] / samples_per_pixel) as u8;
-            out[dst_index + 3] = (sum[3] / samples_per_pixel) as u8;
-        }
-    }
-
-    Some(out)
-}
-
-fn layout_size_to_image_dimensions(size: LayoutSize) -> (u32, u32) {
-    let width = size.width.max(1.0).round() as u32;
-    let height = size.height.max(1.0).round() as u32;
-    (width.max(1), height.max(1))
-}
-
-fn normalize_scale_factor(scale_factor: f64) -> f64 {
-    if scale_factor.is_finite() && scale_factor > 0.0 {
-        scale_factor
-    } else {
-        1.0
-    }
-}
-
+mod viewport;
 #[cfg(target_os = "ios")]
-fn ios_effective_scale_factor(reported_scale_factor: f64) -> f64 {
-    std::env::var("FISSION_IOS_SCALE_FACTOR")
-        .ok()
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|scale| scale.is_finite() && *scale > 0.0)
-        .unwrap_or_else(|| {
-            if reported_scale_factor >= 2.0 {
-                reported_scale_factor
-            } else {
-                3.0
-            }
-        })
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_browser_viewport_state() -> Option<WindowViewportState> {
-    let window = web_sys::window()?;
-    let width = window.inner_width().ok()?.as_f64()? as f32;
-    let height = window.inner_height().ok()?.as_f64()? as f32;
-    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-    let scale_factor =
-        web_effective_render_scale(LayoutSize::new(width, height), window.device_pixel_ratio());
-    Some(WindowViewportState {
-        physical_size: logical_viewport_to_physical_size(
-            LayoutSize::new(width, height),
-            scale_factor,
-        ),
-        scale_factor,
-    })
-}
-
-#[cfg(any(test, target_arch = "wasm32"))]
-fn web_effective_render_scale(size: LayoutSize, device_pixel_ratio: f64) -> f64 {
-    // Preserve CSS-pixel layout while bounding the WebGPU backing store. Large
-    // high-DPI displays can otherwise request textures and Vello buffers far
-    // beyond practical browser GPU budgets (for example 6880x2880 for a
-    // 3440x1440 viewport at DPR 2), leaving the canvas blank after allocation.
-    const MAX_WEB_RENDER_PIXELS: f64 = 8_388_608.0;
-
-    let device_pixel_ratio = normalize_scale_factor(device_pixel_ratio);
-    let logical_pixels = (size.width.max(1.0) as f64) * (size.height.max(1.0) as f64);
-    let budgeted_scale = (MAX_WEB_RENDER_PIXELS / logical_pixels).sqrt();
-    device_pixel_ratio.min(budgeted_scale.max(1.0))
-}
-
-fn physical_size_to_layout_size(size: PhysicalSize<u32>, scale_factor: f64) -> LayoutSize {
-    let scale_factor = normalize_scale_factor(scale_factor);
-    LayoutSize {
-        width: (size.width as f64 / scale_factor) as f32,
-        height: (size.height as f64 / scale_factor) as f32,
-    }
-}
-
-fn logical_viewport_to_render_target_size(size: LayoutSize, scale_factor: f64) -> (u32, u32) {
-    let scale_factor = normalize_scale_factor(scale_factor);
-    let width = (size.width.max(1.0) as f64 * scale_factor).ceil() as u32;
-    let height = (size.height.max(1.0) as f64 * scale_factor).ceil() as u32;
-    (width.max(1), height.max(1))
-}
-
-fn logical_viewport_to_physical_size(size: LayoutSize, scale_factor: f64) -> PhysicalSize<u32> {
-    let (width, height) = logical_viewport_to_render_target_size(size, scale_factor);
-    PhysicalSize::new(width, height)
-}
-
-fn recreate_target_texture(
-    surface: &mut RenderSurface,
-    render_cx: &RenderContext,
-    width: u32,
-    height: u32,
-) {
-    let device = &render_cx.devices[surface.dev_id].device;
-    let size = wgpu::Extent3d {
-        width: width.max(1),
-        height: height.max(1),
-        depth_or_array_layers: 1,
-    };
-    let new_texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("fission_target_with_copy"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm, // Must match Vello's internal format
-        usage: wgpu::TextureUsages::STORAGE_BINDING
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_SRC
-            | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    let new_view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    surface.target_texture = new_texture;
-    surface.target_view = new_view;
-}
-
-fn sync_tracked_target_texture_size_to_surface(
-    target_texture_size: &mut (u32, u32),
-    surface_size: PhysicalSize<u32>,
-) {
-    *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
-}
-
+use viewport::ios_effective_scale_factor;
+#[cfg(test)]
+use viewport::logical_viewport_to_render_target_size;
 #[cfg(any(test, not(any(target_os = "android", target_os = "ios"))))]
-fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::LogicalSize<f64> {
-    winit::dpi::LogicalSize::new(size.width as f64, size.height as f64)
-}
+use viewport::native_window_size_for_logical_viewport;
+#[cfg(target_arch = "wasm32")]
+use viewport::web_browser_viewport_state;
+#[cfg(any(test, target_arch = "wasm32"))]
+use viewport::web_effective_render_scale;
+use viewport::{
+    logical_viewport_to_physical_size, normalize_scale_factor, physical_size_to_layout_size,
+    recreate_target_texture, sync_tracked_target_texture_size_to_surface,
+};
 
 #[cfg(test)]
-mod tests {
-    #[cfg(feature = "scene3d")]
-    use super::scene3d_hardware_adapter_supported;
-    use super::{
-        animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
-        classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
-        cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
-        handle_fill_text_selector, layout_size_to_image_dimensions,
-        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
-        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
-        native_window_size_for_logical_viewport, normalize_scale_factor,
-        normalize_winit_scroll_delta, physical_position_to_layout_point,
-        physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-        preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
-        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, runtime_timer_wake_at,
-        scroll_build_dependency_offsets, scroll_build_dependency_offsets_changed,
-        should_present_startup_clear_frame, surface_acquire_recovery,
-        sync_tracked_target_texture_size_to_surface, test_pump_can_ack_current_frame,
-        text_input_blink_enabled, texture_plans_fit_device_limits, visual_rect_for_node,
-        web_effective_render_scale, web_live_test_event_loop_wait_until,
-        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
-        BrowserDefaults, ControlFlow, FrameScheduleState, Instant, LiveResizeController,
-        RedrawRequestTiming, SurfaceAcquireRecovery, TestPumpState, WindowViewportState,
-    };
-    use crate::pipeline::{software_frame_needs_raster, CompositorTexturePlan};
-    use crate::InvalidationSet;
-    use fission_core::authoring::BuildCtx;
-    use fission_core::event::{InputEvent, KeyCode, KeyEvent};
-    use fission_core::{
-        Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
-        GlobalState, MotionPropertyId, PointerId, PointerKind, PointerPhase, ReducerContext,
-        ResourceKey, Runtime, RuntimeResourceDeclaration, RuntimeResourceKind, ScrollDeltaMode,
-        TextEditSource, TextValuePhase, TimerResource, UpdateTextInput, WidgetId,
-    };
-    use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
-    use fission_ir::semantics::{ActionTrigger, MouseCursor};
-    use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
-    use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
-    use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
-    use wgpu::PresentMode;
-
-    #[derive(Debug, Default, Clone)]
-    struct TimerWakeState {
-        ticks: u32,
-    }
-
-    impl GlobalState for TimerWakeState {}
-
-    #[test]
-    fn only_changed_scroll_build_dependencies_request_tree_rebuilds() {
-        let tracked_scroll = WidgetId::from_u128(80_001);
-        let ordinary_scroll = WidgetId::from_u128(80_002);
-        let mut ir = CoreIR::new();
-        ir.scroll_build_dependencies.insert(tracked_scroll);
-
-        let mut scroll = ScrollStateMap::default();
-        let before = scroll_build_dependency_offsets(&ir, &scroll);
-
-        scroll.set_offset(ordinary_scroll, 24.0);
-        assert!(!scroll_build_dependency_offsets_changed(&before, &scroll));
-
-        scroll.set_offset(tracked_scroll, 24.0);
-        assert!(scroll_build_dependency_offsets_changed(&before, &scroll));
-    }
-
-    #[fission_macros::fission_reducer(ShellTimerWakeFired)]
-    fn shell_timer_wake_fired(
-        state: &mut TimerWakeState,
-        _ctx: &mut ReducerContext<TimerWakeState>,
-    ) {
-        state.ticks += 1;
-    }
-
-    #[test]
-    fn immediate_timer_schedules_a_wake_when_the_shell_would_be_idle() {
-        let mut runtime = Runtime::default();
-        runtime
-            .add_app_state(Box::new(TimerWakeState::default()))
-            .expect("register timer wake state");
-
-        let mut ctx = BuildCtx::new();
-        let on_tick = fission_core::with_reducer!(ctx, ShellTimerWakeFired, shell_timer_wake_fired);
-        runtime.clear_reducers();
-        runtime.absorb_registry(ctx.registry);
-
-        let timer = TimerResource::new(
-            ResourceKey::new("shell-idle-wake"),
-            Duration::from_millis(1),
-            (),
-        )
-        .immediate()
-        .on_tick(on_tick);
-        runtime
-            .reconcile_resources(vec![RuntimeResourceDeclaration {
-                key: "shell-idle-wake".into(),
-                deps: timer.deps.clone(),
-                policy: timer.policy,
-                kind: RuntimeResourceKind::Timer(timer),
-            }])
-            .expect("register immediate timer");
-
-        let last_frame_time = Instant::now();
-        assert_eq!(
-            runtime_timer_wake_at(&runtime, last_frame_time),
-            Some(last_frame_time)
-        );
-    }
-
-    #[test]
-    fn software_renderer_keeps_the_caret_static_unless_blink_is_explicitly_enabled() {
-        assert!(!text_input_blink_enabled(None, true));
-        assert!(text_input_blink_enabled(None, false));
-        assert!(text_input_blink_enabled(Some("1"), true));
-        assert!(text_input_blink_enabled(Some("true"), true));
-        assert!(!text_input_blink_enabled(Some("0"), false));
-        assert!(!text_input_blink_enabled(Some("false"), false));
-    }
-
-    #[test]
-    fn live_test_pump_reuses_the_current_frame_when_idle() {
-        let idle = TestPumpState {
-            has_current_frame: true,
-            ..Default::default()
-        };
-        assert!(test_pump_can_ack_current_frame(idle));
-
-        let mut pending = idle;
-        pending.invalidations.mark_build();
-        assert!(!test_pump_can_ack_current_frame(pending));
-
-        let mut pending = idle;
-        pending.resize_unsettled = true;
-        assert!(!test_pump_can_ack_current_frame(pending));
-
-        let mut pending = idle;
-        pending.active_animation = true;
-        assert!(!test_pump_can_ack_current_frame(pending));
-
-        let mut pending = idle;
-        pending.redraw_pending = true;
-        assert!(!test_pump_can_ack_current_frame(pending));
-
-        let mut pending = idle;
-        pending.pending_screenshot = true;
-        assert!(!test_pump_can_ack_current_frame(pending));
-
-        assert!(!test_pump_can_ack_current_frame(TestPumpState::default()));
-    }
-
-    #[test]
-    fn key_down_preserves_produced_text_independently_of_logical_key() {
-        let event = fission_key_down_event(KeyCode::Space, 0, Some("t"));
-
-        assert_eq!(
-            event,
-            InputEvent::Keyboard(KeyEvent::DownWithText {
-                key_code: KeyCode::Space,
-                modifiers: 0,
-                text: "t".to_owned(),
-            })
-        );
-    }
-
-    #[test]
-    fn key_down_preserves_multi_scalar_produced_text_once() {
-        let event = fission_key_down_event(KeyCode::Char('e'), 0, Some("e\u{301}"));
-
-        assert_eq!(
-            event,
-            InputEvent::Keyboard(KeyEvent::DownWithText {
-                key_code: KeyCode::Char('e'),
-                modifiers: 0,
-                text: "e\u{301}".to_owned(),
-            })
-        );
-    }
-
-    #[test]
-    fn key_down_keeps_framework_navigation_keys_out_of_the_text_path() {
-        for (key_code, produced_text) in [
-            (KeyCode::Tab, "\t"),
-            (KeyCode::Enter, "\r"),
-            (KeyCode::Escape, "\u{1b}"),
-            (KeyCode::Space, " "),
-            (KeyCode::Left, "ignored"),
-        ] {
-            assert_eq!(
-                fission_key_down_event(key_code.clone(), 0, Some(produced_text)),
-                InputEvent::Keyboard(KeyEvent::Down {
-                    key_code,
-                    modifiers: 0,
-                })
-            );
-        }
-    }
-    use serde::{Deserialize, Serialize};
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    use std::time::Duration;
-    use winit::dpi::{PhysicalPosition, PhysicalSize};
-    use winit::event::{MouseScrollDelta, TouchPhase};
-    use winit::window::CursorIcon;
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    struct LiveTextAction(String);
-
-    impl FissionAction for LiveTextAction {
-        fn static_id() -> FissionActionId {
-            FissionActionId::from_name("winit_live_test::LiveTextAction")
-        }
-    }
-
-    #[derive(Debug, Default)]
-    struct LiveTextState {
-        edit: Option<(String, UpdateTextInput)>,
-    }
-
-    impl GlobalState for LiveTextState {}
-
-    fn record_live_text(
-        state: &mut LiveTextState,
-        action: LiveTextAction,
-        context: &mut ReducerContext<LiveTextState>,
-    ) {
-        state.edit = Some((
-            action.0,
-            context
-                .input
-                .text_change()
-                .expect("live text input")
-                .clone(),
-        ));
-    }
-
-    fn live_text_runtime() -> Runtime {
-        let mut runtime = Runtime::default().with_global_state(LiveTextState::default());
-        let mut registry = ActionRegistry::<LiveTextState>::new();
-        registry.register(
-            record_live_text
-                as fn(&mut LiveTextState, LiveTextAction, &mut ReducerContext<LiveTextState>),
-        );
-        runtime.absorb_registry(registry);
-        runtime
-    }
-
-    fn live_text_pipeline(payload: Option<Vec<u8>>) -> (crate::Pipeline, WidgetId) {
-        let target = WidgetId::explicit("live-text-input");
-        let mut ir = CoreIR::new();
-        let actions = payload
-            .map(|payload_data| fission_ir::ActionSet {
-                entries: vec![fission_ir::ActionEntry {
-                    trigger: ActionTrigger::TextChanged,
-                    action_id: LiveTextAction::static_id().as_u128(),
-                    payload_data: Some(payload_data),
-                }],
-            })
-            .unwrap_or_default();
-        ir.add_node(
-            target,
-            Op::Semantics(Semantics {
-                role: Role::TextInput,
-                identifier: Some("live.text".into()),
-                value: Some(String::new()),
-                actions,
-                focusable: true,
-                ..Semantics::default()
-            }),
-            Vec::new(),
-        );
-        ir.set_root(target);
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
-        snapshot.nodes.insert(
-            target,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(12.0, 12.0, 240.0, 40.0),
-                content_size: LayoutSize::new(240.0, 40.0),
-            },
-        );
-        let mut pipeline = crate::Pipeline::new();
-        pipeline.prev_ir = Some(ir);
-        pipeline.last_snapshot = Some(snapshot);
-        (pipeline, target)
-    }
-
-    #[test]
-    fn initial_window_maximization_is_opt_in() {
-        let default_attributes = build_window_attributes(
-            "Fission",
-            false,
-            true,
-            false,
-            false,
-            None,
-            BrowserDefaults::NONE,
-            None,
-        )
-        .unwrap();
-        let maximized_attributes = build_window_attributes(
-            "Fission",
-            true,
-            true,
-            false,
-            false,
-            None,
-            BrowserDefaults::NONE,
-            None,
-        )
-        .unwrap();
-
-        assert!(!default_attributes.maximized);
-        assert!(maximized_attributes.maximized);
-    }
-
-    #[test]
-    fn windows_shell_arguments_are_utf16_nul_terminated() {
-        let value = "https://example.com/projects/café";
-        let encoded = windows_wide(value).expect("valid shell argument");
-
-        assert_eq!(encoded.last(), Some(&0));
-        assert_eq!(
-            &encoded[..encoded.len() - 1],
-            value.encode_utf16().collect::<Vec<_>>()
-        );
-        assert!(windows_wide("https://example.com/\0truncated").is_err());
-    }
-
-    #[test]
-    fn windows_shell_execute_status_uses_documented_success_boundary() {
-        assert!(!windows_shell_execute_succeeded(0));
-        assert!(!windows_shell_execute_succeeded(32));
-        assert!(windows_shell_execute_succeeded(33));
-    }
-
-    #[test]
-    fn surface_alpha_mode_always_comes_from_the_supported_set() {
-        use wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
-
-        assert_eq!(
-            preferred_surface_alpha_mode(&[Opaque, Inherit]),
-            Opaque,
-            "opaque is the preferred portable fallback"
-        );
-        assert_eq!(
-            preferred_surface_alpha_mode(&[Inherit]),
-            Inherit,
-            "the first advertised mode is used when preferred modes are absent"
-        );
-        assert_eq!(
-            preferred_surface_alpha_mode(&[Opaque, PreMultiplied]),
-            PreMultiplied
-        );
-        assert_eq!(
-            preferred_surface_alpha_mode(&[Opaque, PostMultiplied]),
-            PostMultiplied
-        );
-        assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
-    }
-
-    #[test]
-    fn web_surface_prefers_opaque_composition() {
-        use wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
-
-        assert_eq!(
-            preferred_web_surface_alpha_mode(&[PreMultiplied, Opaque, PostMultiplied]),
-            Opaque
-        );
-        assert_eq!(
-            preferred_web_surface_alpha_mode(&[PostMultiplied, PreMultiplied]),
-            PreMultiplied
-        );
-        assert_eq!(preferred_web_surface_alpha_mode(&[Inherit]), Inherit);
-        assert_eq!(preferred_web_surface_alpha_mode(&[]), Opaque);
-    }
-
-    #[test]
-    fn recoverable_surface_acquisition_errors_never_crash_the_app() {
-        use super::SurfaceAcquireError;
-
-        assert_eq!(
-            surface_acquire_recovery(&SurfaceAcquireError::Lost),
-            SurfaceAcquireRecovery::Reconfigure
-        );
-        assert_eq!(
-            surface_acquire_recovery(&SurfaceAcquireError::Outdated),
-            SurfaceAcquireRecovery::Reconfigure
-        );
-        assert_eq!(
-            surface_acquire_recovery(&SurfaceAcquireError::Timeout),
-            SurfaceAcquireRecovery::Retry
-        );
-        assert_eq!(
-            surface_acquire_recovery(&SurfaceAcquireError::Occluded),
-            SurfaceAcquireRecovery::Retry
-        );
-        assert_eq!(
-            surface_acquire_recovery(&SurfaceAcquireError::Validation),
-            SurfaceAcquireRecovery::Reconfigure
-        );
-    }
-
-    #[test]
-    fn semantic_cursor_icons_map_to_winit_icons() {
-        assert_eq!(cursor_icon_for(MouseCursor::Default), CursorIcon::Default);
-        assert_eq!(cursor_icon_for(MouseCursor::Pointer), CursorIcon::Pointer);
-        assert_eq!(cursor_icon_for(MouseCursor::Text), CursorIcon::Text);
-        assert_eq!(
-            cursor_icon_for(MouseCursor::NotAllowed),
-            CursorIcon::NotAllowed
-        );
-        assert_eq!(
-            cursor_icon_for(MouseCursor::VerticalText),
-            CursorIcon::VerticalText
-        );
-    }
-
-    #[test]
-    fn winit_scroll_delta_normalizes_to_positive_down_and_right() {
-        assert_eq!(
-            normalize_winit_scroll_delta(&MouseScrollDelta::LineDelta(-1.0, -2.0), 1.0),
-            (50.0, 100.0, ScrollDeltaMode::Line)
-        );
-        assert_eq!(
-            normalize_winit_scroll_delta(
-                &MouseScrollDelta::PixelDelta(PhysicalPosition::new(-20.0, -40.0)),
-                2.0,
-            ),
-            (10.0, 20.0, ScrollDeltaMode::Pixel)
-        );
-    }
-
-    #[test]
-    fn pointer_signal_phases_and_test_vocabulary_map_without_loss() {
-        assert_eq!(map_touch_phase(TouchPhase::Started), PointerPhase::Started);
-        assert_eq!(
-            map_touch_phase(TouchPhase::Cancelled),
-            PointerPhase::Cancelled
-        );
-        assert_eq!(
-            map_test_pointer_kind(TestPointerKind::Touch),
-            PointerKind::Touch
-        );
-        assert_eq!(
-            map_test_pointer_kind(TestPointerKind::Stylus),
-            PointerKind::Stylus
-        );
-        assert_eq!(
-            map_test_pointer_id(0, TestPointerKind::Mouse),
-            PointerId::MOUSE
-        );
-        assert_ne!(
-            map_test_pointer_id(0, TestPointerKind::Touch),
-            PointerId::MOUSE
-        );
-        assert_eq!(
-            map_test_pointer_phase(TestPointerPhase::Ended),
-            PointerPhase::Ended
-        );
-        assert_eq!(
-            map_test_scroll_delta_mode(TestScrollDeltaMode::Line),
-            ScrollDeltaMode::Line
-        );
-    }
-
-    #[test]
-    fn native_magnification_is_converted_to_a_safe_multiplicative_factor() {
-        assert_eq!(magnification_scale_factor(0.25), 1.25);
-        assert_eq!(magnification_scale_factor(-0.25), 0.75);
-        assert_eq!(magnification_scale_factor(f64::NAN), 1.0);
-        assert_eq!(magnification_scale_factor(-2.0), 1.0);
-    }
-
-    #[test]
-    fn physical_input_position_maps_into_layout_space() {
-        let point = physical_position_to_layout_point(
-            PhysicalPosition::new(240.0, 360.0),
-            2.0,
-            PhysicalPosition::new(0, 0),
-        );
-        assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
-    }
-
-    #[test]
-    fn physical_input_position_subtracts_content_origin_before_scaling() {
-        let point = physical_position_to_layout_point(
-            PhysicalPosition::new(240.0, 460.0),
-            2.0,
-            PhysicalPosition::new(0, 100),
-        );
-        assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
-    }
-
-    #[test]
-    fn safe_area_frames_convert_to_logical_window_insets() {
-        let insets = window_insets_from_safe_area_frames(
-            PhysicalPosition::new(0, 177),
-            PhysicalPosition::new(0, 0),
-            PhysicalSize::new(1206, 2343),
-            PhysicalSize::new(1206, 2622),
-            3.0,
-        );
-
-        assert_eq!(insets.left, 0.0);
-        assert_eq!(insets.right, 0.0);
-        assert_eq!(insets.top, 59.0);
-        assert_eq!(insets.bottom, 34.0);
-    }
-
-    #[test]
-    fn visual_rect_subtracts_ancestor_scroll_offset() {
-        let scroll = WidgetId::from_u128(1);
-        let child = WidgetId::from_u128(2);
-        let mut ir = CoreIR::new();
-        ir.add_node(
-            child,
-            Op::Paint(fission_ir::PaintOp::DrawRect {
-                fill: None,
-                stroke: None,
-                corner_radius: 0.0,
-                shadow: None,
-                corner_radii: None,
-                border_sides: None,
-            }),
-            Vec::new(),
-        );
-        ir.add_node(
-            scroll,
-            Op::Layout(LayoutOp::Scroll {
-                direction: FlexDirection::Column,
-                show_scrollbar: true,
-                width: None,
-                height: None,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-            vec![child],
-        );
-        ir.set_root(scroll);
-
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
-        snapshot.nodes.insert(
-            scroll,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(0.0, 0.0, 100.0, 100.0),
-                content_size: LayoutSize::new(100.0, 400.0),
-            },
-        );
-        snapshot.nodes.insert(
-            child,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(0.0, 150.0, 80.0, 20.0),
-                content_size: LayoutSize::new(80.0, 20.0),
-            },
-        );
-        let mut scroll_map = ScrollStateMap::default();
-        scroll_map.set_offset(scroll, 120.0);
-
-        let visual = visual_rect_for_node(&ir, &snapshot, &scroll_map, child).unwrap();
-        assert_eq!(visual, LayoutRect::new(0.0, 30.0, 80.0, 20.0));
-        assert!(rect_visible_in_scroll_ancestors(
-            &ir,
-            &snapshot,
-            &scroll_map,
-            child,
-            visual
-        ));
-    }
-
-    #[test]
-    fn get_tree_metadata_keeps_identifier_separate_and_masks_value() {
-        let input = WidgetId::from_u128(10);
-        let mut ir = CoreIR::new();
-        ir.add_node(
-            input,
-            Op::Semantics(Semantics {
-                role: Role::TextInput,
-                label: Some("Password".into()),
-                identifier: Some("account.password".into()),
-                value: Some("hunter2".into()),
-                focusable: true,
-                masked: true,
-                text_selection: Some((1, 3)),
-                ..Semantics::default()
-            }),
-            Vec::new(),
-        );
-        ir.set_root(input);
-
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
-        snapshot.nodes.insert(
-            input,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(20.0, 30.0, 160.0, 32.0),
-                content_size: LayoutSize::new(160.0, 32.0),
-            },
-        );
-
-        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
-        assert_eq!(records.len(), 1);
-        let node = &records[0].node;
-        assert_eq!(node.identifier.as_deref(), Some("account.password"));
-        assert_eq!(node.label.as_deref(), Some("Password"));
-        assert_eq!(node.value, None);
-        assert!(node.value_present);
-        assert!(node.masked);
-        assert_eq!(node.text_selection, Some((1, 3)));
-        assert_eq!(
-            node.visibility,
-            fission_test_driver::VisibilityState::FullyVisible
-        );
-    }
-
-    #[test]
-    fn get_tree_excludes_semantics_from_inactive_responsive_branches() {
-        let root = WidgetId::explicit("responsive-root");
-        let compact_branch = WidgetId::explicit("compact-branch");
-        let compact_input = WidgetId::explicit("compact-input");
-        let expanded_branch = WidgetId::explicit("expanded-branch");
-        let expanded_input = WidgetId::explicit("expanded-input");
-        let input_semantics = || {
-            Op::Semantics(Semantics {
-                role: Role::TextInput,
-                identifier: Some("slide.text.input".into()),
-                focusable: true,
-                value: Some("Draft".into()),
-                ..Semantics::default()
-            })
-        };
-        let box_op = || {
-            Op::Layout(LayoutOp::Box {
-                width: None,
-                height: None,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            })
-        };
-
-        let mut ir = CoreIR::new();
-        ir.add_node(compact_input, input_semantics(), Vec::new());
-        ir.add_node(compact_branch, box_op(), vec![compact_input]);
-        ir.add_node(expanded_input, input_semantics(), Vec::new());
-        ir.add_node(expanded_branch, box_op(), vec![expanded_input]);
-        ir.add_node(
-            root,
-            Op::Layout(LayoutOp::Responsive {
-                query: fission_ir::op::ResponsiveQuery::Viewport,
-                cases: vec![fission_ir::op::ResponsiveCondition {
-                    min_width: None,
-                    max_width: Some(600.0),
-                }],
-            }),
-            vec![compact_branch, expanded_branch],
-        );
-        ir.set_root(root);
-
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(1_100.0, 700.0));
-        for (id, rect) in [
-            (root, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
-            (expanded_branch, LayoutRect::new(0.0, 0.0, 1_100.0, 700.0)),
-            (expanded_input, LayoutRect::new(20.0, 20.0, 320.0, 36.0)),
-        ] {
-            snapshot.nodes.insert(
-                id,
-                LayoutNodeGeometry {
-                    rect,
-                    content_size: LayoutSize::new(rect.width(), rect.height()),
-                },
-            );
-        }
-
-        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].id, expanded_input);
-        assert_eq!(
-            records[0].node.identifier.as_deref(),
-            Some("slide.text.input")
-        );
-    }
-
-    #[test]
-    fn get_tree_reports_effective_sequential_focusability() {
-        let input = WidgetId::from_u128(10);
-        let mut ir = CoreIR::new();
-        ir.add_node(
-            input,
-            Op::Semantics(Semantics {
-                role: Role::TextInput,
-                focusable: false,
-                sequential_focusable: true,
-                ..Semantics::default()
-            }),
-            Vec::new(),
-        );
-        ir.set_root(input);
-
-        let records = collect_semantic_records(
-            &ir,
-            &LayoutSnapshot::new(LayoutSize::new(320.0, 240.0)),
-            &ScrollStateMap::default(),
-        );
-
-        assert_eq!(records.len(), 1);
-        assert!(!records[0].node.focusable);
-        assert!(!records[0].node.sequential_focusable);
-    }
-
-    #[test]
-    fn live_test_fill_text_preserves_bound_payload_and_reports_runtime_edit() {
-        let (pipeline, target) =
-            live_text_pipeline(Some(LiveTextAction("smtp_host".into()).encode()));
-        let mut runtime = live_text_runtime();
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
-
-        let response = handle_fill_text_selector(&query, "greenmail", &mut runtime, &pipeline);
-
-        assert!(matches!(response, fission_test_driver::TestResponse::Ok {}));
-        let (field, change) = runtime
-            .get_global_state::<LiveTextState>()
-            .and_then(|state| state.edit.as_ref())
-            .expect("live text edit");
-        assert_eq!(field, "smtp_host");
-        assert_eq!(change.node_id, target);
-        assert_eq!(change.new_text, "greenmail");
-        assert_eq!(change.new_caret, "greenmail".len());
-        assert_eq!(change.new_anchor, "greenmail".len());
-    }
-
-    #[test]
-    fn live_test_fill_text_uses_text_capability_for_editable_combobox() {
-        let (mut pipeline, target) =
-            live_text_pipeline(Some(LiveTextAction("destination".into()).encode()));
-        let ir = pipeline.prev_ir.as_mut().expect("live text IR");
-        let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&target).unwrap().op else {
-            unreachable!();
-        };
-        semantics.role = Role::ComboBox;
-        semantics.text_editable = true;
-        let mut runtime = live_text_runtime();
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
-
-        let response = handle_fill_text_selector(&query, "London", &mut runtime, &pipeline);
-
-        assert!(matches!(response, fission_test_driver::TestResponse::Ok {}));
-        assert_eq!(
-            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref()),
-            Some(target)
-        );
-        let records = collect_semantic_records(
-            pipeline.prev_ir.as_ref().unwrap(),
-            pipeline.last_snapshot.as_ref().unwrap(),
-            &ScrollStateMap::default(),
-        );
-        assert_eq!(records[0].node.role, "ComboBox");
-        assert!(records[0].node.text_editable);
-        let (field, change) = runtime
-            .get_global_state::<LiveTextState>()
-            .and_then(|state| state.edit.as_ref())
-            .expect("live combobox edit");
-        assert_eq!(field, "destination");
-        assert_eq!(change.node_id, target);
-        assert_eq!(change.new_text, "London");
-    }
-
-    #[test]
-    fn live_test_fill_text_rejects_noneditable_combobox() {
-        let (mut pipeline, target) =
-            live_text_pipeline(Some(LiveTextAction("destination".into()).encode()));
-        let ir = pipeline.prev_ir.as_mut().expect("live text IR");
-        let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&target).unwrap().op else {
-            unreachable!();
-        };
-        semantics.role = Role::ComboBox;
-        semantics.text_editable = false;
-        let mut runtime = live_text_runtime();
-        runtime.runtime_state.interaction.set_focused(Some(target));
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
-
-        let response =
-            handle_fill_text_selector(&query, "must-not-dispatch", &mut runtime, &pipeline);
-
-        assert!(matches!(
-            response,
-            fission_test_driver::TestResponse::SelectorError { .. }
-        ));
-        assert_eq!(
-            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref()),
-            None
-        );
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
-    }
-
-    #[test]
-    fn live_test_fill_text_fails_when_text_input_has_no_input_action() {
-        let (pipeline, target) = live_text_pipeline(None);
-        let mut runtime = live_text_runtime();
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
-
-        let response = handle_fill_text_selector(&query, "not-retained", &mut runtime, &pipeline);
-
-        match response {
-            fission_test_driver::TestResponse::SelectorError { failure } => {
-                assert_eq!(
-                    failure.kind,
-                    fission_test_driver::SelectorFailureKind::UnsupportedAction
-                );
-                assert_eq!(failure.message, "text input edit could not be dispatched");
-            }
-            other => panic!("expected selector error, got {other:?}"),
-        }
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
-        assert!(runtime.runtime_state.text_edit.get(target).is_none());
-    }
-
-    #[test]
-    fn live_test_fill_text_fails_and_restores_editor_state_on_dispatch_error() {
-        let (pipeline, target) = live_text_pipeline(Some(b"not-json".to_vec()));
-        let mut runtime = live_text_runtime();
-        runtime
-            .runtime_state
-            .text_edit
-            .sync_from_runtime(target, "before", None, None, false);
-        runtime
-            .runtime_state
-            .text_edit
-            .set_caret(target, 2, Some(1));
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
-
-        let response = handle_fill_text_selector(&query, "private-value", &mut runtime, &pipeline);
-
-        assert!(matches!(
-            response,
-            fission_test_driver::TestResponse::SelectorError { .. }
-        ));
-        assert!(runtime
-            .get_global_state::<LiveTextState>()
-            .expect("live text state")
-            .edit
-            .is_none());
-        let editor = runtime
-            .runtime_state
-            .text_edit
-            .get(target)
-            .expect("restored editor state");
-        assert_eq!(editor.buffer.to_string(), "before");
-        assert_eq!((editor.caret, editor.anchor), (2, 1));
-    }
-
-    #[test]
-    fn selector_can_scope_duplicate_labels() {
-        let shell = WidgetId::from_u128(20);
-        let app = WidgetId::from_u128(21);
-        let shell_open = WidgetId::from_u128(22);
-        let app_open = WidgetId::from_u128(23);
-
-        let mut ir = CoreIR::new();
-        ir.add_node(
-            shell_open,
-            Op::Semantics(Semantics {
-                role: Role::Button,
-                label: Some("Open".into()),
-                identifier: Some("shell.open".into()),
-                focusable: true,
-                ..Semantics::default()
-            }),
-            Vec::new(),
-        );
-        ir.add_node(
-            app_open,
-            Op::Semantics(Semantics {
-                role: Role::Button,
-                label: Some("Open".into()),
-                identifier: Some("app.open".into()),
-                focusable: true,
-                ..Semantics::default()
-            }),
-            Vec::new(),
-        );
-        ir.add_node(
-            app,
-            Op::Semantics(Semantics {
-                role: Role::Generic,
-                identifier: Some("mounted.app".into()),
-                ..Semantics::default()
-            }),
-            vec![app_open],
-        );
-        ir.add_node(
-            shell,
-            Op::Semantics(Semantics {
-                role: Role::Generic,
-                identifier: Some("shell".into()),
-                ..Semantics::default()
-            }),
-            vec![shell_open, app],
-        );
-        ir.set_root(shell);
-
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
-        for (id, y) in [
-            (shell, 0.0),
-            (app, 80.0),
-            (shell_open, 8.0),
-            (app_open, 88.0),
-        ] {
-            snapshot.nodes.insert(
-                id,
-                LayoutNodeGeometry {
-                    rect: LayoutRect::new(0.0, y, 120.0, 40.0),
-                    content_size: LayoutSize::new(120.0, 40.0),
-                },
-            );
-        }
-
-        let mut pipeline = crate::Pipeline::new();
-        pipeline.prev_ir = Some(ir);
-        pipeline.last_snapshot = Some(snapshot);
-
-        let query = fission_test_driver::SelectorQuery::label("Open").scoped(
-            fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
-        );
-        let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
-            .expect("scoped selector should resolve");
-        assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
-        assert_eq!(record.node.children, Vec::<String>::new());
-
-        let app_record = resolve_selector_record(
-            &pipeline,
-            &ScrollStateMap::default(),
-            &fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
-        )
-        .expect("semantic parent should resolve");
-        assert_eq!(app_record.node.children, vec![app_open.to_string()]);
-
-        let missing_query =
-            fission_test_driver::SelectorQuery::semantic_identifier("missing.control");
-        let detailed =
-            match resolve_selector_record(&pipeline, &ScrollStateMap::default(), &missing_query) {
-                Err(error) => error,
-                Ok(_) => panic!("missing selector should fail"),
-            };
-        let fission_test_driver::TestResponse::SelectorError { failure } = detailed else {
-            panic!("missing selector should return a selector error");
-        };
-        assert!(!failure.candidates.is_empty());
-
-        let quiet = match resolve_selector_record(
-            &pipeline,
-            &ScrollStateMap::default(),
-            &missing_query.without_candidates(),
-        ) {
-            Err(error) => error,
-            Ok(_) => panic!("quiet missing selector should fail"),
-        };
-        let fission_test_driver::TestResponse::SelectorError { failure } = quiet else {
-            panic!("quiet missing selector should return a selector error");
-        };
-        assert!(failure.candidates.is_empty());
-    }
-
-    #[test]
-    fn hidden_selector_prefers_the_responsive_branch_participating_in_layout() {
-        let root = WidgetId::from_u128(30);
-        let active = WidgetId::from_u128(31);
-        let inactive = WidgetId::from_u128(32);
-        let mut ir = CoreIR::new();
-        for id in [active, inactive] {
-            ir.add_node(
-                id,
-                Op::Semantics(Semantics {
-                    role: Role::Button,
-                    label: Some("Continue".into()),
-                    identifier: Some("tour.continue".into()),
-                    focusable: true,
-                    ..Semantics::default()
-                }),
-                Vec::new(),
-            );
-        }
-        ir.add_node(
-            root,
-            Op::Semantics(Semantics {
-                role: Role::Generic,
-                identifier: Some("root".into()),
-                ..Semantics::default()
-            }),
-            vec![active, inactive],
-        );
-        ir.set_root(root);
-
-        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
-        snapshot.nodes.insert(
-            root,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(0.0, 0.0, 320.0, 240.0),
-                content_size: LayoutSize::new(320.0, 240.0),
-            },
-        );
-        snapshot.nodes.insert(
-            active,
-            LayoutNodeGeometry {
-                rect: LayoutRect::new(20.0, 30.0, 120.0, 40.0),
-                content_size: LayoutSize::new(120.0, 40.0),
-            },
-        );
-
-        let mut pipeline = crate::Pipeline::new();
-        pipeline.prev_ir = Some(ir);
-        pipeline.last_snapshot = Some(snapshot);
-        let query = fission_test_driver::SelectorQuery::semantic_identifier("tour.continue")
-            .include_hidden();
-        let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
-            .expect("the active responsive branch should disambiguate the selector");
-
-        assert_eq!(record.id, active);
-    }
-
-    #[test]
-    fn repeating_animation_uses_reduced_frame_rate() {
-        let min_frame = Duration::from_millis(16);
-        let repeat_frame = Duration::from_millis(66);
-        assert_eq!(
-            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
-            Some(repeat_frame)
-        );
-    }
-
-    #[test]
-    fn finite_animation_keeps_full_frame_rate() {
-        let min_frame = Duration::from_millis(16);
-        assert_eq!(
-            animation_redraw_interval(true, None, false, min_frame),
-            Some(min_frame)
-        );
-        assert_eq!(
-            animation_redraw_interval(false, None, true, min_frame),
-            Some(min_frame)
-        );
-    }
-
-    #[test]
-    fn idle_video_does_not_force_full_frame_rate() {
-        let min_frame = Duration::from_millis(16);
-        let repeat_frame = Duration::from_millis(66);
-        assert_eq!(
-            animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
-            Some(repeat_frame)
-        );
-    }
-
-    #[test]
-    fn unchanged_software_frames_reuse_the_valid_render_target() {
-        assert!(!software_frame_needs_raster(
-            true,
-            InvalidationSet::default(),
-            0,
-            false,
-        ));
-        assert!(software_frame_needs_raster(
-            false,
-            InvalidationSet::default(),
-            0,
-            false,
-        ));
-
-        let mut invalidations = InvalidationSet::default();
-        invalidations.mark_composite();
-        assert!(software_frame_needs_raster(true, invalidations, 0, false,));
-        assert!(software_frame_needs_raster(
-            true,
-            InvalidationSet::default(),
-            1,
-            false,
-        ));
-        assert!(software_frame_needs_raster(
-            true,
-            InvalidationSet::default(),
-            0,
-            true,
-        ));
-    }
-
-    #[test]
-    fn no_repeat_interval_means_no_idle_animation_redraw() {
-        let min_frame = Duration::from_millis(16);
-        assert_eq!(
-            animation_redraw_interval(false, None, false, min_frame),
-            None
-        );
-    }
-
-    #[test]
-    fn redraw_requests_are_coalesced_until_the_frame_starts() {
-        let mut schedule = FrameScheduleState::new(false);
-        let mut redraw_requests = 0;
-        let now = Instant::now();
-        let min_frame = Duration::from_millis(16);
-
-        assert_eq!(
-            schedule.redraw_timing(now, now, min_frame),
-            RedrawRequestTiming::DeferredUntil(now + min_frame)
-        );
-
-        assert!(schedule.request_redraw(|| redraw_requests += 1));
-        assert!(!schedule.request_redraw(|| redraw_requests += 1));
-        assert_eq!(redraw_requests, 1);
-        assert_eq!(
-            schedule.redraw_timing(now + min_frame, now, min_frame),
-            RedrawRequestTiming::AlreadyScheduled
-        );
-
-        schedule.redraw_started();
-        assert_eq!(
-            schedule.redraw_timing(now + min_frame, now, min_frame),
-            RedrawRequestTiming::Ready
-        );
-        assert!(schedule.request_redraw(|| redraw_requests += 1));
-        assert_eq!(redraw_requests, 2);
-    }
-
-    #[test]
-    fn scheduled_redraw_waits_for_its_event_instead_of_rearming_a_timer() {
-        let mut schedule = FrameScheduleState::new(false);
-        let deadline = Instant::now() + Duration::from_millis(16);
-
-        assert_eq!(
-            schedule.wait_for_redraw_or_deadline(deadline),
-            ControlFlow::WaitUntil(deadline)
-        );
-        assert!(schedule.mark_redraw_scheduled());
-        assert_eq!(
-            schedule.wait_for_redraw_or_deadline(deadline),
-            ControlFlow::Wait
-        );
-
-        schedule.redraw_started();
-        assert_eq!(
-            schedule.wait_for_redraw_or_deadline(deadline),
-            ControlFlow::WaitUntil(deadline)
-        );
-    }
-
-    #[test]
-    fn web_live_test_event_loop_uses_a_short_timer_deadline() {
-        let now = Instant::now();
-        assert_eq!(
-            web_live_test_event_loop_wait_until(now),
-            ControlFlow::WaitUntil(now + Duration::from_millis(16))
-        );
-    }
-
-    #[test]
-    fn repeat_animation_interval_uses_low_priority_hint() {
-        let mut animation = MotionStateMap::default();
-        animation.active.insert(
-            (WidgetId::explicit("spinner"), MotionPropertyId::opacity()),
-            ActiveMotion {
-                target: WidgetId::explicit("spinner"),
-                property: MotionPropertyId::opacity(),
-                start_value: MotionValue::Scalar(0.3),
-                end_value: MotionValue::Scalar(1.0),
-                start_time: 0,
-                duration: 600,
-                repeat: true,
-                frame_interval_ms: Some(166),
-                easing: MotionEasing::Linear,
-            },
-        );
-        assert_eq!(
-            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
-            Some(Duration::from_millis(166))
-        );
-    }
-
-    #[test]
-    fn repeat_animation_interval_chooses_fastest_active_repeat() {
-        let mut animation = MotionStateMap {
-            values: HashMap::new(),
-            active: HashMap::new(),
-            ..Default::default()
-        };
-        animation.active.insert(
-            (WidgetId::explicit("slow"), MotionPropertyId::opacity()),
-            ActiveMotion {
-                target: WidgetId::explicit("slow"),
-                property: MotionPropertyId::opacity(),
-                start_value: MotionValue::Scalar(0.3),
-                end_value: MotionValue::Scalar(1.0),
-                start_time: 0,
-                duration: 600,
-                repeat: true,
-                frame_interval_ms: Some(200),
-                easing: MotionEasing::Linear,
-            },
-        );
-        animation.active.insert(
-            (WidgetId::explicit("fast"), MotionPropertyId::opacity()),
-            ActiveMotion {
-                target: WidgetId::explicit("fast"),
-                property: MotionPropertyId::opacity(),
-                start_value: MotionValue::Scalar(0.3),
-                end_value: MotionValue::Scalar(1.0),
-                start_time: 0,
-                duration: 600,
-                repeat: true,
-                frame_interval_ms: Some(100),
-                easing: MotionEasing::Linear,
-            },
-        );
-        assert_eq!(
-            repeating_animation_redraw_interval(&animation, Duration::from_millis(66)),
-            Some(Duration::from_millis(100))
-        );
-    }
-
-    #[test]
-    fn live_resize_reports_unsettled_until_deadline() {
-        let settle = Duration::from_millis(90);
-        let mut resize = LiveResizeController::new(settle);
-        let now = std::time::Instant::now();
-        resize.note_resize(now);
-
-        assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(resize_is_unsettled(
-            false,
-            false,
-            resize.is_live(now + Duration::from_millis(30))
-        ));
-        assert!(!resize.is_live(now + Duration::from_millis(95)));
-    }
-
-    #[test]
-    fn viewport_resize_forces_build_viewport_refresh() {
-        let target = LayoutSize::new(1440.0, 900.0);
-        let mut invalidations = InvalidationSet::default();
-
-        let build_viewport = resolve_build_viewport(
-            Some(LayoutSize::new(1024.0, 768.0)),
-            target,
-            true,
-            &mut invalidations,
-        );
-
-        assert!(invalidations.build);
-        assert_eq!(build_viewport, target);
-    }
-
-    #[test]
-    fn stable_viewport_preserves_existing_build_viewport() {
-        let target = LayoutSize::new(1024.0, 768.0);
-        let mut invalidations = InvalidationSet::default();
-
-        let build_viewport = resolve_build_viewport(Some(target), target, true, &mut invalidations);
-
-        assert!(!invalidations.build);
-        assert_eq!(build_viewport, target);
-    }
-
-    #[test]
-    fn oversized_texture_plan_forces_scene_fallback() {
-        let plans = vec![CompositorTexturePlan {
-            key: 1,
-            bounds: LayoutRect::new(0.0, 0.0, 320.0, 9000.0),
-            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
-                0.0, 0.0, 320.0, 9000.0,
-            ))),
-            scene_cache_key: Some(1),
-            content_key: 1,
-            local_dynamic: false,
-            composite_dynamic: false,
-            opacity: 1.0,
-            transform: None,
-            transform_clip: false,
-            clip: None,
-            children: Vec::new(),
-            source_layer_path: None,
-        }];
-        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
-    }
-
-    #[test]
-    fn nested_texture_plans_must_all_fit_device_limits() {
-        let child = CompositorTexturePlan {
-            key: 2,
-            bounds: LayoutRect::new(0.0, 0.0, 400.0, 8400.0),
-            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
-                0.0, 0.0, 400.0, 8400.0,
-            ))),
-            scene_cache_key: Some(2),
-            content_key: 2,
-            local_dynamic: false,
-            composite_dynamic: false,
-            opacity: 1.0,
-            transform: None,
-            transform_clip: false,
-            clip: None,
-            children: Vec::new(),
-            source_layer_path: None,
-        };
-        let plans = vec![CompositorTexturePlan {
-            key: 1,
-            bounds: LayoutRect::new(0.0, 0.0, 800.0, 600.0),
-            scene: None,
-            scene_cache_key: None,
-            content_key: 3,
-            local_dynamic: false,
-            composite_dynamic: false,
-            opacity: 1.0,
-            transform: None,
-            transform_clip: false,
-            clip: None,
-            children: vec![child],
-            source_layer_path: None,
-        }];
-        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
-    }
-
-    #[test]
-    fn screenshot_dimensions_follow_logical_viewport() {
-        let dims = layout_size_to_image_dimensions(fission_layout::LayoutSize::new(1600.0, 1200.0));
-        assert_eq!(dims, (1600, 1200));
-
-        let rounded =
-            layout_size_to_image_dimensions(fission_layout::LayoutSize::new(999.6, 700.4));
-        assert_eq!(rounded, (1000, 700));
-    }
-
-    #[test]
-    fn linux_wayland_defers_startup_clear_to_the_first_redraw() {
-        assert!(!should_present_startup_clear_frame(true));
-        assert!(should_present_startup_clear_frame(false));
-    }
-
-    #[test]
-    fn linux_wayland_uses_mailbox_only_when_the_surface_supports_it() {
-        let supported = [
-            PresentMode::Fifo,
-            PresentMode::Mailbox,
-            PresentMode::Immediate,
-        ];
-
-        assert_eq!(
-            preferred_native_present_mode(&supported, true),
-            PresentMode::Mailbox
-        );
-        assert_eq!(
-            preferred_native_present_mode(&supported, false),
-            PresentMode::AutoVsync
-        );
-        assert_eq!(
-            preferred_native_present_mode(&[PresentMode::Fifo], true),
-            PresentMode::AutoVsync
-        );
-    }
-
-    #[test]
-    fn non_wayland_native_surface_presentation_notifies_winit_before_commit() {
-        let operations = RefCell::new(Vec::new());
-
-        present_frame_with_winit_coordination(
-            false,
-            || operations.borrow_mut().push("pre_present_notify"),
-            || operations.borrow_mut().push("commit_surface_frame"),
-        );
-
-        assert_eq!(
-            operations.into_inner(),
-            vec!["pre_present_notify", "commit_surface_frame"]
-        );
-    }
-
-    #[test]
-    fn linux_wayland_surface_presentation_does_not_install_a_frame_callback() {
-        let operations = RefCell::new(Vec::new());
-
-        present_frame_with_winit_coordination(
-            true,
-            || operations.borrow_mut().push("pre_present_notify"),
-            || operations.borrow_mut().push("commit_surface_frame"),
-        );
-
-        assert_eq!(operations.into_inner(), vec!["commit_surface_frame"]);
-    }
-
-    #[test]
-    fn simulated_resize_uses_physical_render_target_size() {
-        let dims = logical_viewport_to_render_target_size(
-            fission_layout::LayoutSize::new(1600.0, 1200.0),
-            2.0,
-        );
-        assert_eq!(dims, (3200, 2400));
-
-        let fractional = logical_viewport_to_render_target_size(
-            fission_layout::LayoutSize::new(430.0, 900.0),
-            1.5,
-        );
-        assert_eq!(fractional, (645, 1350));
-    }
-
-    #[test]
-    fn physical_viewport_maps_to_logical_size_with_scale_factor() {
-        let logical = physical_size_to_layout_size(PhysicalSize::new(1728, 1117), 1.5);
-        assert_eq!(logical.width, 1152.0);
-        assert!((logical.height - 744.6667).abs() < 0.001);
-    }
-
-    #[test]
-    fn scale_factor_change_preserves_logical_viewport_until_resize_arrives() {
-        let viewport = WindowViewportState {
-            physical_size: PhysicalSize::new(1600, 1200),
-            scale_factor: 1.0,
-        }
-        .with_scale_factor(2.0);
-
-        assert_eq!(viewport.physical_size, PhysicalSize::new(3200, 2400));
-        assert_eq!(
-            viewport.logical_size(),
-            fission_layout::LayoutSize::new(1600.0, 1200.0)
-        );
-    }
-
-    #[test]
-    fn resized_event_overrides_scale_factor_prediction_authoritatively() {
-        let viewport = WindowViewportState {
-            physical_size: PhysicalSize::new(1600, 1200),
-            scale_factor: 1.0,
-        }
-        .with_scale_factor(1.5)
-        .with_physical_size(PhysicalSize::new(2412, 1809));
-
-        assert_eq!(viewport.physical_size, PhysicalSize::new(2412, 1809));
-        assert_eq!(
-            viewport.logical_size(),
-            fission_layout::LayoutSize::new(1608.0, 1206.0)
-        );
-    }
-
-    #[test]
-    fn fractional_logical_viewports_round_up_for_render_targets() {
-        let physical =
-            logical_viewport_to_physical_size(fission_layout::LayoutSize::new(430.2, 900.1), 1.5);
-        assert_eq!(physical, PhysicalSize::new(646, 1351));
-    }
-
-    #[test]
-    fn web_complete_text_values_preserve_platform_source_and_phase() {
-        assert_eq!(
-            classify_web_text_value("insertFromComposition"),
-            (TextEditSource::Ime, TextValuePhase::CompositionCommitted)
-        );
-        assert_eq!(
-            classify_web_text_value("insertReplacementText"),
-            (TextEditSource::Autocorrect, TextValuePhase::Committed)
-        );
-        assert_eq!(
-            classify_web_text_value("insertFromAutoFill"),
-            (TextEditSource::Autofill, TextValuePhase::Committed)
-        );
-    }
-
-    #[test]
-    fn web_render_scale_preserves_normal_retina_viewports() {
-        let scale = web_effective_render_scale(fission_layout::LayoutSize::new(1440.0, 900.0), 2.0);
-        assert_eq!(scale, 2.0);
-    }
-
-    #[test]
-    fn web_render_scale_bounds_ultrawide_retina_backing_store() {
-        let logical = fission_layout::LayoutSize::new(3440.0, 1440.0);
-        let scale = web_effective_render_scale(logical, 2.0);
-        let physical = logical_viewport_to_physical_size(logical, scale);
-
-        assert!(scale > 1.0 && scale < 2.0);
-        assert!((physical.width as u64) * (physical.height as u64) <= 8_400_000);
-        assert!((physical.width as f64 / scale - 3440.0).abs() < 1.0);
-        assert!((physical.height as f64 / scale - 1440.0).abs() < 1.0);
-    }
-
-    #[test]
-    fn scale_factor_prediction_never_undershoots_fractional_viewports() {
-        let initial = WindowViewportState {
-            physical_size: PhysicalSize::new(1728, 1117),
-            scale_factor: 1.5,
-        };
-        let predicted = initial.with_scale_factor(2.0);
-
-        assert_eq!(predicted.physical_size, PhysicalSize::new(2304, 1490));
-        assert!(predicted.logical_size().width >= initial.logical_size().width);
-        assert!(predicted.logical_size().height >= initial.logical_size().height);
-    }
-
-    #[test]
-    fn logical_resize_updates_native_viewport_prediction() {
-        let initial = WindowViewportState {
-            physical_size: PhysicalSize::new(800, 632),
-            scale_factor: 2.0,
-        };
-        let resized = initial.with_logical_size(fission_layout::LayoutSize::new(1600.0, 1200.0));
-
-        assert_eq!(resized.physical_size, PhysicalSize::new(3200, 2400));
-        assert_eq!(
-            resized.logical_size(),
-            fission_layout::LayoutSize::new(1600.0, 1200.0)
-        );
-    }
-
-    #[test]
-    fn logical_resize_requests_logical_window_dimensions() {
-        let requested = native_window_size_for_logical_viewport(fission_layout::LayoutSize::new(
-            1600.0, 2200.0,
-        ));
-
-        assert_eq!(requested.width, 1600.0);
-        assert_eq!(requested.height, 2200.0);
-    }
-
-    #[test]
-    fn invalid_scale_factors_fall_back_to_unit_scale() {
-        assert_eq!(normalize_scale_factor(0.0), 1.0);
-        assert_eq!(normalize_scale_factor(-2.0), 1.0);
-        assert_eq!(normalize_scale_factor(f64::NAN), 1.0);
-        assert_eq!(normalize_scale_factor(f64::INFINITY), 1.0);
-        assert_eq!(normalize_scale_factor(1.5), 1.5);
-    }
-
-    #[test]
-    fn invalid_scale_factor_does_not_shrink_viewport_math() {
-        let logical = physical_size_to_layout_size(PhysicalSize::new(1600, 1200), 0.0);
-        assert_eq!(logical, fission_layout::LayoutSize::new(1600.0, 1200.0));
-
-        let render_target = logical_viewport_to_render_target_size(
-            fission_layout::LayoutSize::new(1600.0, 1200.0),
-            0.0,
-        );
-        assert_eq!(render_target, (1600, 1200));
-    }
-
-    #[test]
-    fn surface_resize_resets_custom_target_texture_tracking() {
-        let mut tracked_target_texture_size = (1600, 1200);
-
-        sync_tracked_target_texture_size_to_surface(
-            &mut tracked_target_texture_size,
-            PhysicalSize::new(1055, 791),
-        );
-
-        assert_eq!(tracked_target_texture_size, (1055, 791));
-        assert_ne!(
-            tracked_target_texture_size,
-            logical_viewport_to_render_target_size(
-                fission_layout::LayoutSize::new(1600.0, 1200.0),
-                1.0,
-            )
-        );
-    }
-
-    #[test]
-    fn resize_settle_signal_tracks_real_resize_state() {
-        assert!(resize_is_unsettled(true, false, false));
-        assert!(resize_is_unsettled(false, true, false));
-        assert!(resize_is_unsettled(false, false, true));
-        assert!(!resize_is_unsettled(false, false, false));
-    }
-
-    #[cfg(feature = "scene3d")]
-    #[test]
-    fn scene3d_refuses_software_adapters() {
-        assert!(!scene3d_hardware_adapter_supported(wgpu::DeviceType::Cpu));
-        assert!(scene3d_hardware_adapter_supported(
-            wgpu::DeviceType::IntegratedGpu
-        ));
-        assert!(scene3d_hardware_adapter_supported(
-            wgpu::DeviceType::DiscreteGpu
-        ));
-    }
-
-    #[test]
-    fn screenshot_copy_extent_never_exceeds_texture_bounds() {
-        assert_eq!(
-            clamp_copy_extent_to_texture(1600, 1200, 1055, 791),
-            (1055, 791)
-        );
-        assert_eq!(clamp_copy_extent_to_texture(0, 0, 1055, 791), (1, 1));
-        assert_eq!(
-            clamp_copy_extent_to_texture(640, 480, 1055, 791),
-            (640, 480)
-        );
-    }
-
-    #[test]
-    fn integer_downscale_uses_fast_box_path() {
-        let rgba = vec![
-            10, 20, 30, 255, 30, 40, 50, 255, 50, 60, 70, 255, 70, 80, 90, 255,
-        ];
-        let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
-        assert_eq!(downscaled, vec![40, 50, 60, 255]);
-    }
-
-    #[test]
-    fn startup_deep_link_collection_filters_to_declared_config() {
-        let config = DeepLinkConfig::new()
-            .scheme("fission")
-            .domain("example.com")
-            .path_prefix("/tasks");
-
-        let links = collect_startup_deep_links_from(
-            &config,
-            vec![
-                "--ignored".to_string(),
-                "fission://open/tasks/1".to_string(),
-                "other://open/tasks/1".to_string(),
-            ],
-            vec!["https://example.com/tasks/2?source=email".to_string()],
-        );
-
-        assert_eq!(links.len(), 2);
-        assert_eq!(links[0].url, "https://example.com/tasks/2?source=email");
-        assert!(links[0].cold_start);
-        assert_eq!(links[1].url, "fission://open/tasks/1");
-        assert!(links[1].cold_start);
-    }
-}
+mod tests;

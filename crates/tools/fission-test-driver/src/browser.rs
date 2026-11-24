@@ -21,6 +21,8 @@ use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
 use tungstenite::{connect, Message};
@@ -677,34 +679,18 @@ impl BrowserController {
         timeout_ms: u64,
         ignore_repeating_motion: bool,
     ) -> Result<TestResponse> {
-        let started = Instant::now();
-        let timeout = Duration::from_millis(timeout_ms);
-        loop {
-            match self.send_bridge_command(TestCommand::WaitForIdle {
-                timeout_ms: 0,
-                ignore_repeating_motion,
-            })? {
-                TestResponse::MotionStatus {
-                    finite,
-                    repeating,
-                    ripples,
-                } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
-                    return Ok(TestResponse::Ok {});
-                }
-                TestResponse::Error { message } => {
-                    return Ok(TestResponse::Error { message });
-                }
-                _ => {}
-            }
-            if started.elapsed() >= timeout {
-                return Ok(TestResponse::Error {
-                    message: format!(
-                        "timed out after {timeout_ms}ms waiting for browser motion to become idle"
-                    ),
-                });
-            }
-            std::thread::sleep(Duration::from_millis(8));
-        }
+        // Pump, readiness probes, and motion checks share the caller's budget.
+        let _deadline = (timeout_ms > 0).then(|| {
+            self.client
+                .operation_deadline
+                .scoped(Instant::now() + Duration::from_millis(timeout_ms))
+        });
+        wait_for_idle_with(
+            timeout_ms,
+            ignore_repeating_motion,
+            |command| self.send_bridge_command(command),
+            std::thread::sleep,
+        )
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
@@ -714,6 +700,11 @@ impl BrowserController {
         );
         let retry_after_navigation = bridge_command_is_safe_to_retry(&command);
         let deadline = Instant::now() + Duration::from_secs(30);
+        // Keep startup/readiness checks, the submit call, and every poll under
+        // the same bridge budget. Without this outer scope, a Runtime.evaluate
+        // in wait_for_live_test_bridge falls back to the shorter 15s default.
+        let _operation_deadline = self.client.operation_deadline.scoped(deadline);
+        let deadline = self.client.operation_deadline.current();
         loop {
             if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
                 self.wait_for_live_test_bridge(deadline)?;
@@ -732,9 +723,61 @@ impl BrowserController {
                     self.bridge_ready_navigation_count =
                         Some(self.client.main_frame_navigation_count);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.hold_browser_for_diagnostics(&error);
+                    return Err(error);
+                }
             }
         }
+    }
+
+    /// Optionally keep a failed diagnostic browser alive long enough to collect late events.
+    /// This is opt-in and does not change the bridge operation's deadline or its result.
+    fn hold_browser_for_diagnostics(&mut self, error: &anyhow::Error) {
+        let hold_ms = diagnostic_hold_after_error_ms(
+            std::env::var("FISSION_WEB_LIVE_HOLD_OPEN_AFTER_ERROR_MS")
+                .ok()
+                .as_deref(),
+        );
+        if hold_ms == 0 {
+            return;
+        }
+
+        eprintln!(
+            "[fission-web-live-diagnostic] holding browser for {hold_ms}ms after error: {error:#}"
+        );
+        let deadline = Instant::now() + Duration::from_millis(hold_ms);
+        while Instant::now() < deadline {
+            if let Err(drain_error) = self.client.drain_events(Duration::from_millis(100)) {
+                eprintln!(
+                    "[fission-web-live-diagnostic] browser event drain stopped: {drain_error:#}"
+                );
+                break;
+            }
+        }
+        if !self.client.web_test_trace.is_empty() {
+            eprintln!(
+                "[fission-web-live-diagnostic] stages observed during hold: {}",
+                self.client
+                    .web_test_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            );
+        }
+        if !self.client.webgpu_queue_trace.is_empty() {
+            eprintln!(
+                "[fission-web-live-diagnostic] WebGPU queue stages observed during hold: {}",
+                self.client
+                    .webgpu_queue_trace
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            );
+        }
+        eprintln!("[fission-web-live-diagnostic] browser observation window ended");
     }
 
     fn send_bridge_command_once(
@@ -742,6 +785,7 @@ impl BrowserController {
         command: TestCommand,
         deadline: Instant,
     ) -> Result<TestResponse> {
+        let _operation_deadline = self.client.operation_deadline.scoped(deadline);
         let command_json = serde_json::to_string(&command)?;
         let submit = format!(
             "globalThis.__FISSION_TEST__.submit({})",
@@ -790,18 +834,26 @@ impl BrowserController {
     }
 
     fn wait_for_live_test_bridge(&mut self, deadline: Instant) -> Result<()> {
+        let mut last_probe_error = None;
         loop {
             self.client.drain_events(Duration::from_millis(5))?;
             self.fail_on_browser_errors()?;
-            match read_runtime_status(&mut self.client) {
+            let probe_deadline = (Instant::now() + Duration::from_secs(5)).min(deadline);
+            let status = {
+                let _probe_deadline = self.client.operation_deadline.scoped(probe_deadline);
+                read_runtime_status(&mut self.client)
+            };
+            match status {
                 Ok(status) if browser_is_ready(&status, self.options.mode, true) => return Ok(()),
                 Ok(_) => {}
-                Err(error) if is_transient_execution_context_error(&error) => {}
+                Err(error) if is_transient_bridge_readiness_error(&error) => {
+                    last_probe_error = Some(format!("{error:#}"));
+                }
                 Err(error) => return Err(error),
             }
             if Instant::now() >= deadline {
                 return Err(anyhow!(
-                    "timed out waiting for the Fission Web test bridge to become ready"
+                    "timed out waiting for the Fission Web test bridge to become ready; last transient probe error: {last_probe_error:?}"
                 ));
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -844,33 +896,37 @@ impl BrowserController {
 
     /// Prefer Fission's WebGPU-frame capture for a Fission canvas. Headless Chromium can omit the
     /// WebGPU swapchain from `Page.captureScreenshot`, so that host screenshot may be black even
-    /// when the app has rendered. The Web shell captures its retained scene for this path; Canvas2D
-    /// and ordinary web pages continue to use the browser's viewport capture.
+    /// when the app has rendered. The Web shell reads its actual intermediate frame for this path;
+    /// Canvas2D and ordinary web pages use browser viewport capture. A failed GPU readback remains
+    /// an error, not a potentially black host-page replacement.
     fn capture_renderer_or_page_response(&mut self) -> Result<TestResponse> {
         if self.options.mode != BrowserSmokeMode::FissionCanvas {
             return self.capture_page_response();
         }
 
         match self.send_bridge_command(TestCommand::CaptureScreenshot {})? {
-            TestResponse::Error { message }
-                if message.starts_with("renderer_screenshot_unavailable:") =>
-            {
+            TestResponse::Error { message } if renderer_capture_needs_browser_host(&message) => {
                 self.capture_page_response()
             }
-            response => Ok(response),
+            response => {
+                if let TestResponse::Screenshot {
+                    png_base64,
+                    width,
+                    height,
+                } = &response
+                {
+                    validate_renderer_screenshot(png_base64, *width, *height, &self.options)?;
+                }
+                Ok(response)
+            }
         }
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
-        let previous = self.client.operation_deadline;
-        if previous.is_none() {
-            self.client.operation_deadline = Some(
-                Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
-            );
-        }
-        let result = self.capture_verified_viewport();
-        self.client.operation_deadline = previous;
-        result
+        let _operation_deadline = self.client.operation_deadline.scoped(
+            Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
+        );
+        self.capture_verified_viewport()
     }
 
     fn capture_verified_viewport(&mut self) -> Result<Vec<u8>> {
@@ -1133,6 +1189,13 @@ fn is_transient_execution_context_error(error: &anyhow::Error) -> bool {
     .any(|phrase| message.contains(phrase))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn is_transient_bridge_readiness_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    is_transient_execution_context_error(error)
+        || message.contains("cdp command timed out: runtime.evaluate")
+}
+
 fn is_transient_bridge_context_error(error: &anyhow::Error) -> bool {
     let message = format!("{error:#}").to_ascii_lowercase();
     is_transient_execution_context_error(error)
@@ -1187,6 +1250,46 @@ fn write_screenshot(path: &PathBuf, bytes: &[u8]) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn validate_renderer_screenshot(
+    png_base64: &str,
+    width: u32,
+    height: u32,
+    options: &BrowserTestOptions,
+) -> Result<()> {
+    let expected = viewport::pixel_dimensions(options);
+    anyhow::ensure!(
+        (width, height) == expected,
+        "capture_viewport: renderer declared {width}x{height}, expected {}x{} at device scale {}",
+        expected.0,
+        expected.1,
+        options.device_scale_factor,
+    );
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64)
+        .context("capture_viewport: invalid renderer screenshot base64")?;
+    let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+        .context("capture_viewport: invalid renderer PNG")?;
+    anyhow::ensure!(
+        (image.width(), image.height()) == expected,
+        "capture_viewport: decoded renderer PNG is {}x{}, expected {}x{} at device scale {}",
+        image.width(),
+        image.height(),
+        expected.0,
+        expected.1,
+        options.device_scale_factor,
+    );
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn renderer_capture_needs_browser_host(message: &str) -> bool {
+    // Only this explicit renderer request authorizes the host capture path.
+    // The shared error prefix also covers GPU failures and must not hide them.
+    message
+        == "renderer_screenshot_unavailable: use browser-host capture with the Canvas2D renderer"
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1255,6 +1358,14 @@ struct ChromeSession {
 #[cfg(not(target_arch = "wasm32"))]
 impl ChromeSession {
     fn launch(chrome: &PathBuf, cdp_port: u16, options: &BrowserTestOptions) -> Result<Self> {
+        let webgpu_profile =
+            match std::env::var_os("FISSION_CHROME_WEBGPU_PROFILE") {
+                Some(value) => Some(value.into_string().map_err(|_| {
+                    anyhow!("FISSION_CHROME_WEBGPU_PROFILE must contain valid UTF-8")
+                })?),
+                None => None,
+            };
+        let webgpu_profile_args = chrome_webgpu_profile_args(webgpu_profile.as_deref())?;
         let profile_dir = std::env::temp_dir().join(format!(
             "fission-cdp-{}-{}",
             std::process::id(),
@@ -1271,6 +1382,7 @@ impl ChromeSession {
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
+            .args(webgpu_profile_args)
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
             .arg(format!("--remote-debugging-port={cdp_port}"))
@@ -1298,6 +1410,25 @@ impl ChromeSession {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn chrome_webgpu_profile_args(profile: Option<&str>) -> Result<&'static [&'static str]> {
+    match profile {
+        None | Some("default") => Ok(&[]),
+        // Chromium's default headless Linux ANGLE path can invalidate the native
+        // WebGPU instance when a canvas-backed surface is read back. This
+        // software Vulkan profile avoids that canvas/shared-image path.
+        Some("swiftshader-vulkan") => Ok(&[
+            "--use-angle=swiftshader",
+            "--enable-unsafe-swiftshader",
+            "--use-vulkan=swiftshader",
+            "--enable-features=Vulkan",
+        ]),
+        Some(other) => Err(anyhow!(
+            "unsupported FISSION_CHROME_WEBGPU_PROFILE '{other}'; supported values are 'default' and 'swiftshader-vulkan'"
+        )),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for ChromeSession {
     fn drop(&mut self) {
         self.kill();
@@ -1320,14 +1451,63 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
-    operation_deadline: Option<Instant>,
+    operation_deadline: CdpOperationDeadline,
     review_events: Vec<Value>,
     web_test_trace: VecDeque<String>,
     web_text_input_trace: VecDeque<String>,
+    webgpu_queue_trace: VecDeque<String>,
     report_only: bool,
     network_requests: HashSet<String>,
     network_last_activity: Instant,
     main_frame_navigation_count: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Default)]
+struct CdpOperationDeadline(Arc<Mutex<Option<Instant>>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl CdpOperationDeadline {
+    fn current(&self) -> Instant {
+        let deadline = *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(15))
+    }
+
+    fn scoped(&self, deadline: Instant) -> CdpOperationDeadlineGuard {
+        let previous = {
+            let mut current = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = *current;
+            *current = Some(previous.map_or(deadline, |previous| previous.min(deadline)));
+            previous
+        };
+        CdpOperationDeadlineGuard {
+            deadline: self.clone(),
+            previous,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct CdpOperationDeadlineGuard {
+    deadline: CdpOperationDeadline,
+    previous: Option<Instant>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for CdpOperationDeadlineGuard {
+    fn drop(&mut self) {
+        *self
+            .deadline
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = self.previous;
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1343,10 +1523,11 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
-            operation_deadline: None,
+            operation_deadline: CdpOperationDeadline::default(),
             review_events: Vec::new(),
             web_test_trace: VecDeque::new(),
             web_text_input_trace: VecDeque::new(),
+            webgpu_queue_trace: VecDeque::new(),
             report_only: false,
             network_requests: HashSet::new(),
             network_last_activity: Instant::now(),
@@ -1355,9 +1536,7 @@ impl CdpClient {
     }
 
     fn send(&mut self, method: &str, params: Value) -> Result<Value> {
-        let deadline = self
-            .operation_deadline
-            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15));
+        let deadline = self.operation_deadline.current();
         self.set_socket_budget(deadline)?;
         let id = self.next_id;
         self.next_id += 1;
@@ -1512,6 +1691,12 @@ impl CdpClient {
                     }
                     self.web_text_input_trace.push_back(trace.to_owned());
                 }
+                if stage.is_some_and(is_webgpu_queue_trace_stage) {
+                    if self.webgpu_queue_trace.len() == 2048 {
+                        self.webgpu_queue_trace.pop_front();
+                    }
+                    self.webgpu_queue_trace.push_back(trace.to_owned());
+                }
                 if self.web_test_trace.len() == 64 {
                     self.web_test_trace.pop_front();
                 }
@@ -1588,12 +1773,70 @@ impl CdpClient {
     }
 }
 
+fn wait_for_idle_with(
+    timeout_ms: u64,
+    ignore_repeating_motion: bool,
+    mut send: impl FnMut(TestCommand) -> Result<TestResponse>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<TestResponse> {
+    let started = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms);
+    loop {
+        // The Web shell's WaitForIdle command only reads motion counts. Pump
+        // first so queued effects and finite motion get a chance to advance.
+        match send(TestCommand::Pump {})? {
+            TestResponse::Ok {} => {}
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            response => {
+                return Ok(TestResponse::Error {
+                    message: format!("unexpected response from browser pump: {response:?}"),
+                });
+            }
+        }
+        match send(TestCommand::WaitForIdle {
+            timeout_ms: 0,
+            ignore_repeating_motion,
+        })? {
+            TestResponse::MotionStatus {
+                finite,
+                repeating,
+                ripples,
+            } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
+                return Ok(TestResponse::Ok {});
+            }
+            TestResponse::Error { message } => return Ok(TestResponse::Error { message }),
+            _ => {}
+        }
+        if started.elapsed() >= timeout {
+            return Ok(TestResponse::Error {
+                message: format!(
+                    "timed out after {timeout_ms}ms waiting for browser motion to become idle"
+                ),
+            });
+        }
+        sleep(Duration::from_millis(8));
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn is_web_text_input_trace_stage(stage: u32) -> bool {
     // 410–435 cover bridge submit/query/poll stages; 450–470 and 473–476 cover
     // FillText, redraw scheduling, callback exit, and sender cleanup. Keep the
     // ranges separate because both are observed in the same CDP event stream.
     (410..=435).contains(&stage) || (450..=470).contains(&stage) || (473..=476).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_webgpu_queue_trace_stage(stage: u32) -> bool {
+    (552..=559).contains(&stage) || (560..=572).contains(&stage)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn diagnostic_hold_after_error_ms(value: Option<&str>) -> u64 {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .min(60_000)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1617,340 +1860,9 @@ fn is_root_favicon_url(url: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Bounds, SemanticNode};
+#[path = "browser_tests.rs"]
+mod tests;
 
-    #[test]
-    fn web_text_input_trace_keeps_bridge_and_fill_stages_disjoint() {
-        assert!(is_web_text_input_trace_stage(410));
-        assert!(is_web_text_input_trace_stage(435));
-        assert!(!is_web_text_input_trace_stage(436));
-        assert!(!is_web_text_input_trace_stage(449));
-        assert!(is_web_text_input_trace_stage(450));
-        assert!(is_web_text_input_trace_stage(466));
-        assert!(is_web_text_input_trace_stage(467));
-        assert!(is_web_text_input_trace_stage(470));
-        assert!(!is_web_text_input_trace_stage(471));
-        assert!(is_web_text_input_trace_stage(473));
-        assert!(is_web_text_input_trace_stage(476));
-    }
-
-    #[test]
-    fn reduced_motion_is_an_explicit_browser_option() {
-        let standard = BrowserTestOptions::new("http://127.0.0.1/");
-        assert!(!standard.prefers_reduced_motion);
-
-        let reduced = standard.reduced_motion();
-        assert!(reduced.prefers_reduced_motion);
-    }
-
-    #[test]
-    fn browser_bridge_decodes_both_value_and_json_string_responses() {
-        assert!(matches!(
-            decode_bridge_response(json!({"status":"Ok"})).unwrap(),
-            TestResponse::Ok {}
-        ));
-
-        let encoded_tree = serde_json::to_string(&json!({
-            "status": "Tree",
-            "nodes": []
-        }))
-        .unwrap();
-        assert!(matches!(
-            decode_bridge_response(Value::String(encoded_tree)).unwrap(),
-            TestResponse::Tree { nodes } if nodes.is_empty()
-        ));
-    }
-
-    #[test]
-    fn browser_logs_ignore_only_the_root_network_favicon() {
-        assert!(ignorable_browser_log(
-            "network",
-            "http://localhost:8099/favicon.ico",
-            "Failed to load resource: status 404"
-        ));
-        assert!(ignorable_browser_log(
-            "network",
-            "https://example.com/favicon.ico",
-            "Failed to load resource"
-        ));
-        for url in [
-            "http://localhost:8099/assets/favicon.ico",
-            "http://localhost:8099/app.js",
-            "file:///favicon.ico",
-        ] {
-            assert!(!ignorable_browser_log(
-                "network",
-                url,
-                "Failed to load resource: status 404"
-            ));
-        }
-        assert!(!ignorable_browser_log(
-            "javascript",
-            "http://localhost:8099/favicon.ico",
-            "application error"
-        ));
-    }
-
-    fn resolved_node(
-        visibility: VisibilityState,
-        disabled: bool,
-        value: Option<&str>,
-    ) -> TestResponse {
-        TestResponse::SelectorResolved {
-            node: SemanticNode {
-                identifier: Some("test.field".into()),
-                widget_id: "1".into(),
-                stable_node_id: "node-1".into(),
-                parent: None,
-                children: Vec::new(),
-                role: "text_input".into(),
-                label: Some("Field".into()),
-                value: value.map(str::to_owned),
-                value_present: value.is_some(),
-                focusable: true,
-                sequential_focusable: true,
-                text_editable: true,
-                disabled,
-                read_only: false,
-                checked: None,
-                selected: None,
-                expanded: None,
-                has_popup: None,
-                orientation: None,
-                modal: false,
-                required: false,
-                invalid: false,
-                controls: Vec::new(),
-                labelled_by: Vec::new(),
-                described_by: Vec::new(),
-                active_descendant: None,
-                actions: vec!["focus".into()],
-                text_selection: None,
-                masked: false,
-                scrollable_x: false,
-                scrollable_y: false,
-                logical_bounds: Bounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 40.0,
-                },
-                visible_bounds: Some(Bounds {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 40.0,
-                }),
-                visibility,
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 40.0,
-            },
-        }
-    }
-
-    #[test]
-    fn browser_selector_waits_use_native_semantics() {
-        let visible = resolved_node(VisibilityState::FullyVisible, false, Some("ready"));
-        assert!(selector_wait_matches(
-            &SelectorWaitCondition::Present,
-            &visible
-        ));
-        assert!(selector_wait_matches(
-            &SelectorWaitCondition::Visible,
-            &visible
-        ));
-        assert!(selector_wait_matches(
-            &SelectorWaitCondition::Enabled,
-            &visible
-        ));
-        assert!(selector_wait_matches(
-            &SelectorWaitCondition::Value("ready".into()),
-            &visible
-        ));
-        assert!(!selector_wait_matches(
-            &SelectorWaitCondition::Value("pending".into()),
-            &visible
-        ));
-
-        let disabled = resolved_node(VisibilityState::PartiallyVisible, true, None);
-        assert!(selector_wait_matches(
-            &SelectorWaitCondition::Disabled,
-            &disabled
-        ));
-
-        let gone = TestResponse::SelectorError {
-            failure: SelectorFailure {
-                kind: SelectorFailureKind::NoMatch,
-                selector: SelectorQuery::label("missing"),
-                candidates: Vec::new(),
-                message: "not found".into(),
-            },
-        };
-        assert!(selector_wait_matches(&SelectorWaitCondition::Gone, &gone));
-    }
-
-    #[test]
-    fn browser_status_requires_explicit_live_bridge_signal() {
-        let status: RuntimeStatus = serde_json::from_value(serde_json::json!({
-            "ready_dom": true,
-            "ready_canvas": true,
-            "title": "Fission",
-            "width": 1280,
-            "height": 900,
-            "body_text_len": 0,
-            "renderer": "webgpu-vello",
-            "test_bridge_ready": true
-        }))
-        .expect("decode browser status");
-
-        assert!(status.test_bridge_ready);
-        assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
-    }
-
-    #[test]
-    fn only_transient_missing_execution_context_errors_are_retried() {
-        for message in [
-            "Runtime.evaluate: {\"code\":-32000,\"message\":\"Cannot find default execution context\"}",
-            "Cannot find context with specified id",
-            "Execution context was destroyed, most likely because of a navigation.",
-            "No default execution context found",
-        ] {
-            assert!(
-                is_transient_execution_context_error(&anyhow!(message)),
-                "expected transient context error: {message}"
-            );
-        }
-
-        for message in [
-            "Runtime.evaluate: target closed",
-            "CDP command timed out: Runtime.evaluate",
-            "browser runtime evaluation failed: TypeError: app crashed",
-        ] {
-            assert!(
-                !is_transient_execution_context_error(&anyhow!(message)),
-                "unexpectedly treated permanent error as transient: {message}"
-            );
-        }
-    }
-
-    #[test]
-    fn missing_bridge_accessors_are_navigation_transients() {
-        for accessor in ["submit", "poll"] {
-            let error = anyhow!(format!(
-                "browser runtime evaluation failed: TypeError: Cannot read properties of undefined (reading '{accessor}')"
-            ));
-            assert!(is_transient_bridge_context_error(&error));
-        }
-        assert!(!is_transient_bridge_context_error(&anyhow!(
-            "browser runtime evaluation failed: TypeError: application state is invalid"
-        )));
-    }
-
-    #[test]
-    fn only_read_only_bridge_commands_retry_after_navigation() {
-        assert!(bridge_command_is_safe_to_retry(
-            &TestCommand::ResolveSelector {
-                query: SelectorQuery::label("Increment"),
-            }
-        ));
-        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetText {}));
-        assert!(bridge_command_is_safe_to_retry(&TestCommand::GetTree {}));
-        assert!(!bridge_command_is_safe_to_retry(
-            &TestCommand::TapSelector {
-                query: SelectorQuery::label("Increment"),
-            }
-        ));
-        assert!(!bridge_command_is_safe_to_retry(&TestCommand::FillText {
-            query: SelectorQuery::label("Input"),
-            text: "value".into(),
-        }));
-    }
-
-    #[test]
-    fn a_canvas_and_bridge_without_a_submitted_frame_are_not_ready() {
-        let mut status: RuntimeStatus = serde_json::from_value(json!({
-            "ready_dom": false, "ready_canvas": true, "title": "Fission", "width": 1280, "height": 900,
-            "body_text_len": 0, "renderer": "webgpu-vello", "test_bridge_ready": true
-        })).unwrap();
-        assert!(!browser_is_ready(
-            &status,
-            BrowserSmokeMode::FissionCanvas,
-            true
-        ));
-        status.rendered_frames = 1;
-        assert!(browser_is_ready(
-            &status,
-            BrowserSmokeMode::FissionCanvas,
-            true
-        ));
-        status.test_bridge_ready = false;
-        assert!(!browser_is_ready(
-            &status,
-            BrowserSmokeMode::FissionCanvas,
-            true
-        ));
-        assert!(browser_is_ready(
-            &status,
-            BrowserSmokeMode::FissionCanvas,
-            false
-        ));
-    }
-
-    #[test]
-    fn browser_key_events_translate_fission_modifiers_to_cdp() {
-        assert_eq!(cdp_modifiers(1), 8); // Shift
-        assert_eq!(cdp_modifiers(2), 1); // Alt
-        assert_eq!(cdp_modifiers(4), 2); // Control
-        assert_eq!(cdp_modifiers(8), 4); // Meta
-        assert_eq!(cdp_modifiers(1 | 4 | 8), 8 | 2 | 4);
-    }
-
-    #[test]
-    fn browser_primary_shortcuts_request_native_editing_commands() {
-        assert_eq!(cdp_editing_commands("a", 4), vec!["selectAll"]);
-        assert_eq!(cdp_editing_commands("C", 8), vec!["copy"]);
-        assert_eq!(cdp_editing_commands("v", 4), vec!["paste"]);
-        assert_eq!(cdp_editing_commands("x", 4), vec!["cut"]);
-        assert!(cdp_editing_commands("v", 4 | 2).is_empty());
-        assert!(cdp_editing_commands("v", 0).is_empty());
-    }
-
-    #[test]
-    fn browser_key_events_use_dom_key_names() {
-        assert_eq!(
-            cdp_key_description("Left", 0),
-            CdpKeyDescription {
-                key: "ArrowLeft".into(),
-                code: "ArrowLeft".into(),
-                text: String::new(),
-                key_code: 37,
-                location: 0,
-            }
-        );
-        assert_eq!(
-            cdp_key_description("Enter", 0),
-            CdpKeyDescription {
-                key: "Enter".into(),
-                code: "Enter".into(),
-                text: "\r".into(),
-                key_code: 13,
-                location: 0,
-            }
-        );
-        assert_eq!(
-            cdp_key_description("a", 0),
-            CdpKeyDescription {
-                key: "a".into(),
-                code: "KeyA".into(),
-                text: "a".into(),
-                key_code: 65,
-                location: 0,
-            }
-        );
-        assert_eq!(cdp_key_description("7", 4).text, "");
-    }
-}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "browser_capture_tests.rs"]
+mod capture_tests;

@@ -54,6 +54,8 @@ fn make_box_node(
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -100,6 +102,8 @@ fn make_text_node(
                 typography: Default::default(),
             },
         }]),
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -214,6 +218,8 @@ fn text_measure_does_not_pass_zero_width() {
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let row = LayoutInputNode {
@@ -237,6 +243,8 @@ fn text_measure_does_not_pass_zero_width() {
         flex_grow: 1.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
 
     let text = make_text_node(32, row_id, "New event", None);

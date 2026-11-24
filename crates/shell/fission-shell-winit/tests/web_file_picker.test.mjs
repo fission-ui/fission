@@ -11,6 +11,16 @@ import {
   fissionWritePickedFileChunk,
 } from "../src/web_file_picker.mjs";
 
+test("a browser without a save picker does not claim to return a writable file", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "showSaveFilePicker");
+  try {
+    delete globalThis.showSaveFilePicker;
+    await assert.rejects(fissionPickSaveFile("report.txt", "[]"), { name: "unsupported" });
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "showSaveFilePicker", descriptor);
+  }
+});
+
 test("a picked Web save destination remains usable after writes and failures", async () => {
   const originalPicker = globalThis.showSaveFilePicker;
   let savedText = "";

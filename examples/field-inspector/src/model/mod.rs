@@ -113,6 +113,8 @@ impl CapabilityProviderMode {
 
 #[derive(Debug, Clone)]
 pub struct CapabilityLine {
+    /// Stable capability identity, independent of display wording or locale.
+    pub id: &'static str,
     pub title: &'static str,
     pub detail: String,
     pub state: CapabilityState,

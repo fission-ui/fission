@@ -44,6 +44,9 @@ fn initialization_authorities_leave_stdout_to_the_caller() {
 fn initialization_child() {
     let root = std::path::PathBuf::from(std::env::var_os("FISSION_INIT_OUTPUT_FIXTURE").unwrap());
     let template = std::env::var("FISSION_INIT_OUTPUT_TEMPLATE").unwrap() == "true";
+    // An empty marker isolates repository discovery without creating another
+    // Git tree when the test runs with a checkout-local TMPDIR.
+    fs::create_dir_all(root.join(".git")).unwrap();
     println!("AUTHORITY_START");
     fission_command_core::init_project_with_template(
         &root,

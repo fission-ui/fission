@@ -1,6 +1,10 @@
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
+use crate::event::ImeEvent;
 use crate::hit_test::get_all_focusable_nodes;
-use crate::{reduce_with, ActionRegistry, InputEvent, KeyCode, KeyEvent, ReducerContext, Runtime};
+use crate::{
+    reduce_with, ActionRegistry, InputEvent, KeyCode, KeyEvent, ReducerContext, Runtime,
+    TextEntryInput, TextEntryPhase,
+};
 use fission_ir::{
     ActionEntry, ActionSet, ActionTrigger, CoreIR, KeyAction, KeyBinding, LayoutDirection, Op,
     PopupKind, Role, SemanticOrientation, Semantics, StructuralOp, WidgetId,
@@ -589,9 +593,392 @@ fn declared_key_action_claims_down_with_text_before_text_insertion() {
     );
 }
 
+#[test]
+fn focused_nonediting_control_receives_complete_unicode_and_ime_events() {
+    let action = ReceiveTextEntry;
+    let mut ir = CoreIR::default();
+    add_semantics(
+        &mut ir,
+        "cell",
+        Semantics {
+            role: Role::TableCell,
+            focusable: true,
+            key_actions: vec![KeyAction {
+                binding: KeyBinding::new(KeyCode::Char('x')),
+                action: ActionEntry {
+                    trigger: ActionTrigger::Key,
+                    action_id: ReceiveTextEntry::static_id().as_u128(),
+                    payload_data: Some(action.encode()),
+                },
+            }],
+            actions: ActionSet {
+                entries: vec![ActionEntry {
+                    trigger: ActionTrigger::TextEntry,
+                    action_id: ReceiveTextEntry::static_id().as_u128(),
+                    payload_data: Some(action.encode()),
+                }],
+            },
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    finish_root(&mut ir, vec![id("cell")]);
+
+    let mut runtime = text_entry_runtime();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("cell")));
+    let committed = ["é", "e\u{301}", "wide text", "👩‍💻"];
+    for text in committed {
+        runtime
+            .handle_input(
+                InputEvent::Keyboard(KeyEvent::DownWithText {
+                    key_code: KeyCode::Char('a'),
+                    modifiers: 0,
+                    text: text.into(),
+                }),
+                &ir,
+                &layout(),
+            )
+            .unwrap();
+    }
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Space,
+                modifiers: 0,
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+
+    for event in [
+        ImeEvent::Preedit {
+            text: "に".into(),
+            cursor: Some((0, 3)),
+        },
+        ImeEvent::Preedit {
+            text: "日本".into(),
+            cursor: Some((0, 6)),
+        },
+        ImeEvent::Commit {
+            text: "日本語".into(),
+        },
+        ImeEvent::Preedit {
+            text: "cancel me".into(),
+            cursor: None,
+        },
+        ImeEvent::Cancel,
+    ] {
+        runtime
+            .handle_input(InputEvent::Ime(event), &ir, &layout())
+            .unwrap();
+    }
+
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('x'),
+                modifiers: 0,
+                text: "x".into(),
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('x'),
+                modifiers: crate::event::MOD_CTRL,
+                text: "x".into(),
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Enter,
+                modifiers: 0,
+                text: "\n".into(),
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+
+    let received = &runtime
+        .get_global_state::<TextEntryState>()
+        .unwrap()
+        .received;
+    let mut expected: Vec<_> = committed
+        .into_iter()
+        .map(|text| TextEntryInput {
+            text: text.into(),
+            source: crate::TextEditSource::Keyboard,
+            phase: TextEntryPhase::Committed,
+            cursor: None,
+        })
+        .collect();
+    expected.push(TextEntryInput {
+        text: " ".into(),
+        source: crate::TextEditSource::Keyboard,
+        phase: TextEntryPhase::Committed,
+        cursor: None,
+    });
+    expected.extend([
+        TextEntryInput {
+            text: "に".into(),
+            source: crate::TextEditSource::Ime,
+            phase: TextEntryPhase::CompositionPreedit,
+            cursor: Some((0, 3)),
+        },
+        TextEntryInput {
+            text: "日本".into(),
+            source: crate::TextEditSource::Ime,
+            phase: TextEntryPhase::CompositionPreedit,
+            cursor: Some((0, 6)),
+        },
+        TextEntryInput {
+            text: "日本語".into(),
+            source: crate::TextEditSource::Ime,
+            phase: TextEntryPhase::CompositionCommitted,
+            cursor: None,
+        },
+        TextEntryInput {
+            text: "cancel me".into(),
+            source: crate::TextEditSource::Ime,
+            phase: TextEntryPhase::CompositionPreedit,
+            cursor: None,
+        },
+        TextEntryInput {
+            text: String::new(),
+            source: crate::TextEditSource::Ime,
+            phase: TextEntryPhase::CompositionCancelled,
+            cursor: None,
+        },
+    ]);
+    assert_eq!(received, &expected);
+}
+
+#[test]
+fn text_entry_skips_disabled_and_inert_semantics_and_preserves_text_input() {
+    let action = ReceiveTextEntry;
+    let mut disabled_ir = CoreIR::default();
+    add_semantics(
+        &mut disabled_ir,
+        "disabled-cell",
+        Semantics {
+            role: Role::TableCell,
+            focusable: true,
+            disabled: true,
+            actions: text_entry_actions(&action),
+            ..Default::default()
+        },
+        vec![id("enabled-child")],
+    );
+    add_semantics(
+        &mut disabled_ir,
+        "enabled-child",
+        Semantics {
+            role: Role::Generic,
+            focusable: true,
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    finish_root(&mut disabled_ir, vec![id("disabled-cell")]);
+
+    let mut disabled_runtime = text_entry_runtime();
+    disabled_runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("enabled-child")));
+    disabled_runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('a'),
+                modifiers: 0,
+                text: "é".into(),
+            }),
+            &disabled_ir,
+            &layout(),
+        )
+        .unwrap();
+    disabled_runtime
+        .handle_input(
+            InputEvent::Ime(ImeEvent::Commit { text: "字".into() }),
+            &disabled_ir,
+            &layout(),
+        )
+        .unwrap();
+    assert!(disabled_runtime
+        .get_global_state::<TextEntryState>()
+        .unwrap()
+        .received
+        .is_empty());
+
+    let mut inert_ir = CoreIR::default();
+    add_semantics(
+        &mut inert_ir,
+        "inert-cell",
+        Semantics {
+            role: Role::TableCell,
+            focusable: true,
+            actions: text_entry_actions(&action),
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    inert_ir.add_node(
+        id("inert-boundary"),
+        Op::Structural(StructuralOp::InteractionInert { stable_hash: 2 }),
+        vec![id("inert-cell")],
+    );
+    finish_root(&mut inert_ir, vec![id("inert-boundary")]);
+    let mut inert_runtime = text_entry_runtime();
+    inert_runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("inert-cell")));
+    inert_runtime
+        .handle_input(
+            InputEvent::Ime(ImeEvent::Preedit {
+                text: "hidden".into(),
+                cursor: None,
+            }),
+            &inert_ir,
+            &layout(),
+        )
+        .unwrap();
+    inert_runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('a'),
+                modifiers: 0,
+                text: "é".into(),
+            }),
+            &inert_ir,
+            &layout(),
+        )
+        .unwrap();
+    assert!(inert_runtime
+        .get_global_state::<TextEntryState>()
+        .unwrap()
+        .received
+        .is_empty());
+
+    let mut text_input_ir = CoreIR::default();
+    add_semantics(
+        &mut text_input_ir,
+        "text-input",
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            value: Some(String::new()),
+            actions: text_entry_actions(&action),
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    finish_root(&mut text_input_ir, vec![id("text-input")]);
+    let mut text_input_runtime = text_entry_runtime();
+    text_input_runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("text-input")));
+    text_input_runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('a'),
+                modifiers: 0,
+                text: "x".into(),
+            }),
+            &text_input_ir,
+            &layout(),
+        )
+        .unwrap();
+    text_input_runtime
+        .handle_input(
+            InputEvent::Ime(ImeEvent::Preedit {
+                text: "あ".into(),
+                cursor: Some((0, 3)),
+            }),
+            &text_input_ir,
+            &layout(),
+        )
+        .unwrap();
+    assert!(text_input_runtime
+        .get_global_state::<TextEntryState>()
+        .unwrap()
+        .received
+        .is_empty());
+    assert_eq!(
+        text_input_runtime
+            .runtime_state
+            .text_edit
+            .get(id("text-input"))
+            .unwrap()
+            .committed_text(),
+        "x"
+    );
+}
+
+fn text_entry_actions(action: &ReceiveTextEntry) -> ActionSet {
+    ActionSet {
+        entries: vec![ActionEntry {
+            trigger: ActionTrigger::TextEntry,
+            action_id: ReceiveTextEntry::static_id().as_u128(),
+            payload_data: Some(action.encode()),
+        }],
+    }
+}
+
+#[derive(Debug, Default)]
+struct TextEntryState {
+    received: Vec<TextEntryInput>,
+}
+
+impl GlobalState for TextEntryState {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ReceiveTextEntry;
+
+impl crate::Action for ReceiveTextEntry {
+    fn static_id() -> crate::ActionId {
+        crate::ActionId::from_name("fission_core::composite_keyboard_test::ReceiveTextEntry")
+    }
+}
+
+fn on_receive_text_entry<'a, 'b, 'c>(
+    state: &mut TextEntryState,
+    _action: ReceiveTextEntry,
+    ctx: &mut ReducerContext<'a, 'b, 'c, TextEntryState>,
+) {
+    if let Some(input) = ctx.input.text_entry() {
+        state.received.push(input.clone());
+    }
+}
+
+fn text_entry_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_global_state(Box::new(TextEntryState::default()))
+        .unwrap();
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(on_receive_text_entry));
+    runtime.absorb_registry(registry);
+    runtime
+}
+
 #[derive(Debug, Default)]
 struct KeyActionState {
     initial_text: Option<String>,
+    modifiers: Vec<u8>,
 }
 
 impl GlobalState for KeyActionState {}
@@ -610,7 +997,104 @@ fn on_start_inline_edit<'a, 'b, 'c>(
     _action: StartInlineEdit,
     ctx: &mut ReducerContext<'a, 'b, 'c, KeyActionState>,
 ) {
-    state.initial_text = ctx.input.key_press().and_then(|press| press.text.clone());
+    if let Some(press) = ctx.input.key_press() {
+        state.initial_text = press.text.clone();
+        state.modifiers.push(press.modifiers);
+    }
+}
+
+#[test]
+fn focused_text_input_can_handle_tab_and_shift_tab_explicitly() {
+    let mut ir = CoreIR::default();
+    add_item(&mut ir, "before", Role::Button, "Before", None, false, true);
+    add_semantics(
+        &mut ir,
+        "editor",
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            text_editable: true,
+            key_actions: vec![
+                KeyAction::new(KeyCode::Tab, StartInlineEdit::static_id().as_u128())
+                    .payload(StartInlineEdit.encode()),
+                KeyAction::with_modifiers(
+                    KeyCode::Tab,
+                    crate::event::MOD_SHIFT,
+                    StartInlineEdit::static_id().as_u128(),
+                )
+                .payload(StartInlineEdit.encode()),
+            ],
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    add_item(&mut ir, "after", Role::Button, "After", None, false, true);
+    finish_root(&mut ir, vec![id("before"), id("editor"), id("after")]);
+
+    let mut runtime = Runtime::default().with_global_state(KeyActionState::default());
+    let mut registry = ActionRegistry::new();
+    registry.register(reduce_with!(on_start_inline_edit));
+    runtime.absorb_registry(registry);
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("editor")));
+
+    key(&mut runtime, &ir, KeyCode::Tab);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("editor"))
+    );
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Tab,
+                modifiers: crate::event::MOD_SHIFT,
+            }),
+            &ir,
+            &layout(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("editor"))
+    );
+    assert_eq!(
+        runtime
+            .get_global_state::<KeyActionState>()
+            .unwrap()
+            .modifiers,
+        vec![0, crate::event::MOD_SHIFT]
+    );
+}
+
+#[test]
+fn text_input_without_a_tab_handler_uses_normal_focus_traversal() {
+    let mut ir = CoreIR::default();
+    add_semantics(
+        &mut ir,
+        "editor",
+        Semantics {
+            role: Role::TextInput,
+            focusable: true,
+            text_editable: true,
+            ..Default::default()
+        },
+        Vec::new(),
+    );
+    add_item(&mut ir, "next", Role::Button, "Next", None, false, true);
+    finish_root(&mut ir, vec![id("editor"), id("next")]);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("editor")));
+
+    key(&mut runtime, &ir, KeyCode::Tab);
+
+    assert_eq!(runtime.runtime_state.interaction.focused, Some(id("next")));
 }
 
 #[derive(Debug, Default)]

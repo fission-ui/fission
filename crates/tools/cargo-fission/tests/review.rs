@@ -28,6 +28,9 @@ impl Fixture {
                 .unwrap()
                 .as_nanos()
         ));
+        // Keep init's nearest-repository lookup inside this fixture even when
+        // TMPDIR belongs to the real checkout. This is only an empty marker.
+        fs::create_dir_all(root.join(".git")).unwrap();
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let initialized = Command::new(env!("CARGO_BIN_EXE_fission"))
             .arg("init")

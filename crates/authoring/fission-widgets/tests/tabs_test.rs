@@ -9,7 +9,7 @@ use fission_ir::{
     op::{BoxAlignment, Color, Fill, Length},
     CoreIR, LayoutOp, Op, PaintOp, Role, SemanticOrientation, Semantics,
 };
-use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot};
+use fission_layout::{LayoutEngine, LayoutSize};
 use fission_theme::{
     ComponentBorder, ComponentSize, ResolvedComponentStyle, ShadowLayer, TabPresentation,
 };
@@ -729,6 +729,18 @@ fn selected_tab_ids(ir: &CoreIR) -> Vec<WidgetId> {
 }
 
 fn press_key(runtime: &mut Runtime, ir: &CoreIR, key_code: KeyCode) {
+    // Input reconciles focus against the rendered tree. An empty snapshot says
+    // every trigger is inactive and resets roving focus before the next key.
+    let input = build_layout_tree(ir, &Env::default());
+    let layout = LayoutEngine::new()
+        .with_layout_direction(ir.layout_direction)
+        .compute_layout(
+            &input,
+            ir.root.expect("tabs root"),
+            LayoutSize::new(640.0, 480.0),
+            &|_| 0.0,
+        )
+        .expect("tabs layout");
     runtime
         .handle_input(
             InputEvent::Keyboard(KeyEvent::Down {
@@ -736,7 +748,7 @@ fn press_key(runtime: &mut Runtime, ir: &CoreIR, key_code: KeyCode) {
                 modifiers: 0,
             }),
             ir,
-            &LayoutSnapshot::new(LayoutSize::new(640.0, 480.0)),
+            &layout,
         )
         .expect("keyboard input");
 }

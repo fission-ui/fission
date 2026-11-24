@@ -31,7 +31,8 @@
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
 use fission_ir::op::{
-    BoxStyle, Length, RichTextAnnotation, TextDisplayBreak, TextParagraphStyle, TextRun,
+    BoxStyle, Length, RichTextAnnotation, TextDisplayBreak, TextParagraphLayoutStyle,
+    TextParagraphStyle, TextParagraphStyleSpan, TextRun,
 };
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -45,9 +46,9 @@ mod spotlight;
 use geometry::{intersect_rect, union_rect};
 mod stack;
 pub use paragraph::{
-    LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
-    ResolvedParagraphDisplayBreak, ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
-    TextDisplaySegment, split_text_display_segments,
+    split_text_display_segments, split_text_layout_segments, LineMetric, ParagraphCaretStop,
+    ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox, ResolvedParagraphDisplayBreak,
+    ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo, TextDisplaySegment,
 };
 use paragraph_cache::{ResolvedParagraphCache, ResolvedParagraphCacheKey};
 use spotlight::spotlight_regions;
@@ -59,7 +60,7 @@ mod layout_direction;
 use flyout::{
     absolute_overrides as flyout_absolute_overrides, root_position as flyout_root_position,
 };
-use grid_tracks::{IntrinsicAxis, TrackSizing, distribute_deficit, distribute_flex, expand_tracks};
+use grid_tracks::{distribute_deficit, distribute_flex, expand_tracks, IntrinsicAxis, TrackSizing};
 use layout_direction::{
     resolve_cross_axis_alignment, resolve_horizontal_flex_policy, reverse_flex_lines,
 };
@@ -106,7 +107,11 @@ pub type LayoutUnit = f32;
 
 /// Returns `value` if it is finite, otherwise `fallback`.
 fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
-    if value.is_finite() { value } else { fallback }
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
 }
 
 fn resolve_length(
@@ -706,8 +711,13 @@ impl LayoutGraphState {
                     Some(next) => {
                         current.rich_text != next.rich_text
                             || current.display_breaks != next.display_breaks
+                            || current.paragraph_styles != next.paragraph_styles
                     }
-                    None => current.rich_text.is_some() || !current.display_breaks.is_empty(),
+                    None => {
+                        current.rich_text.is_some()
+                            || !current.display_breaks.is_empty()
+                            || !current.paragraph_styles.is_empty()
+                    }
                 };
                 changed.then_some(*id)
             })
@@ -746,7 +756,9 @@ impl LayoutGraphState {
                 continue;
             }
 
-            if current.rich_text != node.rich_text || current.display_breaks != node.display_breaks
+            if current.rich_text != node.rich_text
+                || current.display_breaks != node.display_breaks
+                || current.paragraph_styles != node.paragraph_styles
             {
                 changed_rich_text.push(node.id);
             }
@@ -1079,6 +1091,9 @@ pub struct LayoutInputNode {
     /// Visual-only breaks in byte offsets over the concatenated rich text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_breaks: Vec<TextDisplayBreak>,
+    /// Paragraph-specific alignment and indentation spans.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paragraph_styles: Vec<TextParagraphStyleSpan>,
 }
 
 fn has_explicit_axis_size(node: &LayoutInputNode, horizontal: bool) -> bool {
@@ -1260,7 +1275,48 @@ pub trait TextMeasurer: Send + Sync {
         available_width: Option<f32>,
         display_breaks: &[TextDisplayBreak],
     ) -> ResolvedParagraphLayout {
-        resolve_rich_text_with_display_breaks(self, runs, available_width, display_breaks)
+        resolve_rich_text_with_paragraph_styles(self, runs, available_width, display_breaks, &[])
+    }
+
+    /// Resolves rich text using visual breaks and paragraph-local style spans.
+    /// Both affect only layout; byte offsets remain in the original value.
+    fn resolve_rich_text_with_paragraph_styles(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        display_breaks: &[TextDisplayBreak],
+        paragraph_styles: &[TextParagraphStyleSpan],
+    ) -> ResolvedParagraphLayout {
+        resolve_rich_text_with_paragraph_styles(
+            self,
+            runs,
+            available_width,
+            display_breaks,
+            paragraph_styles,
+        )
+    }
+
+    /// Resolves rich text using paragraph-local alignment and direction.
+    /// The segment composer already subtracts indentation from `available_width`
+    /// and applies the leading inset to this method's returned geometry.
+    /// Backends may override this to use their native paragraph alignment;
+    /// the default adjusts the retained glyph, caret, and selection geometry.
+    fn resolve_rich_text_with_paragraph_style(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        style: TextParagraphLayoutStyle,
+    ) -> ResolvedParagraphLayout {
+        let mut paragraph = self.resolve_rich_text(runs, available_width);
+        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        paragraph::align_resolved_paragraph(
+            &mut paragraph,
+            &text,
+            available_width,
+            style.text_align,
+            style.text_direction,
+        );
+        paragraph
     }
 
     /// Hit-test rich text (styled runs) at the given (x, y) position.
@@ -1300,21 +1356,19 @@ pub trait TextMeasurer: Send + Sync {
     }
 }
 
-fn resolve_rich_text_with_display_breaks<M: TextMeasurer + ?Sized>(
+fn resolve_rich_text_with_paragraph_styles<M: TextMeasurer + ?Sized>(
     measurer: &M,
     runs: &[TextRun],
     available_width: Option<f32>,
     display_breaks: &[TextDisplayBreak],
+    paragraph_styles: &[TextParagraphStyleSpan],
 ) -> ResolvedParagraphLayout {
-    if display_breaks.is_empty() {
+    if display_breaks.is_empty() && paragraph_styles.is_empty() {
         return measurer.resolve_rich_text(runs, available_width);
     }
 
     let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
-    let segments = split_text_display_segments(&text, display_breaks);
-    if segments.len() <= 1 {
-        return measurer.resolve_rich_text(runs, available_width);
-    }
+    let segments = split_text_layout_segments(&text, display_breaks, paragraph_styles);
 
     let mut resolved = ResolvedParagraphLayout::empty(available_width);
     let mut paragraph_y = 0.0;
@@ -1328,10 +1382,51 @@ fn resolve_rich_text_with_display_breaks<M: TextMeasurer + ?Sized>(
         let include_shape_end = segment_index + 1 == segments.len() || trailing_separator > 0;
         let segment_runs =
             slice_text_runs(runs, segment.shape_byte_range.clone(), include_shape_end);
-        let mut part = measurer.resolve_rich_text(&segment_runs, available_width);
+        let indent = segment
+            .paragraph_style
+            .map(|style| style.indent)
+            .filter(|indent| indent.is_finite())
+            .unwrap_or(0.0)
+            .max(0.0);
+        let segment_width = available_width.map(|width| (width - indent).max(0.0));
+        let mut part = if let Some(style) = segment.paragraph_style {
+            measurer.resolve_rich_text_with_paragraph_style(&segment_runs, segment_width, style)
+        } else {
+            measurer.resolve_rich_text(&segment_runs, segment_width)
+        };
+        if let Some(style) = segment.paragraph_style {
+            paragraph::inset_resolved_paragraph(&mut part, indent, style.text_direction);
+        }
+        if part.size.height <= 0.0 && segment.shape_byte_range.is_empty() {
+            let font_size = runs.first().map(|run| run.style.font_size).unwrap_or(16.0);
+            let line_height = measurer.measure(" ", font_size, None).1.max(1.0);
+            part.size.height = line_height;
+            part.lines.push(LineMetric {
+                start_index: 0,
+                end_index: 0,
+                baseline: line_height * 0.8,
+                height: line_height,
+                width: 0.0,
+            });
+            part.caret_stops.push(ParagraphCaretStop {
+                index: 0,
+                upstream: false,
+                position: LayoutPoint::new(
+                    if segment.paragraph_style.is_some_and(|style| {
+                        style.text_direction != fission_ir::op::TextDirection::Rtl
+                    }) {
+                        indent
+                    } else {
+                        0.0
+                    },
+                    0.0,
+                ),
+                height: line_height,
+            });
+        }
         width = width.max(part.size.width);
 
-        let trailing_separator_caret = if segment.break_after.is_some() && trailing_separator > 0 {
+        let trailing_separator_caret = if segment.boundary_after && trailing_separator > 0 {
             part.caret_stops
                 .iter()
                 .find(|stop| stop.index == shaped_byte_len && stop.upstream)
@@ -1372,7 +1467,7 @@ fn resolve_rich_text_with_display_breaks<M: TextMeasurer + ?Sized>(
             if segment_index > 0 && caret.index == segment.byte_range.start {
                 caret.upstream = false;
             }
-            if segment.break_after.is_some() && caret.index == segment.byte_range.end {
+            if segment.boundary_after && caret.index == segment.byte_range.end {
                 caret.upstream = true;
             }
         }
@@ -1399,10 +1494,13 @@ fn resolve_rich_text_with_display_breaks<M: TextMeasurer + ?Sized>(
         }
         resolved.selection_boxes.extend(part.selection_boxes);
 
-        if let Some(display_break) = segment.break_after {
-            let gap = display_break.gap_after.max(0.0);
+        if segment.boundary_after {
+            let gap = segment
+                .break_after
+                .map(|display_break| display_break.gap_after.max(0.0))
+                .unwrap_or(0.0);
             resolved.display_breaks.push(ResolvedParagraphDisplayBreak {
-                text_offset: display_break.text_offset,
+                text_offset: segment.byte_range.end,
                 gap_rect: LayoutRect::new(0.0, paragraph_y, available_width.unwrap_or(width), gap),
             });
             paragraph_y += gap;
@@ -2185,6 +2283,7 @@ impl LayoutEngine {
                         node_id,
                         runs,
                         &node.display_breaks,
+                        &node.paragraph_styles,
                         None,
                         measurer.as_ref(),
                     )
@@ -2251,6 +2350,7 @@ impl LayoutEngine {
         node_id: WidgetId,
         runs: &[TextRun],
         display_breaks: &[TextDisplayBreak],
+        paragraph_styles: &[TextParagraphStyleSpan],
         available_width: Option<f32>,
         measurer: &dyn TextMeasurer,
     ) -> Arc<ResolvedParagraphLayout> {
@@ -2262,10 +2362,11 @@ impl LayoutEngine {
             return paragraph;
         }
 
-        let paragraph = Arc::new(measurer.resolve_rich_text_with_display_breaks(
+        let paragraph = Arc::new(measurer.resolve_rich_text_with_paragraph_styles(
             runs,
             available_width,
             display_breaks,
+            paragraph_styles,
         ));
         self.resolved_paragraph_cache
             .lock()
@@ -2393,6 +2494,7 @@ impl LayoutEngine {
                             node_id,
                             runs,
                             &node.display_breaks,
+                            &node.paragraph_styles,
                             None,
                             measurer.as_ref(),
                         )
@@ -4651,6 +4753,7 @@ impl LayoutEngine {
                     node_id,
                     runs,
                     &node.display_breaks,
+                    &node.paragraph_styles,
                     avail_w,
                     measurer.as_ref(),
                 );

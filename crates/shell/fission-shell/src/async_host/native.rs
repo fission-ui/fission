@@ -1,11 +1,11 @@
 use fission_core::{
     ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, DataStreamRegistry, InlineJob,
-    JobCtx, JobRef, JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx,
-    ServiceRunner, ServiceSpec, ServiceType,
+    JobCancellationToken, JobCtx, JobRef, JobSpec, OperationCapability, ResourceExecutionContext,
+    ServiceCtx, ServiceRunner, ServiceSpec, ServiceType,
 };
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use tokio::runtime::{Builder as TokioRuntimeBuilder, Runtime as TokioRuntime};
 
 pub type WakeFn = Arc<dyn Fn() + Send + Sync>;
@@ -110,6 +110,7 @@ pub struct RunningServiceHandle {
 #[derive(Clone)]
 struct JobLaunch {
     req_id: u64,
+    cancellation: JobCancellationToken,
     payload: Vec<u8>,
     on_ok: Option<ActionEnvelope>,
     on_err: Option<ActionEnvelope>,
@@ -149,6 +150,7 @@ pub struct AsyncRegistry {
     services: HashMap<String, Arc<ServiceSpawner>>,
     operations: HashMap<String, Arc<CapabilitySpawner>>,
     data_streams: DataStreamRegistry,
+    job_cancellations: Mutex<HashMap<u64, JobCancellationToken>>,
 }
 
 impl Default for AsyncRegistry {
@@ -158,6 +160,7 @@ impl Default for AsyncRegistry {
             services: HashMap::new(),
             operations: HashMap::new(),
             data_streams: DataStreamRegistry::new(),
+            job_cancellations: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -320,7 +323,11 @@ impl AsyncRegistry {
 
                     match runtime.block_on(handler(
                         request,
-                        JobCtx::new_runtime(launch.req_id, data_streams),
+                        JobCtx::new_runtime_with_cancellation(
+                            launch.req_id,
+                            data_streams,
+                            launch.cancellation.clone(),
+                        ),
                     )) {
                         Ok(ok) => match serde_json::to_vec(&ok) {
                             Ok(payload) => {
@@ -508,16 +515,30 @@ impl AsyncRegistry {
 
                                 match runtime.block_on(runner.on_command(command, ctx.clone())) {
                                     Ok(ok) => {
-                                        let payload = serde_json::to_vec(&ok).ok();
-                                        let _ = tx.send(AsyncMessage::ServiceCommandOk {
-                                            service_name: service_name.clone(),
-                                            slot_key: slot_key.clone(),
-                                            instance_id,
-                                            req_id,
-                                            payload,
-                                            on_ok,
-                                            resource: resource.clone(),
-                                        });
+                                        let message = match serde_json::to_vec(&ok) {
+                                            Ok(payload) => AsyncMessage::ServiceCommandOk {
+                                                service_name: service_name.clone(),
+                                                slot_key: slot_key.clone(),
+                                                instance_id,
+                                                req_id,
+                                                payload: Some(payload),
+                                                on_ok,
+                                                resource: resource.clone(),
+                                            },
+                                            Err(error) => AsyncMessage::ServiceCommandErr {
+                                                service_name: service_name.clone(),
+                                                slot_key: slot_key.clone(),
+                                                instance_id,
+                                                req_id,
+                                                payload: None,
+                                                on_err,
+                                                message: Some(format!(
+                                                    "service command result serialization failed: {error}"
+                                                )),
+                                                resource: resource.clone(),
+                                            },
+                                        };
+                                        let _ = tx.send(message);
                                     }
                                     Err(err) => {
                                         let (payload, message) = serde_json::to_vec(&err)
@@ -590,8 +611,22 @@ impl AsyncRegistry {
         tx: &mpsc::Sender<AsyncMessage>,
         wake: WakeFn,
     ) -> bool {
+        let handler = if inline.is_none() {
+            let Some(handler) = self.jobs.get(job_name) else {
+                return false;
+            };
+            Some(handler.clone())
+        } else {
+            None
+        };
+        let cancellation = JobCancellationToken::new();
+        self.job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(req_id, cancellation.clone());
         let launch = JobLaunch {
             req_id,
+            cancellation,
             payload,
             on_ok,
             on_err,
@@ -600,7 +635,7 @@ impl AsyncRegistry {
             wake,
         };
         let Some(inline) = inline else {
-            let Some(handler) = self.jobs.get(job_name) else {
+            let Some(handler) = handler else {
                 return false;
             };
             handler(launch);
@@ -626,7 +661,11 @@ impl AsyncRegistry {
             };
             match runtime.block_on(inline.run(
                 launch.payload,
-                JobCtx::new_runtime(launch.req_id, data_streams),
+                JobCtx::new_runtime_with_cancellation(
+                    launch.req_id,
+                    data_streams,
+                    launch.cancellation.clone(),
+                ),
             )) {
                 Ok(payload) => {
                     let _ = launch.tx.send(AsyncMessage::JobOk {
@@ -651,6 +690,33 @@ impl AsyncRegistry {
             (launch.wake)();
         });
         true
+    }
+
+    /// Requests cooperative cancellation of the app job with this request id.
+    ///
+    /// The result stays registered until its completion message is drained, so
+    /// the shell can suppress a completion that races with cancellation.
+    pub fn cancel_job(&self, req_id: u64) -> bool {
+        let cancellation = self
+            .job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&req_id)
+            .cloned();
+        let Some(cancellation) = cancellation else {
+            return false;
+        };
+        cancellation.cancel();
+        true
+    }
+
+    /// Removes the completed job registration and reports whether it was cancelled.
+    pub fn finish_job(&self, req_id: u64) -> bool {
+        self.job_cancellations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&req_id)
+            .is_some_and(|cancellation| cancellation.is_cancelled())
     }
 
     pub fn spawn_capability(

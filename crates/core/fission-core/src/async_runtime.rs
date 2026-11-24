@@ -7,7 +7,9 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::task::Waker;
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
@@ -258,19 +260,151 @@ pub struct ResourceExecutionContext {
     pub generation: u64,
 }
 
+#[derive(Debug, Default)]
+struct JobCancellationState {
+    cancelled: AtomicBool,
+    wakers: Mutex<Vec<Option<Waker>>>,
+}
+
+// A cancelled() future may be dropped each time another branch of select wins.
+// Its registration must disappear with it instead of retaining obsolete tasks.
+struct JobCancellationWaiter<'a> {
+    state: &'a JobCancellationState,
+    slot: Option<usize>,
+}
+
+impl Drop for JobCancellationWaiter<'_> {
+    fn drop(&mut self) {
+        let Some(slot) = self.slot else {
+            return;
+        };
+        let mut wakers = self
+            .state
+            .wakers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waker) = wakers.get_mut(slot) {
+            *waker = None;
+        }
+        while wakers.last().is_some_and(Option::is_none) {
+            wakers.pop();
+        }
+    }
+}
+
+/// Cooperative cancellation signal for one app job.
+///
+/// The shell sets this when the app cancels a job request. A job can inspect
+/// [`is_cancelled`](Self::is_cancelled) between units of work or await
+/// [`cancelled`](Self::cancelled) alongside its other asynchronous work. The
+/// runtime also uses the signal to ignore results from cancelled requests.
+#[derive(Debug, Clone, Default)]
+pub struct JobCancellationToken {
+    state: Arc<JobCancellationState>,
+}
+
+impl JobCancellationToken {
+    /// Creates a cancellation signal that has not been cancelled.
+    #[doc(hidden)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Marks this job as cancelled and wakes tasks awaiting cancellation.
+    pub fn cancel(&self) -> bool {
+        if self.state.cancelled.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        let wakers = std::mem::take(
+            &mut *self
+                .state
+                .wakers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        for waker in wakers.into_iter().flatten() {
+            waker.wake();
+        }
+        true
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.state.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Completes when cancellation is requested.
+    pub async fn cancelled(&self) {
+        let mut waiter = JobCancellationWaiter {
+            state: &self.state,
+            slot: None,
+        };
+        std::future::poll_fn(|context| {
+            if self.is_cancelled() {
+                return std::task::Poll::Ready(());
+            }
+
+            let mut wakers = self
+                .state
+                .wakers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if self.is_cancelled() {
+                std::task::Poll::Ready(())
+            } else {
+                let slot = *waiter.slot.get_or_insert_with(|| {
+                    wakers.iter().position(Option::is_none).unwrap_or_else(|| {
+                        wakers.push(None);
+                        wakers.len() - 1
+                    })
+                });
+                if !wakers[slot]
+                    .as_ref()
+                    .is_some_and(|waker| waker.will_wake(context.waker()))
+                {
+                    wakers[slot] = Some(context.waker().clone());
+                }
+                std::task::Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct JobCtx {
     pub req_id: u64,
     data_streams: DataStreamRegistry,
+    cancellation: JobCancellationToken,
 }
 
 impl JobCtx {
     #[doc(hidden)]
     pub fn new_runtime(req_id: u64, data_streams: DataStreamRegistry) -> Self {
+        Self::new_runtime_with_cancellation(req_id, data_streams, JobCancellationToken::new())
+    }
+
+    #[doc(hidden)]
+    pub fn new_runtime_with_cancellation(
+        req_id: u64,
+        data_streams: DataStreamRegistry,
+        cancellation: JobCancellationToken,
+    ) -> Self {
         Self {
             req_id,
             data_streams,
+            cancellation,
         }
+    }
+
+    /// Returns whether this job has been cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    /// Completes when the shell requests cancellation for this job.
+    pub async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
     }
 
     /// Registers a one-shot stream produced by this job.
@@ -301,8 +435,38 @@ impl JobCtx {
 
 #[cfg(test)]
 mod job_context_tests {
-    use super::JobCtx;
+    use super::{JobCancellationToken, JobCtx};
     use crate::data_stream::{empty_data_stream, DataStreamRegistry};
+    use std::future::Future;
+    use std::task::{Context, Poll, Waker};
+
+    #[test]
+    fn dropped_cancellation_waiters_do_not_accumulate_task_references() {
+        let token = JobCancellationToken::new();
+        let mut context = Context::from_waker(Waker::noop());
+        for _ in 0..1000 {
+            let mut waiter = Box::pin(token.cancelled());
+            assert_eq!(waiter.as_mut().poll(&mut context), Poll::Pending);
+            drop(waiter);
+            assert!(token.state.wakers.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn cancellation_reaches_all_waiters_and_is_idempotent() {
+        let token = JobCancellationToken::new();
+        let mut first = Box::pin(token.cancelled());
+        let mut second = Box::pin(token.cancelled());
+        let mut context = Context::from_waker(Waker::noop());
+        assert_eq!(first.as_mut().poll(&mut context), Poll::Pending);
+        assert_eq!(second.as_mut().poll(&mut context), Poll::Pending);
+        assert_eq!(token.state.wakers.lock().unwrap().len(), 2);
+        assert!(token.cancel());
+        assert!(!token.cancel());
+        assert_eq!(first.as_mut().poll(&mut context), Poll::Ready(()));
+        assert_eq!(second.as_mut().poll(&mut context), Poll::Ready(()));
+        assert!(token.state.wakers.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn job_can_register_a_stream_for_a_later_capability() {

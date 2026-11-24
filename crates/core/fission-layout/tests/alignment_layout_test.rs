@@ -45,6 +45,8 @@ fn box_node(
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     }
 }
 
@@ -62,6 +64,8 @@ fn align_centers_an_intrinsic_layout_wrapper_and_its_text() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let wrapper = box_node(3, Some(2), vec![4], None, None);
     let mut text = box_node(4, Some(3), Vec::new(), None, None);
@@ -123,6 +127,8 @@ fn aligned_positions_each_axis_independently() {
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let child = box_node(32, Some(31), Vec::new(), Some(20.0), Some(10.0));
     let nodes = vec![root, align, child];
@@ -169,6 +175,8 @@ fn flex_stretch_preserves_an_explicit_cross_axis_size() {
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let child = box_node(11, Some(10), Vec::new(), Some(40.0), Some(40.0));
 
@@ -213,6 +221,8 @@ fn intrinsic_box_does_not_expand_an_align_child_to_a_loose_cross_axis_maximum() 
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let button = LayoutInputNode {
         id: button_id,
@@ -236,6 +246,8 @@ fn intrinsic_box_does_not_expand_an_align_child_to_a_loose_cross_axis_maximum() 
         flex_grow: 0.0,
         flex_shrink: 1.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let align = LayoutInputNode {
         id: align_id,
@@ -248,6 +260,8 @@ fn intrinsic_box_does_not_expand_an_align_child_to_a_loose_cross_axis_maximum() 
         flex_grow: 0.0,
         flex_shrink: 0.0,
         rich_text: None,
+        display_breaks: Vec::new(),
+        paragraph_styles: Vec::new(),
     };
     let mut text = box_node(23, Some(22), Vec::new(), None, None);
     text.rich_text = Some(vec![TextRun {

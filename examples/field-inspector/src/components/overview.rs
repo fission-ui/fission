@@ -24,10 +24,10 @@ fission_component! {
                     gap: spacing.l,
                     children: [
                         Responsive::new(OverviewHeadingCompact::new()).id(WidgetId::explicit("field-inspector.overview.heading")).case(ResponsiveCase::min_width(OVERVIEW_EXPANDED_BREAKPOINT, OverviewHeadingExpanded::new())),
-                        ResponsiveGrid(vec![
-                            Metric::new("Site".to_string(), order.site.to_string()).into(),
-                            Metric::new("Asset".to_string(), order.asset.id.to_string()).into(),
-                            Metric::new("Checklist".to_string(), format!("{complete}/{total}")).into(),
+                        ResponsiveGrid([
+                            Metric("Site".to_string(), order.site.to_string(), key: "overview.site"),
+                            Metric("Asset".to_string(), order.asset.id.to_string(), key: "overview.asset"),
+                            Metric("Checklist".to_string(), format!("{complete}/{total}"), key: "overview.checklist"),
                         ], METRIC_MIN_WIDTH),
                         SoftPanel(Responsive::new(OverviewAssetCompact::new()).id(WidgetId::explicit("field-inspector.overview.asset")).case(ResponsiveCase::min_width(OVERVIEW_EXPANDED_BREAKPOINT, OverviewAssetExpanded::new())).into()),
                     ],
