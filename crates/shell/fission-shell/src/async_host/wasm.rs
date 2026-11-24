@@ -445,16 +445,30 @@ impl AsyncRegistry {
 
                                 match runner.on_command(command, ctx.clone()).await {
                                     Ok(result) => {
-                                        let payload = serde_json::to_vec(&result).ok();
-                                        let _ = tx.send(AsyncMessage::ServiceCommandOk {
-                                            service_name: service_name.clone(),
-                                            slot_key: slot_key.clone(),
-                                            instance_id,
-                                            req_id,
-                                            payload,
-                                            on_ok,
-                                            resource: resource.clone(),
-                                        });
+                                        let message = match serde_json::to_vec(&result) {
+                                            Ok(payload) => AsyncMessage::ServiceCommandOk {
+                                                service_name: service_name.clone(),
+                                                slot_key: slot_key.clone(),
+                                                instance_id,
+                                                req_id,
+                                                payload: Some(payload),
+                                                on_ok,
+                                                resource: resource.clone(),
+                                            },
+                                            Err(error) => AsyncMessage::ServiceCommandErr {
+                                                service_name: service_name.clone(),
+                                                slot_key: slot_key.clone(),
+                                                instance_id,
+                                                req_id,
+                                                payload: None,
+                                                on_err,
+                                                message: Some(format!(
+                                                    "service command result serialization failed: {error}"
+                                                )),
+                                                resource: resource.clone(),
+                                            },
+                                        };
+                                        let _ = tx.send(message);
                                     }
                                     Err(error) => {
                                         let (payload, message) = serde_json::to_vec(&error)
