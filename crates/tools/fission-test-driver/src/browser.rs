@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::{json, Value};
 #[cfg(not(target_arch = "wasm32"))]
-use std::cell::Cell;
-#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashSet;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
@@ -23,7 +21,7 @@ use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
@@ -681,6 +679,12 @@ impl BrowserController {
         timeout_ms: u64,
         ignore_repeating_motion: bool,
     ) -> Result<TestResponse> {
+        // Pump, readiness probes, and motion checks share the caller's budget.
+        let _deadline = (timeout_ms > 0).then(|| {
+            self.client
+                .operation_deadline
+                .scoped(Instant::now() + Duration::from_millis(timeout_ms))
+        });
         wait_for_idle_with(
             timeout_ms,
             ignore_repeating_motion,
@@ -700,6 +704,7 @@ impl BrowserController {
         // the same bridge budget. Without this outer scope, a Runtime.evaluate
         // in wait_for_live_test_bridge falls back to the shorter 15s default.
         let _operation_deadline = self.client.operation_deadline.scoped(deadline);
+        let deadline = self.client.operation_deadline.current();
         loop {
             if self.bridge_ready_navigation_count != Some(self.client.main_frame_navigation_count) {
                 self.wait_for_live_test_bridge(deadline)?;
@@ -1410,21 +1415,28 @@ struct CdpClient {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Default)]
-struct CdpOperationDeadline(Rc<Cell<Option<Instant>>>);
+struct CdpOperationDeadline(Arc<Mutex<Option<Instant>>>);
 
 #[cfg(not(target_arch = "wasm32"))]
 impl CdpOperationDeadline {
     fn current(&self) -> Instant {
-        self.0
-            .get()
-            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15))
+        let deadline = *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(15))
     }
 
     fn scoped(&self, deadline: Instant) -> CdpOperationDeadlineGuard {
-        let previous = self.0.get();
-        self.0.set(Some(
-            previous.map_or(deadline, |previous| previous.min(deadline)),
-        ));
+        let previous = {
+            let mut current = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = *current;
+            *current = Some(previous.map_or(deadline, |previous| previous.min(deadline)));
+            previous
+        };
         CdpOperationDeadlineGuard {
             deadline: self.clone(),
             previous,
@@ -1441,7 +1453,11 @@ struct CdpOperationDeadlineGuard {
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for CdpOperationDeadlineGuard {
     fn drop(&mut self) {
-        self.deadline.0.set(self.previous);
+        *self
+            .deadline
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = self.previous;
     }
 }
 
@@ -1798,6 +1814,13 @@ fn is_root_favicon_url(url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{Bounds, SemanticNode};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn live_test_client_remains_send_and_sync_with_scoped_browser_deadlines() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<crate::LiveTestClient>();
+    }
 
     #[test]
     fn bridge_poll_scope_uses_bridge_deadline_and_restores_after_error() {
