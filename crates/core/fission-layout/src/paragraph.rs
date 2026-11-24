@@ -400,11 +400,17 @@ pub(super) fn align_resolved_paragraph(
         };
         let slack = (available - line.width).max(0.0);
         let justify = alignment == TextAlign::Justify && line_index + 1 < paragraph.lines.len();
+        let content_end = text
+            .get(line.start_index..line.end_index)
+            .map(|content| line.start_index + content.trim_end_matches(char::is_whitespace).len())
+            .unwrap_or(line.end_index);
         let mut spaces = paragraph
             .clusters
             .iter()
             .enumerate()
             .filter(|(_, cluster)| cluster.line_index == line_index)
+            // Hanging trailing whitespace does not consume an inter-word gap.
+            .filter(|(_, cluster)| cluster.end_index <= content_end)
             .filter_map(|(index, cluster)| {
                 let content = text.get(cluster.start_index..cluster.end_index)?;
                 (!content.is_empty() && content.chars().all(char::is_whitespace))
@@ -436,6 +442,9 @@ pub(super) fn align_resolved_paragraph(
                     slack
                 }
             }
+            // Like native paragraph alignment, an unjustified RTL line stays
+            // start-aligned rather than moving to the left edge.
+            TextAlign::Justify if rtl && (!justify || spaces.is_empty()) => slack,
             TextAlign::Justify => 0.0,
         };
         line_offsets.push((alignment_offset, extra_per_space, spaces.clone()));
@@ -496,17 +505,31 @@ pub(super) fn align_resolved_paragraph(
     }
 
     for caret in &mut paragraph.caret_stops {
-        let Some((line_index, _)) =
+        // Caret positions are their top edge, not a baseline. Use the source
+        // ranges and affinity so both stops at a soft wrap follow their own
+        // line, even with mixed font sizes, leading, or baseline shifts.
+        let line_index = if caret.upstream {
             paragraph
                 .lines
                 .iter()
-                .enumerate()
-                .min_by(|(_, left), (_, right)| {
-                    (left.baseline - caret.position.y)
-                        .abs()
-                        .total_cmp(&(right.baseline - caret.position.y).abs())
+                .position(|line| line.start_index < caret.index && caret.index <= line.end_index)
+                .or_else(|| {
+                    paragraph.lines.iter().position(|line| {
+                        line.start_index <= caret.index && caret.index <= line.end_index
+                    })
                 })
-        else {
+        } else {
+            paragraph
+                .lines
+                .iter()
+                .rposition(|line| line.start_index <= caret.index && caret.index < line.end_index)
+                .or_else(|| {
+                    paragraph.lines.iter().rposition(|line| {
+                        line.start_index <= caret.index && caret.index <= line.end_index
+                    })
+                })
+        };
+        let Some(line_index) = line_index else {
             continue;
         };
         let Some((offset, extra, spaces)) = line_offsets.get(line_index) else {
@@ -526,21 +549,29 @@ pub(super) fn align_resolved_paragraph(
     }
 
     for inline_box in &mut paragraph.inline_boxes {
+        // Inline boxes are baseline-aligned: Parley positions their top at
+        // baseline - height. A tall box's top can be nearer the previous line.
+        let baseline = inline_box.y + inline_box.height;
         let Some((line_index, _)) =
             paragraph
                 .lines
                 .iter()
                 .enumerate()
                 .min_by(|(_, left), (_, right)| {
-                    (left.baseline - inline_box.y)
+                    (left.baseline - baseline)
                         .abs()
-                        .total_cmp(&(right.baseline - inline_box.y).abs())
+                        .total_cmp(&(right.baseline - baseline).abs())
                 })
         else {
             continue;
         };
-        if let Some((offset, _, _)) = line_offsets.get(line_index) {
-            inline_box.x += *offset;
+        if let Some((offset, extra, spaces)) = line_offsets.get(line_index) {
+            let expanded_before = spaces
+                .iter()
+                .filter(|(_, rect)| rect.right() <= inline_box.x)
+                .count() as f32
+                * *extra;
+            inline_box.x += *offset + expanded_before;
         }
     }
 }
@@ -625,5 +656,237 @@ impl From<ResolvedParagraphLayout> for RichTextLayoutInfo {
             height: layout.size.height,
             inline_boxes: layout.inline_boxes,
         }
+    }
+}
+
+#[cfg(test)]
+mod alignment_tests {
+    use super::*;
+    #[test]
+    fn wrapped_alignment_keeps_top_based_carets_on_their_source_line() {
+        let mut paragraph = ResolvedParagraphLayout::empty(Some(80.0));
+        paragraph.lines = vec![
+            super::LineMetric {
+                start_index: 0,
+                end_index: 4,
+                baseline: 16.0,
+                height: 20.0,
+                width: 40.0,
+            },
+            super::LineMetric {
+                start_index: 4,
+                end_index: 6,
+                baseline: 48.0,
+                height: 32.0,
+                width: 20.0,
+            },
+        ];
+        paragraph.caret_stops = vec![
+            ParagraphCaretStop {
+                index: 4,
+                upstream: true,
+                position: LayoutPoint::new(40.0, 0.0),
+                height: 20.0,
+            },
+            ParagraphCaretStop {
+                index: 4,
+                upstream: false,
+                position: LayoutPoint::new(0.0, 24.0),
+                height: 24.0,
+            },
+            ParagraphCaretStop {
+                index: 6,
+                upstream: false,
+                position: LayoutPoint::new(20.0, 24.0),
+                height: 24.0,
+            },
+        ];
+
+        super::align_resolved_paragraph(
+            &mut paragraph,
+            "abcdef",
+            Some(80.0),
+            TextAlign::Center,
+            TextDirection::Ltr,
+        );
+
+        assert_eq!(
+            paragraph.caret(4, true).unwrap().position,
+            LayoutPoint::new(60.0, 0.0)
+        );
+        assert_eq!(
+            paragraph.caret(4, false).unwrap().position,
+            LayoutPoint::new(30.0, 24.0)
+        );
+        assert_eq!(
+            paragraph.caret(6, false).unwrap().position,
+            LayoutPoint::new(50.0, 24.0)
+        );
+    }
+
+    #[test]
+    fn inline_boxes_align_from_their_baseline_and_follow_justified_spacing() {
+        let mut paragraph = ResolvedParagraphLayout::empty(Some(80.0));
+        paragraph.lines = vec![
+            super::LineMetric {
+                start_index: 0,
+                end_index: 4,
+                baseline: 16.0,
+                height: 20.0,
+                width: 50.0,
+            },
+            super::LineMetric {
+                start_index: 4,
+                end_index: 6,
+                baseline: 48.0,
+                height: 32.0,
+                width: 20.0,
+            },
+        ];
+        paragraph.clusters.push(ParagraphCluster {
+            start_index: 1,
+            end_index: 2,
+            line_index: 0,
+            rect: LayoutRect::new(10.0, 0.0, 10.0, 20.0),
+            is_rtl: false,
+        });
+        paragraph.inline_boxes = vec![
+            super::RichTextInlineBox {
+                id: 0,
+                x: 20.0,
+                y: 6.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            super::RichTextInlineBox {
+                id: 1,
+                x: 5.0,
+                y: 24.0,
+                width: 10.0,
+                height: 24.0,
+            },
+        ];
+        let mut centered = paragraph.clone();
+        super::align_resolved_paragraph(
+            &mut centered,
+            "a bcde",
+            Some(80.0),
+            TextAlign::Center,
+            TextDirection::Ltr,
+        );
+        assert_eq!(centered.inline_boxes[0].x, 35.0);
+        assert_eq!(centered.inline_boxes[1].x, 35.0);
+
+        super::align_resolved_paragraph(
+            &mut paragraph,
+            "a bcde",
+            Some(80.0),
+            TextAlign::Justify,
+            TextDirection::Ltr,
+        );
+        assert_eq!(
+            paragraph.inline_boxes[0].x, 50.0,
+            "the space before the box expands by 30px"
+        );
+        assert_eq!(
+            paragraph.inline_boxes[1].x, 5.0,
+            "the final line is not justified"
+        );
+    }
+
+    #[test]
+    fn justification_start_aligns_rtl_final_and_no_space_lines() {
+        let mut paragraph = ResolvedParagraphLayout::empty(Some(80.0));
+        paragraph.lines = vec![
+            super::LineMetric {
+                start_index: 0,
+                end_index: 4,
+                baseline: 16.0,
+                height: 20.0,
+                width: 20.0,
+            },
+            super::LineMetric {
+                start_index: 4,
+                end_index: 8,
+                baseline: 36.0,
+                height: 20.0,
+                width: 20.0,
+            },
+        ];
+        for (line_index, start) in [0, 4].into_iter().enumerate() {
+            paragraph.clusters.push(ParagraphCluster {
+                start_index: start,
+                end_index: start + 2,
+                line_index,
+                rect: LayoutRect::new(10.0, line_index as f32 * 20.0, 10.0, 20.0),
+                is_rtl: true,
+            });
+            paragraph.caret_stops.push(ParagraphCaretStop {
+                index: start,
+                upstream: false,
+                position: LayoutPoint::new(20.0, line_index as f32 * 20.0),
+                height: 20.0,
+            });
+        }
+        super::align_resolved_paragraph(
+            &mut paragraph,
+            "אבגד",
+            Some(80.0),
+            TextAlign::Justify,
+            TextDirection::Rtl,
+        );
+        assert_eq!(paragraph.clusters[0].rect.x(), 70.0);
+        assert_eq!(paragraph.clusters[1].rect.x(), 70.0);
+        assert_eq!(paragraph.caret(0, false).unwrap().position.x, 80.0);
+        assert_eq!(paragraph.caret(4, false).unwrap().position.x, 80.0);
+    }
+
+    #[test]
+    fn justification_does_not_expand_hanging_trailing_whitespace() {
+        let mut paragraph = ResolvedParagraphLayout::empty(Some(80.0));
+        paragraph.lines = vec![
+            super::LineMetric {
+                start_index: 0,
+                end_index: 4,
+                baseline: 16.0,
+                height: 20.0,
+                width: 30.0,
+            },
+            super::LineMetric {
+                start_index: 4,
+                end_index: 6,
+                baseline: 36.0,
+                height: 20.0,
+                width: 20.0,
+            },
+        ];
+        for index in 0..4 {
+            paragraph.clusters.push(ParagraphCluster {
+                start_index: index,
+                end_index: index + 1,
+                line_index: 0,
+                rect: LayoutRect::new(index as f32 * 10.0, 0.0, 10.0, 20.0),
+                is_rtl: false,
+            });
+        }
+        super::align_resolved_paragraph(
+            &mut paragraph,
+            "a b cd",
+            Some(80.0),
+            TextAlign::Justify,
+            TextDirection::Ltr,
+        );
+        assert_eq!(
+            paragraph.clusters[1].rect.width(),
+            60.0,
+            "only the inter-word space expands"
+        );
+        assert_eq!(paragraph.clusters[2].rect.x(), 70.0);
+        assert_eq!(
+            paragraph.clusters[3].rect.width(),
+            10.0,
+            "the trailing space keeps its advance"
+        );
+        assert_eq!(paragraph.clusters[3].rect.x(), 80.0);
     }
 }

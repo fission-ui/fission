@@ -60,7 +60,7 @@ mod layout_direction;
 use flyout::{
     absolute_overrides as flyout_absolute_overrides, root_position as flyout_root_position,
 };
-use grid_tracks::{IntrinsicAxis, TrackSizing, distribute_deficit, distribute_flex, expand_tracks};
+use grid_tracks::{distribute_deficit, distribute_flex, expand_tracks, IntrinsicAxis, TrackSizing};
 use layout_direction::{
     resolve_cross_axis_alignment, resolve_horizontal_flex_policy, reverse_flex_lines,
 };
@@ -107,7 +107,11 @@ pub type LayoutUnit = f32;
 
 /// Returns `value` if it is finite, otherwise `fallback`.
 fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
-    if value.is_finite() { value } else { fallback }
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
 }
 
 fn resolve_length(
@@ -1292,7 +1296,9 @@ pub trait TextMeasurer: Send + Sync {
         )
     }
 
-    /// Resolves rich text using paragraph-local alignment and indentation.
+    /// Resolves rich text using paragraph-local alignment and direction.
+    /// The segment composer already subtracts indentation from `available_width`
+    /// and applies the leading inset to this method's returned geometry.
     /// Backends may override this to use their native paragraph alignment;
     /// the default adjusts the retained glyph, caret, and selection geometry.
     fn resolve_rich_text_with_paragraph_style(

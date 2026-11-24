@@ -365,7 +365,7 @@ fn text_input_lowers_paragraph_styles_into_shared_layout_boundaries() {
         .expect("TextInput layout node")
         .paragraph_styles
         .clone();
-    assert_eq!(layout_styles, paragraph_styles);
+    assert_eq!(layout_styles.as_slice(), paragraph_styles.as_slice());
     let semantic_value = ir
         .nodes
         .values()

@@ -512,6 +512,7 @@ impl LowerWidget for TerminalRenderNode {
                 Op::Paint(PaintOp::DrawRichText {
                     runs: self.row_runs(line),
                     paragraph_styles: Vec::new(),
+                    display_breaks: Vec::new(),
                     wrap: false,
                     caret_index: None,
                     caret_color: None,

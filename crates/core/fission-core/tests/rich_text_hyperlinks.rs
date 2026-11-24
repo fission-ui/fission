@@ -52,6 +52,7 @@ impl TextMeasurer for LinkTextMeasurer {
             glyphs: Vec::new(),
             caret_stops: Vec::new(),
             selection_boxes,
+            display_breaks: Vec::new(),
         }
     }
 

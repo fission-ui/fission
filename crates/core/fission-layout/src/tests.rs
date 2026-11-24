@@ -179,7 +179,7 @@ impl TextMeasurer for GeometryMeasurer {
         let mut line_start = 0usize;
         let mut line_index = 0usize;
         let mut column = 0usize;
-        for (byte_offset, character) in text.char_indices() {
+        for (byte_offset, _) in text.char_indices() {
             if column == max_chars {
                 push_geometry_line(&mut result, &text, line_start, byte_offset, line_index);
                 line_start = byte_offset;
@@ -218,6 +218,14 @@ fn push_geometry_line(
     line_index: usize,
 ) {
     let baseline = line_index as f32 * 20.0 + 16.0;
+    let top = line_index as f32 * 20.0;
+    if line_index > 0 {
+        // At a soft wrap the upstream stop stays on the preceding line, while
+        // the downstream stop belongs to this line, as in real shaped text.
+        result
+            .caret_stops
+            .retain(|stop| stop.index != start || stop.upstream);
+    }
     let mut x = 0.0;
     result.lines.push(super::LineMetric {
         start_index: start,
@@ -229,7 +237,7 @@ fn push_geometry_line(
     result.caret_stops.push(ParagraphCaretStop {
         index: start,
         upstream: false,
-        position: LayoutPoint::new(x, baseline),
+        position: LayoutPoint::new(x, top),
         height: 20.0,
     });
     for (offset, character) in text[start..end].char_indices() {
@@ -253,13 +261,13 @@ fn push_geometry_line(
         result.caret_stops.push(ParagraphCaretStop {
             index: cluster_end,
             upstream: true,
-            position: LayoutPoint::new(x, baseline),
+            position: LayoutPoint::new(x, top),
             height: 20.0,
         });
         result.caret_stops.push(ParagraphCaretStop {
             index: cluster_end,
             upstream: false,
-            position: LayoutPoint::new(x, baseline),
+            position: LayoutPoint::new(x, top),
             height: 20.0,
         });
     }
@@ -462,6 +470,15 @@ fn indented_mixed_paragraphs_share_wrapping_caret_selection_and_hit_geometry() {
             .x,
         25.0,
         "the shorter wrapped line is centred inside its indented measure"
+    );
+    assert_eq!(
+        paragraph
+            .caret(second_paragraph + 3, false)
+            .unwrap()
+            .position
+            .y,
+        40.0,
+        "caret geometry uses its top edge, as the real text measurer does"
     );
     assert_eq!(
         paragraph.selection_rects(second_paragraph, second_paragraph + 1)[0].x(),

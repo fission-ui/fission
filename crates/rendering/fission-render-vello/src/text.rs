@@ -25,6 +25,12 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
+#[path = "text_resolution.rs"]
+mod resolution;
+#[cfg(test)]
+#[path = "text_resolution_tests.rs"]
+mod resolution_tests;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParleyBrush(pub [u8; 4]);
 
@@ -1193,154 +1199,16 @@ impl TextMeasurer for VelloTextMeasurer {
             &rich.inline_boxes,
             available_width,
         );
-        let mut inline_boxes = Vec::new();
-        let mut lines = Vec::new();
-        let mut clusters = Vec::new();
-        let mut glyphs = Vec::new();
-        let mut selection_boxes = Vec::new();
-        let mut clusters_by_start = HashMap::new();
-        let mut clusters_by_end = HashMap::new();
-        let mut caret_indices = vec![0, rich.text.len()];
-        for (line_index, line) in layout.lines().enumerate() {
-            let metrics = line.metrics();
-            let range = line.text_range();
-            lines.push(LineMetric {
-                start_index: range.start,
-                end_index: range.end,
-                baseline: metrics.baseline,
-                height: metrics
-                    .line_height
-                    .max(metrics.ascent + metrics.descent)
-                    .max(1.0),
-                width: (metrics.advance - metrics.trailing_whitespace).max(0.0),
-            });
-            let top = metrics.baseline - metrics.ascent;
-            let cluster_height = (metrics.ascent + metrics.descent).max(1.0);
-            for run in line.runs() {
-                let run_range = run.text_range();
-                let typography = rich
-                    .styles
-                    .iter()
-                    .find(|(range, _)| range.start < run_range.end && range.end > run_range.start)
-                    .map(|(_, style)| style.typography.clone())
-                    .unwrap_or_default();
-                let baseline_shift = typography_baseline_shift(
-                    &typography,
-                    metrics.ascent,
-                    metrics.descent,
-                    metrics.line_height,
-                );
-                for cluster in run.visual_clusters() {
-                    let range = cluster.text_range();
-                    let caret_cluster = cache_caret_cluster(&cluster);
-                    clusters_by_start.insert(range.start, caret_cluster);
-                    clusters_by_end.insert(range.end, caret_cluster);
-                    let cluster_index = clusters.len();
-                    let cluster_x = cluster.visual_offset().unwrap_or(metrics.offset);
-                    let cluster_rect = LayoutRect::new(
-                        cluster_x,
-                        top + baseline_shift,
-                        cluster.advance().max(0.0),
-                        cluster_height,
-                    );
-                    caret_indices.push(range.start);
-                    caret_indices.push(range.end);
-                    clusters.push(ParagraphCluster {
-                        start_index: range.start,
-                        end_index: range.end,
-                        line_index,
-                        rect: cluster_rect,
-                        is_rtl: cluster.is_rtl(),
-                    });
-                    selection_boxes.push(ParagraphSelectionBox {
-                        start_index: range.start,
-                        end_index: range.end,
-                        line_index,
-                        rect: cluster_rect,
-                    });
-                    let mut glyph_x = cluster_x;
-                    for glyph in cluster.glyphs() {
-                        glyphs.push(ParagraphGlyph {
-                            id: glyph.id as u32,
-                            style_index: glyph.style_index(),
-                            cluster_index,
-                            position: LayoutPoint::new(
-                                glyph_x + glyph.x,
-                                metrics.baseline + baseline_shift - glyph.y,
-                            ),
-                            advance: glyph.advance,
-                        });
-                        glyph_x += glyph.advance;
-                    }
-                }
-            }
-            for item in line.items() {
-                if let PositionedLayoutItem::InlineBox(inline_box) = item {
-                    inline_boxes.push(RichTextInlineBox {
-                        id: inline_box.id,
-                        x: inline_box.x,
-                        y: inline_box.y,
-                        width: inline_box.width,
-                        height: inline_box.height,
-                    });
-                }
-            }
-        }
-        caret_indices.sort_unstable();
-        caret_indices.dedup();
-        let mut caret_stops = Vec::with_capacity(caret_indices.len() * 2);
-        for index in caret_indices {
-            for (upstream, affinity) in [(false, Affinity::Downstream), (true, Affinity::Upstream)]
-            {
-                let (caret_x, caret_y, caret_bottom) = cursor_rect_from_clusters(
-                    &layout,
-                    index,
-                    affinity,
-                    &clusters_by_start,
-                    &clusters_by_end,
-                );
-                let baseline_shift = rich
-                    .styles
-                    .iter()
-                    .find(|(range, _)| range.start <= index && index <= range.end)
-                    .and_then(|(_, style)| {
-                        layout
-                            .lines()
-                            .find(|line| {
-                                let range = line.text_range();
-                                range.start <= index && index <= range.end
-                            })
-                            .map(|line| {
-                                let metrics = line.metrics();
-                                typography_baseline_shift(
-                                    &style.typography,
-                                    metrics.ascent,
-                                    metrics.descent,
-                                    metrics.line_height,
-                                )
-                            })
-                    })
-                    .unwrap_or(0.0);
-                caret_stops.push(ParagraphCaretStop {
-                    index,
-                    upstream,
-                    position: LayoutPoint::new(caret_x, caret_y + baseline_shift),
-                    height: caret_bottom - caret_y,
-                });
-            }
-        }
-        let (width, height) = Self::layout_measured_size(&layout);
-        ResolvedParagraphLayout {
-            constraint_width: available_width,
-            size: fission_layout::LayoutSize::new(width, height),
-            lines,
-            inline_boxes,
-            clusters,
-            glyphs,
-            caret_stops,
-            selection_boxes,
-            display_breaks: Vec::new(),
-        }
+        resolution::resolve_layout(&rich, &layout, available_width)
+    }
+
+    fn resolve_rich_text_with_paragraph_style(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        style: fission_ir::op::TextParagraphLayoutStyle,
+    ) -> ResolvedParagraphLayout {
+        resolution::resolve_styled_paragraph(self, runs, available_width, style)
     }
 
     fn hit_test_rich(
