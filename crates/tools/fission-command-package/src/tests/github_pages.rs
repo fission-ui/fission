@@ -6,6 +6,10 @@ use super::*;
 fn github_pages_setup_writes_workflow() {
     let dir = unique_dir("github-setup");
     write_minimal_site(&dir);
+    assert!(
+        git_repo_root(&dir).is_none(),
+        "fixture escaped into a real repository"
+    );
     let config = load_publish_manifest(&dir).unwrap();
     setup_github_pages(
         &DistributeOptions {
