@@ -2,9 +2,9 @@ use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemPermission, FileWriteSource,
     FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    ReadPickedFileRequest, ReadPickedFileResult, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult, PICK_OPEN_FILES,
-    PICK_SAVE_FILE, READ_PICKED_FILE, WRITE_PICKED_FILE,
+    ReadPickedFileRequest, ReadPickedFileResult, ReleaseWritableFileRequest, SaveFileDestination,
+    WritableFileHandle, WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult,
+    PICK_OPEN_FILES, PICK_SAVE_FILE, READ_PICKED_FILE, RELEASE_WRITABLE_FILE, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -34,6 +34,10 @@ const DEFAULT_FILE_STREAM_CHUNK_SIZE: usize = 256 * 1024;
 const MAX_FILE_STREAM_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 
 pub(crate) fn register_macos_file_picker_capabilities(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move { release_writable_file(request.file) },
+    );
     // Override the generic path-based open picker so macOS keeps the panel's
     // security-scoped URL alive while the selected-file stream is consumed.
     async_registry.register_operation_capability(
@@ -415,6 +419,16 @@ fn next_file_id() -> WritableFileHandleId {
     WritableFileHandleId(NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
+fn release_writable_file(id: WritableFileHandleId) -> Result<(), FileSystemError> {
+    // Reads and writes clone the Arc before releasing the registry lock. Removing
+    // this entry prevents new operations without invalidating an active stream.
+    picked_files()
+        .lock()
+        .map_err(|_| FileSystemError::new("registry_failed", "save file registry is unavailable"))?
+        .remove(&id);
+    Ok(())
+}
+
 fn pick_save_file_with(
     request: PickSaveFileRequest,
     select_destination: impl FnOnce(
@@ -596,6 +610,7 @@ mod tests {
         assert!(registry.has_operation_capability(PICK_SAVE_FILE));
         assert!(registry.has_operation_capability(READ_PICKED_FILE));
         assert!(registry.has_operation_capability(WRITE_PICKED_FILE));
+        assert!(registry.has_operation_capability(RELEASE_WRITABLE_FILE));
     }
 
     #[test]
@@ -701,6 +716,54 @@ mod tests {
     fn save_picker_cancellation_returns_no_destination() {
         let result = pick_save_file_with(PickSaveFileRequest::default(), |_| Ok(None)).unwrap();
         assert_eq!(result.destination, None);
+    }
+
+    #[test]
+    fn releasing_a_save_handle_keeps_an_open_read_alive_until_it_is_dropped() {
+        let path = temp_path();
+        std::fs::write(&path, b"still reading").unwrap();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
+        let selected = pick_save_file_with(PickSaveFileRequest::default(), |_| {
+            Ok(Some(MacosPickedFile {
+                path: path.clone(),
+                name: "report.txt".into(),
+                scope: None,
+            }))
+        })
+        .unwrap();
+        let Some(SaveFileDestination::WritableFile(handle)) = selected.destination else {
+            panic!("expected an opaque save handle");
+        };
+        let retained = Arc::downgrade(picked_files().lock().unwrap().get(&handle.id).unwrap());
+        let request = ReadPickedFileRequest {
+            file: handle.clone(),
+            preferred_chunk_bytes: Some(4),
+        };
+        let result = read_picked_file_with(request.clone(), &ctx).unwrap();
+        let mut stream = ctx.open_data_stream(result.stream).unwrap();
+
+        release_writable_file(handle.id).unwrap();
+        release_writable_file(handle.id).unwrap();
+        assert!(!picked_files().lock().unwrap().contains_key(&handle.id));
+        assert_eq!(
+            read_picked_file_with(request, &ctx).unwrap_err().code,
+            "invalid_handle"
+        );
+        assert!(retained.upgrade().is_some());
+
+        let mut actual = Vec::new();
+        let mut context = Context::from_waker(Waker::noop());
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+                Poll::Ready(None) => break,
+                other => panic!("unexpected read result after release: {other:?}"),
+            }
+        }
+        assert_eq!(actual, b"still reading");
+        drop(stream);
+        assert!(retained.upgrade().is_none());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -240,6 +240,17 @@ pub struct ForgetSaveFileRequest {
     pub persistence_key: String,
 }
 
+/// Releases a writable file handle selected or restored by `pick_save_file`.
+///
+/// This only releases the runtime's in-memory reference to the handle. The
+/// operation is idempotent and does not delete the file or remove a separately
+/// persisted save-file key. In-flight operations retain their own references.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseWritableFileRequest {
+    /// The ID returned in `WritableFileHandle::id` by a picker or restore call.
+    pub file: WritableFileHandleId,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WritableFilePermissionRequest {
     pub file: WritableFileHandle,
@@ -475,6 +486,13 @@ filesystem_capability!(
     (),
     FORGET_SAVE_FILE,
     "fission.fs.forget_save_file"
+);
+filesystem_capability!(
+    ReleaseWritableFileCapability,
+    ReleaseWritableFileRequest,
+    (),
+    RELEASE_WRITABLE_FILE,
+    "fission.fs.release_writable_file"
 );
 filesystem_capability!(
     WritableFilePermissionCapability,
