@@ -178,12 +178,13 @@ export function fissionPickSaveFile(suggestedName, serializedTypes, persistenceK
       if (error && error.name === "AbortError") return null;
       throw error;
     }
+    const filePermission = await permission(handle, false);
     if (persistenceKey) await storedSaveFileHandle(requireSaveFileKey(persistenceKey), handle, false);
     const id = nextPickedFile;
     nextPickedFile = id >= 0xffffffff ? 1 : id + 1;
     if (writableFiles.has(id)) throw Object.assign(new Error("too many save destinations are still active"), { name: "resource_exhausted" });
     writableFiles.set(id, handle);
-    return { id, name: handle.name || options.suggestedName, permission: await permission(handle, false) };
+    return { id, name: handle.name || options.suggestedName, permission: filePermission };
   })();
 }
 
@@ -191,15 +192,20 @@ export async function fissionRestoreSaveFile(persistenceKey) {
   const key = requireSaveFileKey(persistenceKey);
   const handle = await storedSaveFileHandle(key, undefined, false);
   if (!handle) return null;
+  const filePermission = await permission(handle, false);
   const id = nextPickedFile;
   nextPickedFile = id >= 0xffffffff ? 1 : id + 1;
   if (writableFiles.has(id)) throw Object.assign(new Error("too many save destinations are still active"), { name: "resource_exhausted" });
   writableFiles.set(id, handle);
-  return { id, name: handle.name || "selected-file", permission: await permission(handle, false) };
+  return { id, name: handle.name || "selected-file", permission: filePermission };
 }
 
 export async function fissionForgetSaveFile(persistenceKey) {
   await storedSaveFileHandle(requireSaveFileKey(persistenceKey), undefined, true);
+}
+
+export function fissionReleaseWritableFile(fileId) {
+  writableFiles.delete(Number(fileId));
 }
 
 export async function fissionWritableFilePermission(fileId, request = false) {
