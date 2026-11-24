@@ -1,5 +1,6 @@
 //! Real Chromium against an opt-in Rust/Fission fixture and a static DOM site.
 //! See docs/browser-test-control.md for fixture setup; these tests never inject UI.
+use anyhow::Context;
 use fission_test_driver::{BrowserTestOptions, LiveTestClient, SelectorQuery};
 use serde_json::{json, Value};
 use std::{
@@ -30,13 +31,20 @@ fn capture_webgpu_frame(
     width: u32,
     height: u32,
 ) -> anyhow::Result<()> {
-    let png = c.capture_screenshot_png()?;
+    let started = Instant::now();
+    let png = c
+        .capture_screenshot_png()
+        .with_context(|| format!("capture {name} at {width}x{height}"))?;
     let image = image::load_from_memory(&png)?.to_rgba8();
     assert_eq!((image.width(), image.height()), (width, height));
     let first = image.get_pixel(0, 0);
     assert!(
         image.pixels().any(|pixel| pixel != first),
         "WebGPU screenshot should contain Fission's rendered frame, not a blank browser capture"
+    );
+    eprintln!(
+        "{name}: validated {width}x{height} WebGPU capture in {}ms",
+        started.elapsed().as_millis()
     );
     if let Some(dir) = std::env::var_os("FISSION_RESIZE_OUTPUT") {
         let dir = PathBuf::from(dir);
