@@ -69,6 +69,9 @@ jobs:
           cargo test --locked -p fission-shell-winit --lib window_controls::desktop::tests
           cargo check --locked -p custom-title-bar
 
+      - name: Test empty rich text shaping
+        run: cargo test --locked -p fission-render-vello --lib text::tests::rich_text_layout_skips_empty_non_inline_runs -- --exact
+
       - name: Test owned serving and readiness without canonicalisation
         run: cargo test --locked -p fission-command-site
 
