@@ -2,7 +2,7 @@
 
 Procedural macros for Fission Compose. This crate parses component declarations and lowers them to ordinary Fission widget construction, typed state access, retained local fields, action registration and stable identity.
 
-Application code should not depend on this implementation crate directly. Use the [`fission`](https://crates.io/crates/fission) facade and `fission::prelude::*`; the facade exposes `fission_compose!`, `fission_effect!` and `state_scope!` with the matching runtime support from `fission-compose`.
+Application code should not depend on this implementation crate directly. Use the [`fission`](https://crates.io/crates/fission) facade and `fission::prelude::*`; the facade exposes `fission_component!` and `state_scope!` with the matching runtime support from `fission-compose`.
 
 The macro deliberately leaves Rust responsible for names and types:
 

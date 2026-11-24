@@ -6,7 +6,7 @@ Application developers should normally depend on the [`fission`](https://crates.
 
 ## What it provides
 
-- `fission_compose!` for typed component properties, retained local state and declarative composition.
+- `fission_component!` for typed component properties, retained local state and declarative composition.
 - `state_scope!` and `Scope` for editing an identified part of application state without copying it into a second authority.
 - Typed value/update sources used by control bindings.
 - Stable semantic identities for components, repeated children, fields and inline handlers.
@@ -18,7 +18,7 @@ Widget names are resolved by normal Rust imports. Named arguments initialise pub
 ```rust
 use fission::prelude::*;
 
-fission_compose! {
+fission_component! {
     pub Counter<()> {
         state {
             count: i32 = 0,
