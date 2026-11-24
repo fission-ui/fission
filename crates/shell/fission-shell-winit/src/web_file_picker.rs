@@ -3,10 +3,11 @@ use fission_core::{
     Bytes, FileSystemError, FileSystemPermission, FileWriteSource, FissionDataStreamError,
     FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination, WritableFileHandle,
-    WritableFileHandleId, WritableFilePermissionRequest, WritableFilePermissionResult,
-    WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES,
-    PICK_SAVE_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
+    ReadPickedFileRequest, ReadPickedFileResult, RestoreSaveFileRequest, RestoreSaveFileResult,
+    SaveFileDestination, WritableFileHandle, WritableFileHandleId, WritableFilePermissionRequest,
+    WritableFilePermissionResult, WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE,
+    PICK_OPEN_FILES, PICK_SAVE_FILE, READ_PICKED_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -170,6 +171,12 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
                     Err(error)
                 }
             }
+        },
+    );
+    async_registry.register_operation_capability(
+        READ_PICKED_FILE,
+        |_request: ReadPickedFileRequest, _| async move {
+            Err::<ReadPickedFileResult, _>(FileSystemError::unsupported("read_picked_file"))
         },
     );
     async_registry.register_operation_capability(

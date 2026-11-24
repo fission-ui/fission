@@ -47,10 +47,11 @@ use crate::platform_clipboard::{
 use crate::platform_filesystem::{
     CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
     ForgetSaveFileRequest, ListDirectoryRequest, PickDirectoryRequest, PickSaveFileRequest,
-    ReadFileRequest, ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest,
-    RestoreSaveFileRequest, StatEntryRequest, WritableFilePermissionRequest, WriteFileRequest,
-    WritePickedFileRequest, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY,
-    FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY, PICK_SAVE_FILE, READ_FILE, RELEASE_DIRECTORY,
+    ReadFileRequest, ReadPickedFileRequest, ReleaseDirectoryRequest, ReleaseWritableFileRequest,
+    RemoveEntryRequest, RestoreDirectoryRequest, RestoreSaveFileRequest, StatEntryRequest,
+    WritableFilePermissionRequest, WriteFileRequest, WritePickedFileRequest, CREATE_DIRECTORY,
+    DIRECTORY_PERMISSION, FORGET_DIRECTORY, FORGET_SAVE_FILE, LIST_DIRECTORY, PICK_DIRECTORY,
+    PICK_SAVE_FILE, READ_FILE, READ_PICKED_FILE, RELEASE_DIRECTORY, RELEASE_WRITABLE_FILE,
     REMOVE_ENTRY, RESTORE_DIRECTORY, RESTORE_SAVE_FILE, STAT_ENTRY, WRITABLE_FILE_PERMISSION,
     WRITE_FILE, WRITE_PICKED_FILE,
 };
@@ -1125,6 +1126,15 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
         self.effects.capability(FORGET_SAVE_FILE, request)
     }
 
+    /// Releases a selected or restored writable file handle from the active
+    /// host session without deleting the file or forgetting a persisted key.
+    pub fn release_writable_file(
+        self,
+        request: ReleaseWritableFileRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(RELEASE_WRITABLE_FILE, request)
+    }
+
     /// Queries the current write permission for a picked or restored file.
     /// Set `request` only from an action where the browser may show a prompt.
     pub fn writable_file_permission(
@@ -1156,6 +1166,12 @@ impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
 
     pub fn read(self, request: ReadFileRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(READ_FILE, request)
+    }
+
+    /// Reads a user-selected save destination through its opaque host handle.
+    /// The returned stream remains under the provider's authorization scope.
+    pub fn read_picked_file(self, request: ReadPickedFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(READ_PICKED_FILE, request)
     }
 
     pub fn write(self, request: WriteFileRequest) -> EffectBuilder<'a, 'b, S> {

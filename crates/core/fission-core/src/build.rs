@@ -745,6 +745,16 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         }
     }
 
+    /// Declares that the authored widget tree depends on a scroll node's offset.
+    ///
+    /// Use this when a custom component reads `view.runtime().scroll.get_offset`
+    /// to virtualize or otherwise change its composed children. The Winit shell
+    /// rebuilds the authored tree when a declared scroll offset changes; ordinary
+    /// scroll views continue using compositor-only translation.
+    pub fn mark_scroll_build_dependency(&self, scroll_id: crate::WidgetId) {
+        self.with_exact_ctx(|ctx| ctx.mark_scroll_build_dependency(scroll_id));
+    }
+
     pub fn register_video(&self, registration: crate::registry::VideoRegistration) {
         let video_nodes = BUILD_SCOPES.with(|scopes| {
             let scopes = scopes.borrow();

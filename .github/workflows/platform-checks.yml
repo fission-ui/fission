@@ -281,6 +281,9 @@ jobs:
       - name: Diagnose iOS toolchain
         run: cargo run -p cargo-fission --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
 
+      - name: Test macOS picked-file lifetime
+        run: cargo test --locked -p fission-shell-winit --lib macos_file_picker::tests
+
       - name: Enable iOS filesystem capability smoke coverage
         run: cargo run --locked -p cargo-fission --bin fission -- add-capability filesystem --project-dir examples/mobile-smoke
 

@@ -301,11 +301,12 @@ fn handle_http_request(
     if method == "POST" && path == "/__fission/renderer" {
         let body = read_http_body(&mut reader)?;
         eprintln!("{}", format_renderer_diagnostic(&body));
+        let mut response = http_response(204, "text/plain", b"", spa_fallback);
         stream.start_response();
-        stream.write_all(&http_response(204, "text/plain", b"", spa_fallback))?;
+        response.write_to(&mut stream)?;
         return Ok(());
     }
-    let response = if method != "GET" {
+    let mut response = if method != "GET" {
         http_response(404, "text/plain", b"not found", spa_fallback)
     } else if let Some(relative) = path.strip_prefix(mount) {
         static_response_at_mount(root, &format!("/{relative}"), spa_fallback, Some(mount))?
@@ -313,7 +314,7 @@ fn handle_http_request(
         http_response(404, "text/plain", b"outside serving mount", spa_fallback)
     };
     stream.start_response();
-    stream.write_all(&response)?;
+    response.write_to(&mut stream)?;
     Ok(())
 }
 
@@ -418,12 +419,13 @@ fn read_http_body(reader: &mut impl BufRead) -> Result<String> {
 
 #[cfg(test)]
 fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
-    static_response_at_mount(
+    let response = static_response_at_mount(
         root,
         request_path,
         spa_fallback,
         spa_fallback.then_some("/"),
-    )
+    )?;
+    Ok(response.into_bytes()?)
 }
 
 fn static_response_at_mount(
@@ -431,7 +433,7 @@ fn static_response_at_mount(
     request_path: &str,
     spa_fallback: bool,
     mount: Option<&str>,
-) -> Result<Vec<u8>> {
+) -> Result<HttpResponse> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
         relative = if root.join("index.html").exists() {
@@ -484,20 +486,98 @@ fn static_response_at_mount(
         eprintln!("GET {} 404", request_path);
         return Ok(http_response(404, "text/plain", b"not found", spa_fallback));
     }
-    let body = fs::read(&path)?;
+    let file = fs::File::open(&path)?;
+    let content_length = file.metadata()?.len();
     let content_type = content_type(&path);
     eprintln!("GET {} 200", request_path);
-    Ok(http_response(200, content_type, &body, spa_fallback))
+    Ok(http_file_response(
+        200,
+        content_type,
+        file,
+        content_length,
+        spa_fallback,
+    ))
 }
 
 fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
     paths::asset_path(root, relative)
 }
 
+enum HttpResponseBody {
+    Bytes(Vec<u8>),
+    File { file: fs::File, length: u64 },
+}
+
+struct HttpResponse {
+    headers: Vec<u8>,
+    body: HttpResponseBody,
+}
+
+impl HttpResponse {
+    fn write_to(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        writer.write_all(&self.headers)?;
+        match &mut self.body {
+            HttpResponseBody::Bytes(body) => writer.write_all(body),
+            HttpResponseBody::File { file, length } => {
+                let copied = io::copy(&mut file.take(*length), writer)?;
+                if copied != *length {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "static asset changed while it was being served",
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn into_bytes(mut self) -> io::Result<Vec<u8>> {
+        let mut response = Vec::new();
+        self.write_to(&mut response)?;
+        Ok(response)
+    }
+}
+
 fn http_response(
     status: u16,
     content_type: &str,
     body: &[u8],
+    cross_origin_isolated: bool,
+) -> HttpResponse {
+    let body = body.to_vec();
+    let headers = http_response_headers(
+        status,
+        content_type,
+        body.len() as u64,
+        cross_origin_isolated,
+    );
+    HttpResponse {
+        headers,
+        body: HttpResponseBody::Bytes(body),
+    }
+}
+
+fn http_file_response(
+    status: u16,
+    content_type: &str,
+    file: fs::File,
+    content_length: u64,
+    cross_origin_isolated: bool,
+) -> HttpResponse {
+    HttpResponse {
+        headers: http_response_headers(status, content_type, content_length, cross_origin_isolated),
+        body: HttpResponseBody::File {
+            file,
+            length: content_length,
+        },
+    }
+}
+
+fn http_response_headers(
+    status: u16,
+    content_type: &str,
+    content_length: u64,
     cross_origin_isolated: bool,
 ) -> Vec<u8> {
     let reason = match status {
@@ -511,13 +591,11 @@ fn http_response(
     } else {
         ""
     };
-    let mut response = format!(
+    format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\n{isolation_headers}Connection: close\r\n\r\n",
-        body.len()
+        content_length
     )
-    .into_bytes();
-    response.extend_from_slice(body);
-    response
+    .into_bytes()
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -535,11 +613,24 @@ fn content_type(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_renderer_diagnostic, static_response};
+    use super::{format_renderer_diagnostic, http_response_headers, static_response};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn http_response_headers_returns_complete_header_block() {
+        let headers = http_response_headers(200, "text/html; charset=utf-8", 12, true);
+        let headers = String::from_utf8(headers).expect("headers are UTF-8");
+
+        assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(headers.contains("Content-Length: 12\r\n"));
+        assert!(headers.contains("Content-Type: text/html; charset=utf-8\r\n"));
+        assert!(headers.contains("Cross-Origin-Opener-Policy: same-origin\r\n"));
+        assert!(headers.contains("Cross-Origin-Embedder-Policy: require-corp\r\n"));
+        assert!(headers.ends_with("Connection: close\r\n\r\n"));
+    }
 
     #[test]
     fn legacy_web_server_keeps_relative_bootstrap_at_root_on_deep_refresh() {

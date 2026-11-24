@@ -2,10 +2,11 @@ use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemLocation, FissionDataStreamError,
     FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
-    WritableFilePermissionRequest, WritableFilePermissionResult, WritePickedFileRequest,
-    WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES, PICK_SAVE_FILE, RESTORE_SAVE_FILE,
-    WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
+    ReadPickedFileRequest, ReadPickedFileResult, RestoreSaveFileRequest, RestoreSaveFileResult,
+    SaveFileDestination, WritableFilePermissionRequest, WritableFilePermissionResult,
+    WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES,
+    PICK_SAVE_FILE, READ_PICKED_FILE, RESTORE_SAVE_FILE, WRITABLE_FILE_PERMISSION,
+    WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -36,6 +37,12 @@ pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
         WRITE_PICKED_FILE,
         |_request: WritePickedFileRequest, _| async move {
             Err::<WritePickedFileResult, _>(FileSystemError::unsupported("write_picked_file"))
+        },
+    );
+    async_registry.register_operation_capability(
+        READ_PICKED_FILE,
+        |_request: ReadPickedFileRequest, _| async move {
+            Err::<ReadPickedFileResult, _>(FileSystemError::unsupported("read_picked_file"))
         },
     );
     async_registry.register_operation_capability(
@@ -151,7 +158,7 @@ fn picked_file_from_path(
     })
 }
 
-fn normalized_extensions(extensions: &[String], mime_types: &[String]) -> Vec<String> {
+pub(crate) fn normalized_extensions(extensions: &[String], mime_types: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for extension in extensions {
         let extension = extension.trim().trim_start_matches('.');
@@ -184,7 +191,7 @@ fn extensions_for_mime_type(mime_type: &str) -> impl Iterator<Item = &'static st
     .copied()
 }
 
-fn content_type_for_path(path: &Path) -> Option<&'static str> {
+pub(crate) fn content_type_for_path(path: &Path) -> Option<&'static str> {
     match path
         .extension()
         .and_then(|extension| extension.to_str())
