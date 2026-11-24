@@ -24,7 +24,8 @@ use anyhow::Result;
 use base64::Engine;
 use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+#[cfg(any(target_arch = "wasm32", test))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -97,8 +98,6 @@ use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScro
 
 #[cfg(target_arch = "wasm32")]
 static WEB_WAKE_EVENT_PENDING: AtomicBool = AtomicBool::new(false);
-#[cfg(target_arch = "wasm32")]
-static WEBGPU_SCREENSHOT_READBACK_TIMED_OUT: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn send_wake_event(proxy: &EventLoopProxy<TestEvent>) {
     #[cfg(target_arch = "wasm32")]
@@ -167,10 +166,20 @@ mod gpu_context;
 mod native_document_write_tests;
 mod semantic_records;
 mod surface_blitter;
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_gpu_queue;
+#[cfg(target_arch = "wasm32")]
+use web_gpu_queue::arm_webgpu_completion_timeout_diagnostic;
+#[cfg(any(target_arch = "wasm32", test))]
+use web_gpu_queue::{should_defer_webgpu_redraw, WebGpuQueueBackpressure};
+#[cfg(target_arch = "wasm32")]
+mod web_screenshot;
 use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
 use semantic_records::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, Clamped, JsCast, JsValue};
+#[cfg(target_arch = "wasm32")]
+use web_screenshot::gpu_screenshot_async;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -312,85 +321,7 @@ fn record_web_test_diagnostic(stage: u32, iteration: u32) {
     let _ = (stage, iteration);
 }
 
-fn should_defer_webgpu_redraw(webgpu_renderer_active: bool, queue_work_in_flight: bool) -> bool {
-    webgpu_renderer_active && queue_work_in_flight
-}
-
-#[derive(Clone, Default)]
-struct WebGpuQueueBackpressure {
-    work_in_flight: Arc<AtomicBool>,
-    redraw_deferred: Arc<AtomicBool>,
-    device_lost: Arc<AtomicBool>,
-    submission_generation: Arc<AtomicU32>,
-}
-
-impl WebGpuQueueBackpressure {
-    fn is_work_in_flight(&self) -> bool {
-        self.work_in_flight.load(Ordering::Acquire)
-    }
-
-    fn mark_submitted(&self) -> u32 {
-        self.work_in_flight.store(true, Ordering::Release);
-        self.submission_generation
-            .fetch_add(1, Ordering::AcqRel)
-            .wrapping_add(1)
-    }
-
-    fn is_submission_in_flight(&self, generation: u32) -> bool {
-        self.submission_generation.load(Ordering::Acquire) == generation && self.is_work_in_flight()
-    }
-
-    fn defer_redraw(&self) {
-        self.redraw_deferred.store(true, Ordering::Release);
-    }
-
-    fn complete_work(&self) -> bool {
-        self.work_in_flight.store(false, Ordering::Release);
-        self.redraw_deferred.swap(false, Ordering::AcqRel)
-    }
-
-    fn mark_device_lost(&self) {
-        self.work_in_flight.store(false, Ordering::Release);
-        self.device_lost.store(true, Ordering::Release);
-        self.redraw_deferred.store(true, Ordering::Release);
-    }
-
-    fn take_device_lost(&self) -> bool {
-        let lost = self.device_lost.swap(false, Ordering::AcqRel);
-        if lost {
-            self.work_in_flight.store(false, Ordering::Release);
-            self.redraw_deferred.store(false, Ordering::Release);
-        }
-        lost
-    }
-
-    fn reset(&self) {
-        self.work_in_flight.store(false, Ordering::Release);
-        self.redraw_deferred.store(false, Ordering::Release);
-        self.device_lost.store(false, Ordering::Release);
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn arm_webgpu_completion_timeout_diagnostic(
-    queue_backpressure: WebGpuQueueBackpressure,
-    submission_generation: u32,
-    submitted_frame: u32,
-) {
-    use wasm_bindgen::JsCast;
-
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let callback = wasm_bindgen::closure::Closure::once_into_js(move || {
-        if queue_backpressure.is_submission_in_flight(submission_generation) {
-            record_web_test_diagnostic(559, submitted_frame);
-        }
-    });
-    let _ = window
-        .set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), 30_000);
-}
-
+#[cfg(any(target_arch = "wasm32", test))]
 fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Result<(), T> {
     if queue.len() >= capacity {
         Err(value)
@@ -400,10 +331,12 @@ fn enqueue_bounded<T>(queue: &mut VecDeque<T>, value: T, capacity: usize) -> Res
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn take_one<T>(queue: &mut VecDeque<T>) -> Option<T> {
     queue.pop_front()
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 const fn web_test_diagnostic_is_poll_stage(stage: u32) -> bool {
     matches!(stage, 430 | 432 | 435)
 }
@@ -1050,20 +983,11 @@ impl Drop for WebGpuPresenter {
     fn drop(&mut self) {
         // Releasing only Rust's wgpu handles leaves destruction of browser WebGPU
         // resources to later JS garbage collection. Explicitly destroy the device
-        // when Winit suspends a page into the BFCache. Non-BFCache unloads abandon
-        // the presenter instead, because synchronous GPU teardown can block navigation.
+        // when Winit suspends a page into the BFCache or the application exits.
         self.render_cx.devices[self.render_state.surface.dev_id]
             .device
             .destroy();
     }
-}
-
-#[cfg(any(test, target_arch = "wasm32"))]
-fn abandon_on_page_unload<T>(resource: T) {
-    // A non-BFCache page is about to be destroyed, so the browser will release its
-    // WebGPU objects with the Wasm context. Running resource destructors here can
-    // synchronously call into WebGPU while the browser is committing navigation.
-    std::mem::forget(resource);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -6126,7 +6050,7 @@ where
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
         #[cfg(target_arch = "wasm32")]
-        let webgpu_queue_backpressure = WebGpuQueueBackpressure::default();
+        let mut webgpu_queue_backpressure = WebGpuQueueBackpressure::default();
 
         let mut runtime = self.runtime;
         let mut env = self.env;
@@ -8052,20 +7976,14 @@ where
                     web_test_control::fail_pending_capture_requests();
                     #[cfg(target_arch = "wasm32")]
                     {
-                        // Winit calls LoopExiting synchronously from pagehide and
-                        // intentionally skips event-loop cleanup because the
-                        // browser is destroying this Wasm context. Abandon Vello's
-                        // presenters rather than running WebGPU destructors in the
-                        // unload callback; the browser releases these handles with
-                        // the old context. A BFCache suspension is different: the
-                        // page remains alive, so Suspended drops the presenter and
-                        // Resumed creates a fresh one.
+                        // Programmatic exit may leave the document alive. Release
+                        // owned GPU resources instead of assuming browser teardown.
                         webgpu_init_generation.set(webgpu_init_generation.get().wrapping_add(1));
                         if let Some(renderer) = web_renderer.take() {
-                            abandon_on_page_unload(renderer);
+                            drop(renderer);
                         }
                         if let Some(Ok(presenter)) = pending_webgpu_init.borrow_mut().take() {
-                            abandon_on_page_unload(presenter);
+                            drop(presenter);
                         }
                         webgpu_init_in_flight = false;
                         webgpu_init_started_at = None;
@@ -9272,6 +9190,10 @@ where
                                         Ok(presenter) => {
                                             let device_handle = &presenter.render_cx.devices
                                                 [presenter.render_state.surface.dev_id];
+                                            // Callbacks from an older device must never cancel or
+                                            // release the queue gate for its replacement.
+                                            webgpu_queue_backpressure =
+                                                WebGpuQueueBackpressure::default();
                                             let queue_backpressure =
                                                 webgpu_queue_backpressure.clone();
                                             let proxy = event_proxy.clone();
@@ -9353,13 +9275,9 @@ where
                                                     if generation.get() == started_generation {
                                                         *pending.borrow_mut() = Some(result);
                                                         send_wake_event(&proxy);
-                                                    } else if let Ok(presenter) = result {
-                                                        // A pagehide invalidated this asynchronous
-                                                        // init. Its WebGPU device belongs to the
-                                                        // dying document; do not synchronously
-                                                        // destroy it while the replacement commits.
-                                                        abandon_on_page_unload(presenter);
                                                     }
+                                                    // A stale result is dropped normally: suspension
+                                                    // or app exit does not imply document destruction.
                                                 });
                                             }
                                             None => {
@@ -10185,35 +10103,6 @@ where
                                                             screenshot_dimensions.0,
                                                             screenshot_dimensions.1,
                                                             response_tx,
-                                                            pipeline.retained_scene().cloned(),
-                                                            fission_render::Color {
-                                                                r: env
-                                                                    .theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .r,
-                                                                g: env
-                                                                    .theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .g,
-                                                                b: env
-                                                                    .theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .b,
-                                                                a: env
-                                                                    .theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .a,
-                                                            },
-                                                            scale_factor,
-                                                            measurer.clone(),
                                                         );
                                                         record_web_test_diagnostic(368, 3);
                                                     } else {
@@ -10471,7 +10360,7 @@ where
                                                                 env.theme.tokens.colors.background;
                                                             covered_window_screenshot(
                                                                 pipeline.retained_scene().map(|scene| {
-                                                        fission_render_vello::cpu::render_to_rgba8_for_screenshot(
+fission_render_vello::cpu::render_to_rgba8(
                                                                         scene,
                                                                         render_target_size.0,
                                                                         render_target_size.1,
@@ -11855,267 +11744,6 @@ fn gpu_screenshot(
         output_height,
         path,
     )
-}
-
-#[cfg(target_arch = "wasm32")]
-fn gpu_screenshot_async(
-    instance: &wgpu::Instance,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    texture: &wgpu::Texture,
-    texture_width: u32,
-    texture_height: u32,
-    output_width: u32,
-    output_height: u32,
-    response_tx: mpsc::Sender<fission_test_driver::TestResponse>,
-    fallback_scene: Option<fission_render::RenderScene>,
-    fallback_background: fission_render::Color,
-    scale_factor: f64,
-    measurer: Arc<VelloTextMeasurer>,
-) {
-    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
-        texture_width,
-        texture_height,
-        texture.width(),
-        texture.height(),
-    );
-    if output_width == 0 || output_height == 0 {
-        let _ = response_tx.send(fission_test_driver::TestResponse::Error {
-            message: "zero-size viewport".into(),
-        });
-        return;
-    }
-    if WEBGPU_SCREENSHOT_READBACK_TIMED_OUT.load(Ordering::Acquire) {
-        let response = cpu_screenshot_response(
-            fallback_scene,
-            fallback_background,
-            scale_factor,
-            measurer,
-            texture_width,
-            texture_height,
-            output_width,
-            output_height,
-        );
-        let _ = response_tx.send(response);
-        return;
-    }
-
-    let bytes_per_pixel = 4_u32;
-    let unpadded_bytes_per_row = texture_width * bytes_per_pixel;
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
-    let buffer_size = (padded_bytes_per_row * texture_height) as u64;
-    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let out_of_memory_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-    let staging = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("WebGPU screenshot staging"),
-        size: buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("WebGPU screenshot copy"),
-    });
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &staging,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded_bytes_per_row),
-                rows_per_image: Some(texture_height),
-            },
-        },
-        wgpu::Extent3d {
-            width: texture_width,
-            height: texture_height,
-            depth_or_array_layers: 1,
-        },
-    );
-    queue.submit(Some(encoder.finish()));
-
-    // Some browser WebGPU implementations reject mapAsync on a buffer referenced by the
-    // currently pending submission. Wait for the copy to complete before requesting the map.
-    let work_done = js_sys::Promise::new(&mut |resolve, _reject| {
-        let resolve = resolve.clone();
-        queue.on_submitted_work_done(move || {
-            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-        });
-    });
-    let out_of_memory_error = out_of_memory_scope.pop();
-    let validation_error = validation_scope.pop();
-    let instance_keepalive = instance.clone();
-    let device_keepalive = device.clone();
-    let queue_keepalive = queue.clone();
-
-    wasm_bindgen_futures::spawn_local(async move {
-        let _keepalive = (instance_keepalive, device_keepalive, queue_keepalive);
-        record_web_test_diagnostic(486, texture_height);
-        let readback = async move {
-            let gpu_error = out_of_memory_error.await.or(validation_error.await);
-            if let Some(error) = gpu_error {
-                return fission_test_driver::TestResponse::Error {
-                    message: format!(
-                        "renderer_screenshot_unavailable: WebGPU screenshot readback GPU error for {texture_width}x{texture_height} ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error}"
-                    ),
-                };
-            }
-
-            if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
-                return fission_test_driver::TestResponse::Error {
-                    message: format!(
-                        "renderer_screenshot_unavailable: WebGPU screenshot queue completion failed: {error:?}"
-                    ),
-                };
-            }
-            record_web_test_diagnostic(487, texture_height);
-
-            // WebGPU mapping completes through the browser event loop. Keep the frame callback
-            // free to process input and subsequent frames while the staging buffer is readable.
-            let promise = js_sys::Promise::new(&mut |resolve, reject| {
-                let resolve = resolve.clone();
-                let reject = reject.clone();
-                staging
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |result| match result {
-                        Ok(()) => {
-                            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-                        }
-                        Err(error) => {
-                            let _ = reject.call1(
-                                &wasm_bindgen::JsValue::UNDEFINED,
-                                &wasm_bindgen::JsValue::from_str(&error.to_string()),
-                            );
-                        }
-                    });
-            });
-            match wasm_bindgen_futures::JsFuture::from(promise).await {
-                Ok(_) => {
-                    record_web_test_diagnostic(488, texture_height);
-                    let data = staging.slice(..).get_mapped_range();
-                    let mut rgba =
-                        Vec::with_capacity((texture_width * texture_height * 4) as usize);
-                    for row in 0..texture_height {
-                        let start = (row * padded_bytes_per_row) as usize;
-                        let end = start + (texture_width * bytes_per_pixel) as usize;
-                        rgba.extend_from_slice(&data[start..end]);
-                    }
-                    drop(data);
-                    staging.unmap();
-                    rgba_screenshot_response(
-                        rgba,
-                        texture_width,
-                        texture_height,
-                        output_width,
-                        output_height,
-                        None,
-                    )
-                }
-                Err(error) => fission_test_driver::TestResponse::Error {
-                    message: format!(
-                        "renderer_screenshot_unavailable: WebGPU buffer map failed for {texture_width}x{texture_height} readback ({buffer_size} bytes, {padded_bytes_per_row} bytes per row): {error:?}"
-                    ),
-                },
-            }
-        };
-        let timeout = async {
-            let _ = wasm_bindgen_futures::JsFuture::from(browser_timeout_promise(5_000)).await;
-        };
-        let response =
-            match futures_util::future::select(Box::pin(readback), Box::pin(timeout)).await {
-                futures_util::future::Either::Left((response, _timeout)) => response,
-                futures_util::future::Either::Right(((), _readback)) => {
-                    WEBGPU_SCREENSHOT_READBACK_TIMED_OUT.store(true, Ordering::Release);
-                    record_web_test_diagnostic(489, texture_height);
-                    cpu_screenshot_response(
-                        fallback_scene,
-                        fallback_background,
-                        scale_factor,
-                        measurer,
-                        texture_width,
-                        texture_height,
-                        output_width,
-                        output_height,
-                    )
-                }
-            };
-        record_web_test_diagnostic(490, texture_height);
-        let _ = response_tx.send(response);
-    });
-}
-
-#[cfg(target_arch = "wasm32")]
-fn browser_timeout_promise(timeout_ms: i32) -> js_sys::Promise {
-    use wasm_bindgen::JsCast;
-
-    js_sys::Promise::new(&mut |resolve, _reject| {
-        let Some(window) = web_sys::window() else {
-            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-            return;
-        };
-        let resolve_timer = resolve.clone();
-        let callback = wasm_bindgen::closure::Closure::once_into_js(move || {
-            let _ = resolve_timer.call0(&wasm_bindgen::JsValue::UNDEFINED);
-        });
-        if window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                callback.unchecked_ref(),
-                timeout_ms,
-            )
-            .is_err()
-        {
-            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-        }
-    })
-}
-
-#[cfg(target_arch = "wasm32")]
-fn cpu_screenshot_response(
-    scene: Option<fission_render::RenderScene>,
-    background: fission_render::Color,
-    scale_factor: f64,
-    measurer: Arc<VelloTextMeasurer>,
-    render_width: u32,
-    render_height: u32,
-    output_width: u32,
-    output_height: u32,
-) -> fission_test_driver::TestResponse {
-    let Some(scene) = scene else {
-        return fission_test_driver::TestResponse::Error {
-            message:
-                "renderer_screenshot_unavailable: no retained scene was available for CPU fallback"
-                    .into(),
-        };
-    };
-
-    match fission_render_vello::cpu::render_to_rgba8_for_screenshot(
-        &scene,
-        render_width,
-        render_height,
-        background,
-        scale_factor,
-        measurer,
-    ) {
-        Ok(rgba) => rgba_screenshot_response(
-            rgba,
-            render_width,
-            render_height,
-            output_width,
-            output_height,
-            None,
-        ),
-        Err(error) => fission_test_driver::TestResponse::Error {
-            message: format!(
-                "renderer_screenshot_unavailable: CPU screenshot fallback failed: {error}"
-            ),
-        },
-    }
 }
 
 /// Answers a screenshot from a software rendering of the retained scene when the presented surface
@@ -14014,25 +13642,6 @@ mod tests {
         assert!(!redraw_pending);
         assert!(!schedule.redraw_scheduled);
         assert!(schedule.mark_redraw_scheduled());
-    }
-
-    #[test]
-    fn page_unload_abandons_webgpu_resources_without_running_drop() {
-        struct DropProbe(std::rc::Rc<std::cell::Cell<bool>>);
-
-        impl Drop for DropProbe {
-            fn drop(&mut self) {
-                self.0.set(true);
-            }
-        }
-
-        let dropped = std::rc::Rc::new(std::cell::Cell::new(false));
-        super::abandon_on_page_unload(DropProbe(dropped.clone()));
-
-        assert!(
-            !dropped.get(),
-            "resource destructors must not run in the synchronous unload callback"
-        );
     }
 
     #[test]

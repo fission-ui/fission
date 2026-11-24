@@ -60,18 +60,7 @@ pub fn trace_webgpu_queue_submission(kind: u32) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[doc(hidden)]
-pub fn trace_webgpu_frame(_frame_id: u32) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[doc(hidden)]
-pub fn trace_webgpu_queue_submission(_kind: u32) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[doc(hidden)]
-pub fn webgpu_queue_diagnostics_enabled() -> bool {
-    false
-}
+pub(crate) fn trace_webgpu_queue_submission(_kind: u32) {}
 
 #[cfg(target_arch = "wasm32")]
 #[inline]
@@ -129,10 +118,6 @@ fn trace_web_test_render_timing(message: &str) {
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub(crate) fn trace_web_test_stage(_stage: u32, _iteration: u32) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[inline]
-fn trace_web_test_render_timing(_message: &str) {}
 
 use anyhow::Result;
 use fission_ir::op::{

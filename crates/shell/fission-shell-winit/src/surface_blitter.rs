@@ -8,6 +8,10 @@ use wgpu::{
     StoreOp, TextureFormat, TextureSampleType, TextureView, TextureViewDimension, VertexState,
 };
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "surface_blitter_tests.rs"]
+mod tests;
+
 /// Copies the stable intermediate frame target to the current surface texture.
 ///
 /// The source bind group only changes when the intermediate target is recreated,
