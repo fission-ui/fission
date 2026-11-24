@@ -2,6 +2,7 @@
 # Check the actual release executable, not merely the generator's source shape.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+cargo test --locked -p fission-icons --test material_icons --all-features
 cargo build --locked --release -p fission-icons --example one_icon
 
 python3 - <<'PY'
