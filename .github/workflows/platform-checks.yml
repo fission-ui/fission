@@ -31,7 +31,7 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/*.yml
 
       - name: Install Linux native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config mesa-vulkan-drivers
 
       - name: Check CLI dependency boundaries
         run: ./scripts/check_command_dependency_boundaries.sh
@@ -41,6 +41,9 @@ jobs:
 
       - name: Check published dependency boundaries
         run: ./scripts/check_published_dependency_boundaries.sh
+
+      - name: Check Vello integration branch
+        run: bash scripts/check_vello_fork.sh
 
       - name: Check release automation scripts
         run: |
@@ -66,6 +69,7 @@ jobs:
       - name: Test desktop title bars and keyboard activation
         run: |
           cargo test --locked -p fission-core --lib \
+            --test drag_drop \
             --test window_drag_region --test button_focus_click \
             --test button_recipe_motion --test button_loading \
             --test control_recipe_fidelity --test focus_visible
@@ -78,8 +82,18 @@ jobs:
           cargo test --locked -p fission-core --test text_surface_api
           cargo test --locked -p fission-shell-winit --test caret_layout
 
-      - name: Test empty rich text shaping
-        run: cargo test --locked -p fission-render-vello --lib text::tests::rich_text_layout_skips_empty_non_inline_runs -- --exact
+      - name: Test native paragraph geometry and screenshot fidelity
+        run: cargo test --locked -p fission-render-vello --lib
+
+      - name: Test presenter pixels and asynchronous job cancellation
+        run: |
+          cargo test --locked -p fission-shell-winit --lib surface_blitter::tests
+          cargo test --locked -p fission-core --test effect_cancellation
+          cargo test --locked -p fission-shell --test async_host --test service_serialization
+          cargo test --locked -p fission-test-driver --lib
+
+      - name: Check Rust source module limits
+        run: cargo test --locked -p fission-test --test source_file_limits
 
       - name: Test owned serving and readiness without canonicalisation
         run: cargo test --locked -p fission-command-site
@@ -122,10 +136,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Linux native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config mesa-vulkan-drivers
 
       - name: Test Web save-file handle reuse
-        run: node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs
+        run: node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs crates/shell/fission-shell-winit/tests/web_test_control.test.mjs
 
       - name: Check wasm core crates
         run: |
@@ -149,13 +163,30 @@ jobs:
           FISSION_WEB_TEST_CONTROL: '1'
         run: ./examples/web-smoke/platforms/web/build-wasm.sh
 
-      - name: Run Web Canvas text-input conformance in Chromium
+      - name: Qualify browser text, test bridge and WebGPU captures
         run: |
           python3 -m http.server 8126 --bind 127.0.0.1 --directory examples/web-smoke/platforms/web &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT
           FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
             cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
+          FISSION_BRIDGE_WEB_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
+            cargo test --locked -p fission-test-driver --test browser_resize web_bridge_ \
+              -- --ignored --nocapture --test-threads=1
+          FISSION_CHROME_WEBGPU_PROFILE=swiftshader-vulkan \
+          FISSION_RESIZE_WEBGPU_URL='http://127.0.0.1:8126/?fission_renderer=webgpu-vello' \
+          FISSION_RESIZE_OUTPUT="${{ github.workspace }}/target/browser-qualification" \
+            cargo test --locked -p fission-test-driver --test browser_resize webgpu_ \
+              -- --ignored --nocapture --test-threads=1
+
+      - name: Retain browser qualification captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-browser-qualification
+          path: target/browser-qualification
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Package Rust Web SQLite cancellation fixture
         run: |
@@ -164,6 +195,19 @@ jobs:
           cargo build --locked -p fission-store-sqlite --features web --example web_transaction_cancellation --target wasm32-unknown-unknown
           wasm-bindgen "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/debug/examples/web_transaction_cancellation.wasm" \
             --target web --out-dir crates/core/fission-store-sqlite/tests/web/pkg
+
+      - name: Link and package two SQLite source identities
+        run: bash scripts/test_store_sqlite_duplicate_wasm_sources.sh
+
+      - name: Test Web service lifecycle in Chromium
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ github.workspace }}/crates/shell/fission-shell/tests/webdriver.json
+          WASM_BINDGEN_TEST_TIMEOUT: '60'
+        run: |
+          export CHROMEDRIVER="${CHROMEWEBDRIVER:?}/chromedriver"
+          cargo test --locked -p fission-shell --target wasm32-unknown-unknown --lib \
+            wasm_services_start_emit_handle_commands_and_stop -- --nocapture
 
       - name: Run Web SQLite multi-context conformance in Chromium
         run: |
