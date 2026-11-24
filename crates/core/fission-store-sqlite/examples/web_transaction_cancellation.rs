@@ -266,6 +266,14 @@ mod browser {
         ))
         .await
         .map_err(failure)?;
+        // Reading the stage locks it for this transaction. Explicit release must
+        // not attempt DETACH early and roll back the rows we just copied.
+        copy.detach_staged_database("incoming")
+            .await
+            .map_err(failure)?;
+        copy.detach_staged_database("incoming")
+            .await
+            .map_err(failure)?;
         copy.commit().await.map_err(failure)?;
         check_no_attached_alias(&target).await?;
         read_label(&staged, "before").await?;

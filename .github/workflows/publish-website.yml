@@ -139,7 +139,7 @@ jobs:
 
       - name: Test browser protocol regressions
         run: |
-          node --experimental-vm-modules --test crates/core/fission-store-sqlite/tests/web/bridge-lifetime.test.mjs
+          node --experimental-vm-modules --test crates/core/fission-store-sqlite/tests/web/bridge-lifetime.test.mjs crates/core/fission-store-sqlite/tests/web/bridge-session-cleanup.test.mjs
           node --test crates/shell/fission-shell-winit/tests/web_file_picker.test.mjs
           node --test crates/shell/fission-shell-winit/tests/native_document_contracts.test.mjs
           node --disallow-code-generation-from-strings --test crates/shell/fission-shell-winit/tests/web_test_control.test.mjs

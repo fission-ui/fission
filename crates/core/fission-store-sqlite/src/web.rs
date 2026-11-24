@@ -812,8 +812,13 @@ impl WebSqliteTransaction {
         .map_err(sql_error)
     }
 
-    /// Detaches a staged database from this transaction. Commit and rollback
-    /// also detach every remaining stage.
+    /// Requests release of a staged database when this transaction ends.
+    ///
+    /// SQLite can retain its read lock after `INSERT ... SELECT` or a query, so
+    /// physical detachment is deferred until commit or rollback. The alias stays
+    /// available and read-only until then. Both also release any remaining stages
+    /// automatically; calling this method is optional and idempotent while the
+    /// alias is attached.
     pub async fn detach_staged_database(
         &mut self,
         alias: impl Into<String>,
