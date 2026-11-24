@@ -5,4 +5,4 @@
 [submodule "third_party/vello"]
 	path = third_party/vello
 	url = https://github.com/fission-ui/vello.git
-	branch = fission
+	branch = fission-integration
