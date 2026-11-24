@@ -36,6 +36,9 @@ jobs:
       - name: Check CLI dependency boundaries
         run: ./scripts/check_command_dependency_boundaries.sh
 
+      - name: Check unused Material icons are not linked
+        run: bash scripts/check_material_icon_linking.sh
+
       - name: Check published dependency boundaries
         run: ./scripts/check_published_dependency_boundaries.sh
 
