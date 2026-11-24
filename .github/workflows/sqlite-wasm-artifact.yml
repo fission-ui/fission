@@ -1,0 +1,76 @@
+name: SQLite WASM artifact
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sqlite-wasm-artifact.yml"
+      - "scripts/build_sqlite_wasm.sh"
+      - "scripts/patch_sqlite_wasm_api.py"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3.mjs"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3.wasm"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3-opfs-async-proxy.js"
+  push:
+    paths:
+      - ".github/workflows/sqlite-wasm-artifact.yml"
+      - "scripts/build_sqlite_wasm.sh"
+      - "scripts/patch_sqlite_wasm_api.py"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3.mjs"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3.wasm"
+      - "crates/core/fission-store-sqlite/assets/web/sqlite3-opfs-async-proxy.js"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify SQLite 3.53.0 WASM
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Fission
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up pinned Emscripten SDK
+        uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021
+        with:
+          version: 4.0.13
+
+      - name: Install SQLite build prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tcl
+
+      - name: Install pinned WABT
+        env:
+          WABT_SHA256: 4aa0929db06c2376cc76f6d9e920dbde2ea6f1fd55bbaed6cd65167e9e39ecd3
+          WABT_URL: https://github.com/WebAssembly/wabt/releases/download/1.0.36/wabt-1.0.36-ubuntu-20.04.tar.gz
+        run: |
+          archive="$RUNNER_TEMP/wabt.tar.gz"
+          curl --fail --location --retry 3 "$WABT_URL" --output "$archive"
+          echo "$WABT_SHA256  $archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/wabt"
+          tar -xzf "$archive" --directory "$RUNNER_TEMP/wabt" --strip-components=1
+          echo "$RUNNER_TEMP/wabt/bin" >> "$GITHUB_PATH"
+
+      - name: Build SQLite WASM from pinned source
+        run: scripts/build_sqlite_wasm.sh "$RUNNER_TEMP/sqlite-wasm-artifacts"
+
+      - name: Upload generated WASM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sqlite-wasm-${{ github.run_id }}
+          path: ${{ runner.temp }}/sqlite-wasm-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Verify vendored artifacts are reproducible
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/sqlite-wasm-artifacts
+          VENDORED_DIR: crates/core/fission-store-sqlite/assets/web
+        run: |
+          for file in sqlite3.mjs sqlite3.wasm sqlite3-opfs-async-proxy.js; do
+            if ! cmp --silent "$ARTIFACT_DIR/$file" "$VENDORED_DIR/$file"; then
+              echo "::error title=SQLite WASM artifact mismatch::$file must be regenerated with scripts/build_sqlite_wasm.sh"
+              exit 1
+            fi
+          done

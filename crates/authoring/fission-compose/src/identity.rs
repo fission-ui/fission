@@ -23,6 +23,11 @@ impl<T: UiKey + ?Sized> UiKey for &T {
         (*self).encode_ui_key()
     }
 }
+impl<T: UiKey + ?Sized> UiKey for Arc<T> {
+    fn encode_ui_key(&self) -> String {
+        (**self).encode_ui_key()
+    }
+}
 impl UiKey for str {
     fn encode_ui_key(&self) -> String {
         format!("str:{}:{self}", self.len())
@@ -265,5 +270,32 @@ pub fn record(mount: &Mount, node: WidgetId, symbol: &str, envelope: &core::Acti
                 symbol: symbol.into(),
                 envelope: envelope.clone(),
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{child_id, UiKey};
+    use crate::core::WidgetId;
+    use std::sync::Arc;
+
+    #[test]
+    fn arc_str_key_matches_str_and_string_identity() {
+        let value = "sheet-row-42";
+        let shared: Arc<str> = Arc::from(value);
+        let owned = value.to_owned();
+
+        assert_eq!(shared.encode_ui_key(), value.encode_ui_key());
+        assert_eq!(shared.encode_ui_key(), owned.encode_ui_key());
+
+        let parent = WidgetId::from_u128(17);
+        assert_eq!(
+            child_id(parent, "sheet-row", &shared),
+            child_id(parent, "sheet-row", value)
+        );
+        assert_eq!(
+            child_id(parent, "sheet-row", &shared),
+            child_id(parent, "sheet-row", &owned)
+        );
     }
 }

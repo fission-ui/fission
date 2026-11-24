@@ -14,6 +14,138 @@ function abortError() {
   return error;
 }
 
+function notFound() {
+  const error = new Error("OPFS entry was not found");
+  error.name = "NotFoundError";
+  return error;
+}
+
+function createOpfs(beforeAccess) {
+  const directories = new Set([""]);
+  const files = new Map();
+  const normalize = (path) => path.replace(/^\/+/, "");
+  const pathJoin = (parent, name) => parent ? `${parent}/${name}` : name;
+  const ensureFile = (path) => {
+    path = normalize(path);
+    if (!files.has(path)) files.set(path, new Uint8Array());
+    return files.get(path);
+  };
+  const replaceFile = (path, bytes) => files.set(normalize(path), new Uint8Array(bytes));
+  function directory(path) {
+    return {
+      kind: "directory",
+      name: path.split("/").at(-1) || "",
+      async getDirectoryHandle(name, options = {}) {
+        const child = pathJoin(path, name);
+        if (!directories.has(child)) {
+          if (!options.create) throw notFound();
+          directories.add(child);
+        }
+        return directory(child);
+      },
+      async getFileHandle(name, options = {}) {
+        const child = pathJoin(path, name);
+        if (!files.has(child)) {
+          if (!options.create) throw notFound();
+          ensureFile(child);
+        }
+        return {
+          kind: "file",
+          name,
+          async createSyncAccessHandle() {
+            await beforeAccess?.(child);
+            let closed = false;
+            return {
+              getSize() { return ensureFile(child).length; },
+              read(target, { at = 0 } = {}) {
+                if (closed) throw new Error("access handle is closed");
+                const source = ensureFile(child);
+                const count = Math.max(0, Math.min(target.length, source.length - at));
+                target.set(source.subarray(at, at + count));
+                return count;
+              },
+              write(source, { at = 0 } = {}) {
+                if (closed) throw new Error("access handle is closed");
+                const previous = ensureFile(child);
+                const next = new Uint8Array(Math.max(previous.length, at + source.length));
+                next.set(previous);
+                next.set(source, at);
+                replaceFile(child, next);
+                return source.length;
+              },
+              truncate(size) { replaceFile(child, ensureFile(child).slice(0, size)); },
+              flush() {},
+              close() { closed = true; },
+            };
+          },
+        };
+      },
+      async removeEntry(name, { recursive = false } = {}) {
+        const child = pathJoin(path, name);
+        if (files.delete(child)) return;
+        if (!directories.has(child)) throw notFound();
+        const descendantFiles = [...files.keys()].filter((entry) => entry.startsWith(`${child}/`));
+        const descendantDirectories = [...directories].filter((entry) => entry.startsWith(`${child}/`));
+        if (!recursive && (descendantFiles.length || descendantDirectories.length)) {
+          throw new Error("directory is not empty");
+        }
+        for (const entry of descendantFiles) files.delete(entry);
+        for (const entry of descendantDirectories) directories.delete(entry);
+        directories.delete(child);
+      },
+      async *entries() {
+        const prefix = path ? `${path}/` : "";
+        const children = new Map();
+        for (const entry of directories) {
+          if (!entry.startsWith(prefix) || entry === path) continue;
+          const name = entry.slice(prefix.length).split("/")[0];
+          children.set(name, directory(pathJoin(path, name)));
+        }
+        for (const entry of files.keys()) {
+          if (!entry.startsWith(prefix)) continue;
+          const name = entry.slice(prefix.length).split("/")[0];
+          children.set(name, { kind: "file", name });
+        }
+        for (const item of children) yield item;
+      },
+    };
+  }
+  return {
+    storage: { getDirectory: async () => directory("") },
+    ensureFile,
+    replaceFile,
+    readFile: (path) => ensureFile(path),
+    listFiles: (prefix = "") => [...files.keys()].filter((path) => path.startsWith(normalize(prefix))),
+  };
+}
+
+function cloneDatabaseState(state) {
+  return { marker: state.marker, payload: new Uint8Array(state.payload), integrity: state.integrity };
+}
+
+function encodeDatabaseState(state) {
+  const marker = new TextEncoder().encode(state.marker);
+  const bytes = new Uint8Array(8 + marker.length + state.payload.length);
+  bytes.set([70, 83, 81, 76]); // FSQL
+  new DataView(bytes.buffer).setUint32(4, marker.length);
+  bytes.set(marker, 8);
+  bytes.set(state.payload, 8 + marker.length);
+  return bytes;
+}
+
+function decodeDatabaseState(bytes) {
+  if (bytes.length < 8 || bytes[0] !== 70 || bytes[1] !== 83 || bytes[2] !== 81 || bytes[3] !== 76) {
+    throw new Error("malformed SQLite fixture");
+  }
+  const markerLength = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4);
+  if (8 + markerLength > bytes.length) throw new Error("malformed SQLite fixture");
+  return {
+    marker: new TextDecoder().decode(bytes.subarray(8, 8 + markerLength)),
+    payload: bytes.slice(8 + markerLength),
+    integrity: "ok",
+  };
+}
+
 class LockService {
   locks = new Map();
 
@@ -85,6 +217,7 @@ function moduleOptions(context, identifier) {
 export function createHarness(options = {}) {
   const channels = new Map();
   const locks = new LockService();
+  const opfs = createOpfs(options.beforeOpfsAccess);
   const workers = [];
   const pages = [];
 
@@ -133,10 +266,18 @@ export function createHarness(options = {}) {
         },
       };
       let authorizer;
+      let transactionOpen = false;
       class Database {
         constructor() { this.pointer = 1; }
         exec(sql) {
           sql = typeof sql === "string" ? sql : sql.sql;
+          if (/^BEGIN\b/i.test(sql)) transactionOpen = true;
+          if (/^(COMMIT|ROLLBACK)\b/i.test(sql)) transactionOpen = false;
+          if (options.lockStagesDuringTransaction && transactionOpen && /^DETACH\b/i.test(sql)) {
+            const error = new Error("database incoming is locked");
+            error.resultCode = 6;
+            throw error;
+          }
           const pragma = /^PRAGMA\s+(\w+)(?:\s*=\s*(\S+))?/i.exec(sql);
           if (pragma && authorizer?.(0, 19, pragma[1], pragma[2] ?? null, "main", null) === 1) {
             const error = new Error("not authorized");
@@ -146,6 +287,11 @@ export function createHarness(options = {}) {
           worker.commands.push(sql.trim().split(/\s+/).slice(0, 2).join(" "));
         }
         changes() { return 0; }
+        selectValue(sql) {
+          if (sql === "PRAGMA quick_check") return "ok";
+          throw new Error(`unexpected fixture scalar query: ${sql}`);
+        }
+        close() {}
       }
       const sqlite = {
         oo1: { OpfsWlDb: Database },
@@ -157,8 +303,8 @@ export function createHarness(options = {}) {
         },
       };
       const context = vm.createContext({
-        console, URL, TextEncoder, crypto: webcrypto, self: endpoint,
-        location: { href: String(url) }, navigator: { locks: locks.forContext(owner) },
+        console, URL, TextEncoder, crypto: webcrypto, setTimeout, self: endpoint,
+        location: { href: String(url) }, navigator: { locks: locks.forContext(owner), storage: opfs.storage },
       });
       const dependency = new vm.SyntheticModule(["default"], function() {
         this.setExport("default", async () => sqlite);
@@ -172,7 +318,13 @@ export function createHarness(options = {}) {
       if (!this.listeners.has(type)) this.listeners.set(type, []);
       this.listeners.get(type).push(callback);
     }
-    postMessage(data) { queueMicrotask(() => { if (!this.terminated) this.onMessage({ data }); }); }
+    postMessage(data) {
+      queueMicrotask(() => {
+        if (this.terminated) return;
+        if (data?.type === "client-closed") options.onWorkerClientClosed?.(data.clientId);
+        this.onMessage({ data });
+      });
+    }
     terminate() { this.terminated = true; }
   }
 
@@ -211,7 +363,7 @@ export function createHarness(options = {}) {
     return page;
   }
 
-  return { page, workers, close() { for (const page of pages) page.shutdown(); } };
+  return { page, workers, opfs, close() { for (const page of pages) page.shutdown(); } };
 }
 
 export async function deadline(promise, ms = 2000) {

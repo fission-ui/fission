@@ -35,6 +35,7 @@ fn accessibility_character_geometry_comes_from_resolved_unicode_clusters() {
         glyphs: Vec::new(),
         caret_stops: Vec::new(),
         selection_boxes: Vec::new(),
+        display_breaks: Vec::new(),
     };
 
     let (positions, widths) =

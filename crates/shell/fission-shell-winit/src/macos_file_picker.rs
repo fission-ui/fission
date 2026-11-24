@@ -1,19 +1,25 @@
 use fission_core::{
     Bytes, CapabilityCtx, FileSystemError, FileSystemPermission, FileWriteSource,
-    PickSaveFileRequest, PickSaveFileResult, ReleaseWritableFileRequest, SaveFileDestination,
+    FissionDataStreamError, FissionDataStreamErrorKind, PickOpenFilesError, PickOpenFilesRequest,
+    PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
+    ReadPickedFileRequest, ReadPickedFileResult, ReleaseWritableFileRequest, SaveFileDestination,
     WritableFileHandle, WritableFileHandleId, WritePickedFileRequest, WritePickedFileResult,
-    PICK_SAVE_FILE, RELEASE_WRITABLE_FILE, WRITE_PICKED_FILE,
+    PICK_OPEN_FILES, PICK_SAVE_FILE, READ_PICKED_FILE, RELEASE_WRITABLE_FILE, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
+use futures_core::Stream;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fs::File;
+use std::io::Read;
 use std::os::raw::c_char;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::task::{Context, Poll};
 
 #[path = "native_document_write.rs"]
 mod document_write;
@@ -24,7 +30,22 @@ extern "C" {}
 #[link(name = "Foundation", kind = "framework")]
 extern "C" {}
 
+const DEFAULT_FILE_STREAM_CHUNK_SIZE: usize = 256 * 1024;
+const MAX_FILE_STREAM_CHUNK_SIZE: usize = 16 * 1024 * 1024;
+
 pub(crate) fn register_macos_file_picker_capabilities(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move { release_writable_file(request.file) },
+    );
+    // Override the generic path-based open picker so macOS keeps the panel's
+    // security-scoped URL alive while the selected-file stream is consumed.
+    async_registry.register_operation_capability(
+        PICK_OPEN_FILES,
+        |request: PickOpenFilesRequest, ctx: CapabilityCtx| async move {
+            pick_open_files_with(request, &ctx, show_native_open_dialog)
+        },
+    );
     async_registry.register_operation_capability(
         PICK_SAVE_FILE,
         |request: PickSaveFileRequest, _| async move {
@@ -52,17 +73,283 @@ pub(crate) fn register_macos_file_picker_capabilities(async_registry: &mut Async
         },
     );
     async_registry.register_operation_capability(
-        RELEASE_WRITABLE_FILE,
-        |request: ReleaseWritableFileRequest, _| async move {
-            picked_files()
-                .lock()
-                .map_err(|_| {
-                    FileSystemError::new("registry_failed", "save file registry is unavailable")
-                })?
-                .remove(&request.file);
-            Ok(())
+        READ_PICKED_FILE,
+        |request: ReadPickedFileRequest, ctx: CapabilityCtx| async move {
+            read_picked_file_with(request, &ctx)
         },
     );
+}
+
+fn read_picked_file_with(
+    request: ReadPickedFileRequest,
+    ctx: &CapabilityCtx,
+) -> Result<ReadPickedFileResult, FileSystemError> {
+    let file = picked_files()
+        .lock()
+        .map_err(|_| FileSystemError::new("registry_failed", "save file registry is unavailable"))?
+        .get(&request.file.id)
+        .cloned()
+        .ok_or_else(|| {
+            FileSystemError::new(
+                "invalid_handle",
+                "the macOS save destination is no longer active",
+            )
+        })?;
+    let access = file.scope.as_ref().map(|scope| scope.start_accessing());
+    let metadata = std::fs::metadata(&file.path).map_err(|error| {
+        FileSystemError::new(
+            "read_failed",
+            format!("failed to inspect selected file: {error}"),
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(FileSystemError::new(
+            "not_a_file",
+            "the selected save destination is not a regular file",
+        ));
+    }
+    let byte_len = metadata.len();
+    drop(access);
+
+    let requested_chunk_size = request
+        .preferred_chunk_bytes
+        .filter(|bytes| *bytes > 0)
+        .map(|bytes| bytes as usize)
+        .unwrap_or(DEFAULT_FILE_STREAM_CHUNK_SIZE);
+    let stream = ctx.register_data_stream(Box::pin(MacosPickedFileDataStream::new(
+        file,
+        requested_chunk_size.min(MAX_FILE_STREAM_CHUNK_SIZE),
+    )));
+    Ok(ReadPickedFileResult {
+        stream,
+        byte_len: Some(byte_len),
+    })
+}
+
+fn pick_open_files_with(
+    request: PickOpenFilesRequest,
+    ctx: &CapabilityCtx,
+    select_files: impl FnOnce(
+        &PickOpenFilesRequest,
+    ) -> Result<Option<Vec<MacosPickedFile>>, FileSystemError>,
+) -> Result<PickOpenFilesResult, PickOpenFilesError> {
+    let Some(files) = select_files(&request)
+        .map_err(|error| PickOpenFilesError::new(error.code, error.message))?
+    else {
+        return Ok(PickOpenFilesResult::default());
+    };
+
+    let requested_chunk_size = request
+        .preferred_chunk_bytes
+        .filter(|bytes| *bytes > 0)
+        .map(|bytes| bytes as usize)
+        .unwrap_or(DEFAULT_FILE_STREAM_CHUNK_SIZE);
+    let chunk_size = requested_chunk_size.min(MAX_FILE_STREAM_CHUNK_SIZE);
+    let mut inspected_files = Vec::with_capacity(files.len());
+    for file in files {
+        // The open-panel URL carries the sandbox grant. Keep access active for
+        // metadata, then let the stream reactivate it for its lifetime.
+        let access = file.scope.as_ref().map(|scope| scope.start_accessing());
+        let metadata = std::fs::metadata(&file.path).map_err(|error| {
+            PickOpenFilesError::new(
+                "metadata_failed",
+                format!(
+                    "failed to inspect selected file `{}`: {error}",
+                    file.path.display()
+                ),
+            )
+        })?;
+        drop(access);
+        if !metadata.is_file() {
+            return Err(PickOpenFilesError::new(
+                "not_a_file",
+                format!(
+                    "selected path `{}` is not a regular file",
+                    file.path.display()
+                ),
+            ));
+        }
+        let name = file.name.clone();
+        let content_type =
+            crate::file_picker::content_type_for_path(&file.path).map(str::to_string);
+        inspected_files.push((file, name, content_type, metadata.len()));
+    }
+
+    let files = inspected_files
+        .into_iter()
+        .map(|(file, name, content_type, byte_len)| {
+            let stream = ctx.register_data_stream(Box::pin(MacosPickedFileDataStream::new(
+                Arc::new(file),
+                chunk_size,
+            )));
+            PickedFile {
+                name,
+                content_type,
+                byte_len: Some(byte_len),
+                stream,
+            }
+        })
+        .collect();
+
+    Ok(PickOpenFilesResult { files })
+}
+
+fn show_native_open_dialog(
+    request: &PickOpenFilesRequest,
+) -> Result<Option<Vec<MacosPickedFile>>, FileSystemError> {
+    let request = request.clone();
+    let (result_tx, result_rx) = std::sync::mpsc::channel();
+    dispatch::Queue::main().exec_async(move || {
+        let result = unsafe { show_native_open_dialog_on_main(&request) };
+        let _ = result_tx.send(result);
+    });
+    result_rx.recv().map_err(|error| {
+        FileSystemError::new(
+            "picker_failed",
+            format!("macOS open-file picker failed: {error}"),
+        )
+    })?
+}
+
+unsafe fn show_native_open_dialog_on_main(
+    request: &PickOpenFilesRequest,
+) -> Result<Option<Vec<MacosPickedFile>>, FileSystemError> {
+    let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+    let result = (|| {
+        let panel: *mut Object = msg_send![class!(NSOpenPanel), openPanel];
+        if panel.is_null() {
+            return Err(FileSystemError::new(
+                "picker_unavailable",
+                "macOS could not create an open panel",
+            ));
+        }
+        let _: () = msg_send![panel, setCanChooseFiles: true];
+        let _: () = msg_send![panel, setCanChooseDirectories: false];
+        let _: () = msg_send![panel, setAllowsMultipleSelection: request.allow_multiple];
+        let extensions =
+            crate::file_picker::normalized_extensions(&request.extensions, &request.mime_types);
+        if !extensions.is_empty() {
+            let allowed: *mut Object = msg_send![class!(NSMutableArray), array];
+            for extension in extensions {
+                let value = ns_string(&extension);
+                let _: () = msg_send![allowed, addObject: value];
+                let _: () = msg_send![value, release];
+            }
+            let _: () = msg_send![panel, setAllowedFileTypes: allowed];
+        }
+        let response: i64 = msg_send![panel, runModal];
+        if response != 1 {
+            return Ok(None);
+        }
+
+        let urls: *mut Object = msg_send![panel, URLs];
+        let count: usize = msg_send![urls, count];
+        let mut files = Vec::with_capacity(count);
+        for index in 0..count {
+            let url: *mut Object = msg_send![urls, objectAtIndex: index];
+            files.push(selected_file(url)?);
+        }
+        Ok(Some(files))
+    })();
+    if !pool.is_null() {
+        let _: () = msg_send![pool, drain];
+    }
+    result
+}
+
+struct MacosPickedFileDataStream {
+    file: Arc<MacosPickedFile>,
+    chunk_size: usize,
+    reader: Option<File>,
+    access: Option<MacosSecurityAccess>,
+    done: bool,
+}
+
+impl MacosPickedFileDataStream {
+    fn new(file: Arc<MacosPickedFile>, chunk_size: usize) -> Self {
+        Self {
+            file,
+            chunk_size,
+            reader: None,
+            access: None,
+            done: false,
+        }
+    }
+
+    fn finish(&mut self) {
+        self.done = true;
+        self.reader.take();
+        self.access.take();
+    }
+}
+
+impl Drop for MacosPickedFileDataStream {
+    fn drop(&mut self) {
+        // Close the descriptor and stop scoped access before the retained URL
+        // in `file` can be released.
+        self.reader.take();
+        self.access.take();
+    }
+}
+
+impl Stream for MacosPickedFileDataStream {
+    type Item = Result<Bytes, FissionDataStreamError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+        if this.done {
+            return Poll::Ready(None);
+        }
+        if this.reader.is_none() {
+            this.access = this
+                .file
+                .scope
+                .as_ref()
+                .map(|scope| scope.start_accessing());
+            match File::open(&this.file.path) {
+                Ok(file) => this.reader = Some(file),
+                Err(error) => {
+                    let message = format!(
+                        "failed to open selected file `{}`: {error}",
+                        this.file.path.display()
+                    );
+                    this.finish();
+                    return Poll::Ready(Some(Err(FissionDataStreamError::new(
+                        FissionDataStreamErrorKind::Io,
+                        message,
+                    ))));
+                }
+            }
+        }
+
+        let mut buffer = vec![0; this.chunk_size];
+        match this
+            .reader
+            .as_mut()
+            .expect("reader was opened above")
+            .read(&mut buffer)
+        {
+            Ok(0) => {
+                this.finish();
+                Poll::Ready(None)
+            }
+            Ok(read) => {
+                buffer.truncate(read);
+                Poll::Ready(Some(Ok(Bytes::from(buffer))))
+            }
+            Err(error) => {
+                let message = format!(
+                    "failed to read selected file `{}`: {error}",
+                    this.file.path.display()
+                );
+                this.finish();
+                Poll::Ready(Some(Err(FissionDataStreamError::new(
+                    FissionDataStreamErrorKind::Io,
+                    message,
+                ))))
+            }
+        }
+    }
 }
 
 struct MacosPickedFile {
@@ -130,6 +417,16 @@ fn picked_files() -> &'static Mutex<HashMap<WritableFileHandleId, Arc<MacosPicke
 fn next_file_id() -> WritableFileHandleId {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     WritableFileHandleId(NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn release_writable_file(id: WritableFileHandleId) -> Result<(), FileSystemError> {
+    // Reads and writes clone the Arc before releasing the registry lock. Removing
+    // this entry prevents new operations without invalidating an active stream.
+    picked_files()
+        .lock()
+        .map_err(|_| FileSystemError::new("registry_failed", "save file registry is unavailable"))?
+        .remove(&id);
+    Ok(())
 }
 
 fn pick_save_file_with(
@@ -219,12 +516,12 @@ unsafe fn selected_file(url: *mut Object) -> Result<MacosPickedFile, FileSystemE
     if url.is_null() {
         return Err(FileSystemError::new(
             "picker_failed",
-            "macOS returned an empty save destination",
+            "macOS returned an empty picker destination",
         ));
     }
-    // URLs returned by NSSavePanel carry the sandbox extension for the chosen
-    // destination. Keep the URL with the opaque handle and start its scope
-    // around each write; reconstructing a URL later from its path loses access.
+    // URLs returned by NSOpenPanel and NSSavePanel carry the sandbox extension
+    // for the chosen file. Keep the URL and start its scope around each
+    // operation; reconstructing a URL later from its path loses access.
     let retained: *mut Object = msg_send![url, retain];
     let scope = Arc::new(MacosSecurityScope {
         url: retained as usize,
@@ -295,6 +592,20 @@ mod tests {
         ))
     }
 
+    fn scoped_test_file(path: &std::path::Path) -> MacosPickedFile {
+        // Objective-C message sending requires a real object, even for a test
+        // running outside the sandbox. A null URL is not a valid scoped grant.
+        unsafe {
+            let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+            let native_path = ns_string(&path.to_string_lossy());
+            let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: native_path];
+            let _: () = msg_send![native_path, release];
+            let file = selected_file(url);
+            let _: () = msg_send![pool, drain];
+            file.expect("create a retained file URL for the scoped read fixture")
+        }
+    }
+
     fn ready<T>(future: impl Future<Output = T>) -> T {
         match Box::pin(future)
             .as_mut()
@@ -306,12 +617,86 @@ mod tests {
     }
 
     #[test]
-    fn registers_save_picker_writer_and_release_capabilities() {
+    fn registers_save_picker_and_picked_file_writer() {
         let mut registry = AsyncRegistry::new();
         register_macos_file_picker_capabilities(&mut registry);
+        assert!(registry.has_operation_capability(PICK_OPEN_FILES));
         assert!(registry.has_operation_capability(PICK_SAVE_FILE));
+        assert!(registry.has_operation_capability(READ_PICKED_FILE));
         assert!(registry.has_operation_capability(WRITE_PICKED_FILE));
         assert!(registry.has_operation_capability(RELEASE_WRITABLE_FILE));
+    }
+
+    #[test]
+    fn open_picker_returns_a_chunked_stream_for_the_selected_file() {
+        let path = temp_path();
+        std::fs::write(&path, b"streamed import").unwrap();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
+        let result = pick_open_files_with(
+            PickOpenFilesRequest {
+                preferred_chunk_bytes: Some(4),
+                ..Default::default()
+            },
+            &ctx,
+            |_| {
+                Ok(Some(vec![MacosPickedFile {
+                    path: path.clone(),
+                    name: "workspace.sqlite".into(),
+                    scope: None,
+                }]))
+            },
+        )
+        .unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].name, "workspace.sqlite");
+        assert_eq!(result.files[0].byte_len, Some(15));
+
+        let mut stream = ctx.open_data_stream(result.files[0].stream).unwrap();
+        let mut chunks = Vec::new();
+        let mut context = Context::from_waker(Waker::noop());
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => chunks.push(chunk),
+                Poll::Ready(Some(Err(error))) => panic!("file stream failed: {error:?}"),
+                Poll::Ready(None) => break,
+                Poll::Pending => panic!("native file reads complete synchronously"),
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(
+            chunks.iter().map(Bytes::len).collect::<Vec<_>>(),
+            [4, 4, 4, 3]
+        );
+        assert_eq!(
+            chunks
+                .iter()
+                .flat_map(|chunk| chunk.iter().copied())
+                .collect::<Vec<_>>(),
+            b"streamed import"
+        );
+    }
+
+    #[test]
+    fn open_stream_holds_security_access_until_reading_finishes() {
+        let path = temp_path();
+        std::fs::write(&path, b"scoped read").unwrap();
+        let file = Arc::new(scoped_test_file(&path));
+        let mut stream = Box::pin(MacosPickedFileDataStream::new(file, 4));
+        let mut context = Context::from_waker(Waker::noop());
+        let first = stream.as_mut().poll_next(&mut context);
+        assert!(matches!(first, Poll::Ready(Some(Ok(_)))));
+        assert!(stream.as_ref().get_ref().access.is_some());
+
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(_))) => {}
+                Poll::Ready(Some(Err(error))) => panic!("file stream failed: {error:?}"),
+                Poll::Ready(None) => break,
+                Poll::Pending => panic!("native file reads complete synchronously"),
+            }
+        }
+        assert!(stream.as_ref().get_ref().access.is_none());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -344,6 +729,50 @@ mod tests {
     }
 
     #[test]
+    fn releasing_a_save_handle_keeps_an_open_read_alive_until_it_is_dropped() {
+        let path = temp_path();
+        std::fs::write(&path, b"still reading").unwrap();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
+        let selected = pick_save_file_with(PickSaveFileRequest::default(), |_| {
+            Ok(Some(scoped_test_file(&path)))
+        })
+        .unwrap();
+        let Some(SaveFileDestination::WritableFile(handle)) = selected.destination else {
+            panic!("expected an opaque save handle");
+        };
+        let retained = Arc::downgrade(picked_files().lock().unwrap().get(&handle.id).unwrap());
+        let request = ReadPickedFileRequest {
+            file: handle.clone(),
+            preferred_chunk_bytes: Some(4),
+        };
+        let result = read_picked_file_with(request.clone(), &ctx).unwrap();
+        let mut stream = ctx.open_data_stream(result.stream).unwrap();
+
+        release_writable_file(handle.id).unwrap();
+        release_writable_file(handle.id).unwrap();
+        assert!(!picked_files().lock().unwrap().contains_key(&handle.id));
+        assert_eq!(
+            read_picked_file_with(request, &ctx).unwrap_err().code,
+            "invalid_handle"
+        );
+        assert!(retained.upgrade().is_some());
+
+        let mut actual = Vec::new();
+        let mut context = Context::from_waker(Waker::noop());
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+                Poll::Ready(None) => break,
+                other => panic!("unexpected read result after release: {other:?}"),
+            }
+        }
+        assert_eq!(actual, b"still reading");
+        drop(stream);
+        assert!(retained.upgrade().is_none());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn picked_file_capability_streams_directly_to_the_selected_path() {
         let path = temp_path();
         let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
@@ -363,6 +792,72 @@ mod tests {
         .unwrap();
         assert_eq!(written, 15);
         assert_eq!(std::fs::read(&path).unwrap(), b"streamed export");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn picked_save_file_round_trips_through_opaque_stream_capabilities() {
+        let path = temp_path();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
+        let result = pick_save_file_with(
+            PickSaveFileRequest {
+                suggested_name: "workspace.sqlite".into(),
+                ..Default::default()
+            },
+            |_| Ok(Some(scoped_test_file(&path))),
+        )
+        .unwrap();
+        let Some(SaveFileDestination::WritableFile(handle)) = result.destination else {
+            panic!("expected opaque save handle");
+        };
+        assert!(!serde_json::to_string(&handle)
+            .unwrap()
+            .contains(path.to_string_lossy().as_ref()));
+        let input = ctx.register_data_stream(single_chunk_data_stream(Bytes::from_static(
+            b"sqlite snapshot bytes",
+        )));
+        assert_eq!(
+            ready(write_picked_file(
+                FileWriteSource::Stream(input),
+                &ctx,
+                picked_files()
+                    .lock()
+                    .unwrap()
+                    .get(&handle.id)
+                    .unwrap()
+                    .clone(),
+            ))
+            .unwrap(),
+            21
+        );
+
+        let read = read_picked_file_with(
+            ReadPickedFileRequest {
+                file: handle.clone(),
+                preferred_chunk_bytes: Some(5),
+            },
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(read.byte_len, Some(21));
+        let mut stream = ctx.open_data_stream(read.stream).unwrap();
+        let mut actual = Vec::new();
+        let mut context = Context::from_waker(Waker::noop());
+        match stream.as_mut().poll_next(&mut context) {
+            Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+            Poll::Ready(Some(Err(error))) => panic!("save destination read failed: {error:?}"),
+            other => panic!("unexpected first read result: {other:?}"),
+        }
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => actual.extend_from_slice(&chunk),
+                Poll::Ready(Some(Err(error))) => panic!("save destination read failed: {error:?}"),
+                Poll::Ready(None) => break,
+                Poll::Pending => panic!("native file reads complete synchronously"),
+            }
+        }
+        assert_eq!(actual, b"sqlite snapshot bytes");
+        picked_files().lock().unwrap().remove(&handle.id);
         std::fs::remove_file(path).unwrap();
     }
 }

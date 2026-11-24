@@ -1852,9 +1852,11 @@ fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_http_response, Bounds, SelectorQuery, SemanticNode, TestCommand, TestPointerKind,
+        Bounds, LiveTestClient, SelectorQuery, SemanticNode, TestCommand, TestPointerKind,
         TestPointerPhase, TestResponse, TestScrollDeltaMode, VisibilityState,
     };
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     #[test]
     fn selector_candidate_suppression_is_opt_in_and_recursive() {
@@ -2000,16 +2002,49 @@ mod tests {
     }
 
     #[test]
-    fn large_semantic_tree_response_decodes_without_string_size_limit() {
+    fn get_tree_streams_large_http_response_without_string_size_limit() {
         let mut node = populated_semantic_node();
         node.label = Some("x".repeat(11 * 1024 * 1024));
         let encoded = serde_json::to_vec(&TestResponse::Tree { nodes: vec![node] }).unwrap();
         assert!(encoded.len() > 10 * 1024 * 1024);
 
-        let decoded = decode_http_response(std::io::Cursor::new(encoded)).unwrap();
-        let TestResponse::Tree { nodes } = decoded else {
-            panic!("expected tree response");
-        };
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request_headers = Vec::new();
+            let mut byte = [0u8; 1];
+            loop {
+                stream.read_exact(&mut byte).unwrap();
+                request_headers.push(byte[0]);
+                if request_headers.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request_body_length = String::from_utf8(request_headers)
+                .unwrap()
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then_some(value.trim())
+                })
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            let mut request_body = vec![0u8; request_body_length];
+            stream.read_exact(&mut request_body).unwrap();
+
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                encoded.len()
+            )
+            .unwrap();
+            stream.write_all(&encoded).unwrap();
+        });
+
+        let nodes = LiveTestClient::connect(port).get_tree().unwrap();
+        server.join().unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(
             nodes[0].label.as_deref().map(str::len),

@@ -1,5 +1,11 @@
 Fission includes @sqlite.org/sqlite-wasm 3.53.0-build1.
 
+The WASM distribution is built from SQLite source commit
+4ebc7fdcf459e8d88eb5b019c2949bda86565528 with the online backup APIs enabled
+for durable OPFS snapshots. Rebuild it with scripts/build_sqlite_wasm.sh;
+the artifact workflow pins Emscripten 4.0.13 and WABT 1.0.36 and verifies the
+generated files against this directory.
+
 The JavaScript wrapper is Copyright 2022-2026 Google LLC and distributed
 under the Apache License, Version 2.0. SQLite itself is in the public domain.
 

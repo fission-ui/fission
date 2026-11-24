@@ -56,11 +56,14 @@ fn layout_input_display_breaks_are_optional_in_serialized_legacy_nodes() {
         None,
         vec![],
     );
-    let legacy_json = serde_json::to_value(&node).expect("serialize layout input node");
-    assert!(legacy_json.get("display_breaks").is_none());
+    // Widget IDs are u128. serde_json::Value cannot represent their full range;
+    // exercise the JSON text serializer/deserializer used for the wire format.
+    let legacy_json = serde_json::to_string(&node).expect("serialize layout input node");
+    assert!(!legacy_json.contains("\"display_breaks\""));
 
     let restored: LayoutInputNode =
-        serde_json::from_value(legacy_json).expect("deserialize node without display breaks");
+        serde_json::from_str(&legacy_json).expect("deserialize node without display breaks");
+    assert_eq!(restored.id, node.id);
     assert!(restored.display_breaks.is_empty());
     assert!(restored.paragraph_styles.is_empty());
 
@@ -333,7 +336,7 @@ fn display_breaks_keep_logical_utf8_offsets_and_expose_gap_geometry() {
     assert_eq!(segments[1].grapheme_range, 2..4);
     assert_eq!(segments[1].byte_range, "aé".len()..text.len());
 
-    let paragraph = CountingParagraphMeasurer.resolve_rich_text_with_display_breaks(
+    let paragraph = CountingParagraphMeasurer::default().resolve_rich_text_with_display_breaks(
         &[text_run(text)],
         None,
         &display_breaks,

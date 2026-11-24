@@ -3,10 +3,11 @@ use fission_core::{
     Bytes, FileSystemError, FileSystemPermission, FileWriteSource, FissionDataStreamError,
     FissionDataStreamErrorKind, ForgetSaveFileRequest, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickSaveFileRequest, PickSaveFileResult, PickedFile,
-    ReleaseWritableFileRequest, RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination,
-    WritableFileHandle, WritableFileHandleId, WritableFilePermissionRequest,
-    WritableFilePermissionResult, WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE,
-    PICK_OPEN_FILES, PICK_SAVE_FILE, RELEASE_WRITABLE_FILE, RESTORE_SAVE_FILE,
+    ReadPickedFileRequest, ReadPickedFileResult, ReleaseWritableFileRequest,
+    RestoreSaveFileRequest, RestoreSaveFileResult, SaveFileDestination, WritableFileHandle,
+    WritableFileHandleId, WritableFilePermissionRequest, WritableFilePermissionResult,
+    WritePickedFileRequest, WritePickedFileResult, FORGET_SAVE_FILE, PICK_OPEN_FILES,
+    PICK_SAVE_FILE, READ_PICKED_FILE, RELEASE_WRITABLE_FILE, RESTORE_SAVE_FILE,
     WRITABLE_FILE_PERMISSION, WRITE_PICKED_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
@@ -34,6 +35,7 @@ extern "C" {
     fn fissionForgetSaveFile(persistence_key: &str) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionWritableFilePermission(file_id: u32, request: bool) -> Result<Promise, JsValue>;
+    fn fissionReleaseWritableFile(file_id: u32);
     #[wasm_bindgen(catch)]
     fn fissionOpenPickedFileReader(
         file_id: u32,
@@ -55,7 +57,6 @@ extern "C" {
     fn fissionClosePickedFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionAbortPickedFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
-    fn fissionReleaseWritableFile(file_id: u32);
 }
 
 pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
@@ -107,6 +108,13 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
             await_promise(fissionForgetSaveFile(&request.persistence_key))
                 .await
                 .map_err(file_system_error)?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        RELEASE_WRITABLE_FILE,
+        |request: ReleaseWritableFileRequest, _| async move {
+            fissionReleaseWritableFile(save_file_id(request.file)?);
             Ok(())
         },
     );
@@ -175,11 +183,9 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
         },
     );
     async_registry.register_operation_capability(
-        RELEASE_WRITABLE_FILE,
-        |request: ReleaseWritableFileRequest, _| async move {
-            let id = save_file_id(request.file)?;
-            fissionReleaseWritableFile(id);
-            Ok(())
+        READ_PICKED_FILE,
+        |_request: ReadPickedFileRequest, _| async move {
+            Err::<ReadPickedFileResult, _>(FileSystemError::unsupported("read_picked_file"))
         },
     );
     async_registry.register_operation_capability(
@@ -534,6 +540,13 @@ fn mime_for_extension(extension: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod save_file_type_tests {
     use super::*;
+
+    #[test]
+    fn registers_writable_file_release_capability() {
+        let mut registry = AsyncRegistry::new();
+        register_web_file_picker(&mut registry);
+        assert!(registry.has_operation_capability(RELEASE_WRITABLE_FILE));
+    }
 
     #[test]
     fn browser_save_filter_groups_extensions_by_concrete_mime_type() {

@@ -170,10 +170,7 @@ pub struct PickDirectoryResult {
     pub directory: Option<DirectoryHandle>,
 }
 
-/// Opaque Web writable destination returned by a file-save request.
-///
-/// This can wrap a browser-owned File System Access handle, or a temporary
-/// download writer when the browser does not provide `showSaveFilePicker`.
+/// Opaque host-owned file selected by a Save dialog.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WritableFileHandle {
     pub id: WritableFileHandleId,
@@ -188,16 +185,16 @@ pub struct WritableFileHandle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WritableFileHandleId(pub u64);
 
-/// Destination returned by a file-save request.
+/// Destination selected by a Save dialog.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SaveFileDestination {
     /// Native host path, writable through the ordinary filesystem operations.
     Location(FileSystemLocation),
-    /// Opaque host file handle, writable through `write_picked_file`.
+    /// Opaque host file handle, accessed through picked-file capabilities.
     WritableFile(WritableFileHandle),
 }
 
-/// Requests a user-visible file-save destination.
+/// Requests a native file-save dialog.
 ///
 /// Hosts that cannot expose a writable file destination should return an
 /// `unsupported` filesystem error rather than substituting an application
@@ -207,22 +204,20 @@ pub enum SaveFileDestination {
 #[serde(default)]
 pub struct PickSaveFileRequest {
     pub suggested_name: String,
-    /// File extensions offered by the host picker, when it has one. Extensions
-    /// may include a leading dot; hosts normalize that detail.
+    /// File extensions shown by the host filter. Extensions may include a
+    /// leading dot; hosts normalize that detail for their native dialog.
     pub extensions: Vec<String>,
-    /// MIME types that can be translated into a picker filter or download type.
+    /// MIME types that can be translated into a native extension filter.
     pub mime_types: Vec<String>,
-    /// Optional browser-only key used to restore a File System Access handle in
-    /// a later Web runtime. Web hosts persist the granted handle in IndexedDB,
-    /// not its contents. The Web download fallback cannot persist a destination,
-    /// and other hosts may ignore this browser-specific key.
+    /// Optional browser-only key used to restore this writable file handle in a
+    /// later Web runtime. Web hosts persist the handle in IndexedDB, not its
+    /// contents. Other hosts may ignore this browser-specific key.
     pub persistence_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PickSaveFileResult {
-    /// `None` means the user dismissed a save picker. Download fallbacks return
-    /// a destination and cannot report whether a later download was blocked.
+    /// `None` means the user dismissed the save dialog.
     pub destination: Option<SaveFileDestination>,
 }
 
@@ -243,6 +238,17 @@ pub struct RestoreSaveFileResult {
 pub struct ForgetSaveFileRequest {
     /// The key previously used to persist the selected file handle.
     pub persistence_key: String,
+}
+
+/// Releases a writable file handle selected or restored by `pick_save_file`.
+///
+/// This only releases the runtime's in-memory reference to the handle. The
+/// operation is idempotent and does not delete the file or remove a separately
+/// persisted save-file key. In-flight operations retain their own references.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseWritableFileRequest {
+    /// The ID returned in `WritableFileHandle::id` by a picker or restore call.
+    pub file: WritableFileHandleId,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +345,24 @@ pub struct ReadFileResult {
     pub modified_millis: Option<u64>,
 }
 
+/// Opens a writable file selected by `pick_save_file` for reading.
+///
+/// The selected file remains an opaque host handle. Providers perform the
+/// read through that handle and keep any required authorization (such as a
+/// macOS security scope) active for the lifetime of the returned stream.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadPickedFileRequest {
+    pub file: WritableFileHandle,
+    /// Preferred stream chunk size. Hosts may clamp or ignore this value.
+    pub preferred_chunk_bytes: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadPickedFileResult {
+    pub stream: DataStreamId,
+    pub byte_len: Option<u64>,
+}
+
 /// Source bytes for a file write.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileWriteSource {
@@ -379,14 +403,6 @@ pub struct WritePickedFileRequest {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WritePickedFileResult {
     pub byte_len: u64,
-}
-
-/// Releases a writable file handle by its runtime-owned ID after the
-/// application no longer needs to write through it. This drops the host's
-/// in-memory handle without deleting the file or any persisted save-file grant.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReleaseWritableFileRequest {
-    pub file: WritableFileHandleId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -472,6 +488,13 @@ filesystem_capability!(
     "fission.fs.forget_save_file"
 );
 filesystem_capability!(
+    ReleaseWritableFileCapability,
+    ReleaseWritableFileRequest,
+    (),
+    RELEASE_WRITABLE_FILE,
+    "fission.fs.release_writable_file"
+);
+filesystem_capability!(
     WritableFilePermissionCapability,
     WritableFilePermissionRequest,
     WritableFilePermissionResult,
@@ -521,6 +544,13 @@ filesystem_capability!(
     "fission.fs.read_file"
 );
 filesystem_capability!(
+    ReadPickedFileCapability,
+    ReadPickedFileRequest,
+    ReadPickedFileResult,
+    READ_PICKED_FILE,
+    "fission.fs.read_picked_file"
+);
+filesystem_capability!(
     WriteFileCapability,
     WriteFileRequest,
     WriteFileResult,
@@ -533,13 +563,6 @@ filesystem_capability!(
     WritePickedFileResult,
     WRITE_PICKED_FILE,
     "fission.fs.write_picked_file"
-);
-filesystem_capability!(
-    ReleaseWritableFileCapability,
-    ReleaseWritableFileRequest,
-    (),
-    RELEASE_WRITABLE_FILE,
-    "fission.fs.release_writable_file"
 );
 filesystem_capability!(
     CreateDirectoryCapability,
@@ -642,14 +665,22 @@ mod tests {
     }
 
     #[test]
-    fn release_writable_file_request_round_trips_the_handle_id() {
-        let request = ReleaseWritableFileRequest {
-            file: WritableFileHandleId(12),
+    fn picked_file_read_contract_keeps_destination_opaque() {
+        let request = ReadPickedFileRequest {
+            file: WritableFileHandle {
+                id: WritableFileHandleId(9),
+                name: "workspace.sqlite".into(),
+                permission: FileSystemPermission::Granted,
+            },
+            preferred_chunk_bytes: Some(4096),
         };
-        let bytes = serde_json::to_vec(&request).unwrap();
 
+        let encoded = serde_json::to_string(&request).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(value["file"]["name"], "workspace.sqlite");
+        assert!(value["file"].get("path").is_none());
         assert_eq!(
-            serde_json::from_slice::<ReleaseWritableFileRequest>(&bytes).unwrap(),
+            serde_json::from_value::<ReadPickedFileRequest>(value).unwrap(),
             request
         );
     }

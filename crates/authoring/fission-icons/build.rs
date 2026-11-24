@@ -7,6 +7,7 @@ use walkdir::WalkDir;
 
 // Structure: Category -> IconName -> Variant -> Path (relative to crate root)
 type IconMap = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
+type IconOffsets = BTreeMap<String, [usize; 2]>;
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -26,13 +27,23 @@ fn main() {
         .map(PathBuf::from)
         .filter(|p| p.exists());
 
+    let mut vendor_bundle = None;
     let icons = if let Some(root) = override_root {
         println!("cargo:rerun-if-changed={}", root.display());
         scan_icons_root(&root, manifest_dir)
     } else if vendor_index.exists() {
         println!("cargo:rerun-if-changed=material-icons-vendor/index.json");
         match load_icons_index(&vendor_index) {
-            Ok(map) => map,
+            Ok(map) => {
+                let packed_asset = vendor_root.join("material-icons.bin");
+                let offsets_path = vendor_root.join("offsets.json");
+                if packed_asset.is_file() && offsets_path.is_file() {
+                    println!("cargo:rerun-if-changed={}", packed_asset.display());
+                    println!("cargo:rerun-if-changed={}", offsets_path.display());
+                    vendor_bundle = Some((packed_asset, offsets_path));
+                }
+                map
+            }
             Err(err) => {
                 println!("cargo:warning=Failed to parse {:?}: {}", vendor_index, err);
                 fs::write(&dest_path, "// Material Icons not found\n").unwrap();
@@ -60,8 +71,26 @@ fn main() {
         scan_icons_root(&src_root, manifest_dir)
     };
 
+    let sources = if let Some((packed_asset, offsets_path)) = vendor_bundle {
+        match load_vendor_sources(&icons, &packed_asset, &offsets_path) {
+            Some(sources) => sources,
+            None => {
+                println!(
+                    "cargo:warning=Material icon packed offsets are invalid; reading indexed SVGs."
+                );
+                load_icon_sources(&icons, manifest_dir)
+            }
+        }
+    } else {
+        load_icon_sources(&icons, manifest_dir)
+    };
+
     let mut code = String::new();
     code.push_str("// Generated Material Icons\n\n");
+    // The pack is a build-time input, not runtime storage. Independent literals
+    // let the linker discard unused SVGs; slices into one static pack retain the
+    // entire catalogue even when an app uses a single icon. Debug formatting
+    // escapes each valid UTF-8 source as a Rust string literal without unsafe code.
 
     let reflection_enabled = env::var("CARGO_FEATURE_REFLECTION").is_ok();
     let mut reflection_entries = Vec::new();
@@ -79,15 +108,13 @@ fn main() {
             code.push_str(&format!("    pub mod {} {{\n", icon_mod));
 
             for (variant, path) in variants {
+                let source = sources
+                    .get(path)
+                    .unwrap_or_else(|| panic!("No source for Material Icon {path}"));
                 code.push_str(&format!(
-                    "        pub const fn {}() -> &'static str {{\n",
-                    variant
+                    "        pub const fn {}() -> &'static str {{ {:?} }}\n",
+                    variant, source
                 ));
-                code.push_str(&format!(
-                    "            include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{}\"))\n",
-                    path
-                ));
-                code.push_str("        }\n");
 
                 if reflection_enabled {
                     reflection_entries.push(format!(
@@ -113,6 +140,62 @@ fn main() {
     }
 
     fs::write(&dest_path, code).unwrap();
+}
+
+fn load_vendor_sources(
+    icons: &IconMap,
+    packed_asset: &Path,
+    offsets_path: &Path,
+) -> Option<BTreeMap<String, String>> {
+    let serialized = fs::read_to_string(offsets_path).ok()?;
+    let offsets_by_digest: IconOffsets = serde_json::from_str(&serialized).ok()?;
+    let packed = fs::read(packed_asset).ok()?;
+    let mut sources = BTreeMap::new();
+
+    for path in icons
+        .values()
+        .flat_map(|icons| icons.values())
+        .flat_map(|variants| variants.values())
+    {
+        if sources.contains_key(path) {
+            continue;
+        }
+        let digest = Path::new(path).file_stem()?.to_str()?;
+        let range = *offsets_by_digest.get(digest)?;
+        let end = range[0].checked_add(range[1])?;
+        let bytes = packed.get(range[0]..end)?;
+        sources.insert(path.clone(), std::str::from_utf8(bytes).ok()?.to_owned());
+    }
+
+    Some(sources)
+}
+
+fn load_icon_sources(icons: &IconMap, manifest_dir: &Path) -> BTreeMap<String, String> {
+    let mut sources = BTreeMap::new();
+
+    for path in icons
+        .values()
+        .flat_map(|icons| icons.values())
+        .flat_map(|variants| variants.values())
+    {
+        if sources.contains_key(path) {
+            continue;
+        }
+
+        let source_path = Path::new(path);
+        let source_path = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            manifest_dir.join(source_path)
+        };
+        println!("cargo:rerun-if-changed={}", source_path.display());
+        let source = fs::read_to_string(&source_path).unwrap_or_else(|error| {
+            panic!("Failed to read Material Icon {:?}: {error}", source_path)
+        });
+        sources.insert(path.clone(), source);
+    }
+
+    sources
 }
 
 fn load_icons_index(path: &Path) -> Result<IconMap, serde_json::Error> {
