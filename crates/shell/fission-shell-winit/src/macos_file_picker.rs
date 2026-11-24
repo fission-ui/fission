@@ -592,6 +592,20 @@ mod tests {
         ))
     }
 
+    fn scoped_test_file(path: &std::path::Path) -> MacosPickedFile {
+        // Objective-C message sending requires a real object, even for a test
+        // running outside the sandbox. A null URL is not a valid scoped grant.
+        unsafe {
+            let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+            let native_path = ns_string(&path.to_string_lossy());
+            let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: native_path];
+            let _: () = msg_send![native_path, release];
+            let file = selected_file(url);
+            let _: () = msg_send![pool, drain];
+            file.expect("create a retained file URL for the scoped read fixture")
+        }
+    }
+
     fn ready<T>(future: impl Future<Output = T>) -> T {
         match Box::pin(future)
             .as_mut()
@@ -666,11 +680,7 @@ mod tests {
     fn open_stream_holds_security_access_until_reading_finishes() {
         let path = temp_path();
         std::fs::write(&path, b"scoped read").unwrap();
-        let file = Arc::new(MacosPickedFile {
-            path: path.clone(),
-            name: "workspace.sqlite".into(),
-            scope: Some(Arc::new(MacosSecurityScope { url: 0 })),
-        });
+        let file = Arc::new(scoped_test_file(&path));
         let mut stream = Box::pin(MacosPickedFileDataStream::new(file, 4));
         let mut context = Context::from_waker(Waker::noop());
         let first = stream.as_mut().poll_next(&mut context);
@@ -724,11 +734,7 @@ mod tests {
         std::fs::write(&path, b"still reading").unwrap();
         let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::default());
         let selected = pick_save_file_with(PickSaveFileRequest::default(), |_| {
-            Ok(Some(MacosPickedFile {
-                path: path.clone(),
-                name: "report.txt".into(),
-                scope: None,
-            }))
+            Ok(Some(scoped_test_file(&path)))
         })
         .unwrap();
         let Some(SaveFileDestination::WritableFile(handle)) = selected.destination else {
@@ -798,13 +804,7 @@ mod tests {
                 suggested_name: "workspace.sqlite".into(),
                 ..Default::default()
             },
-            |_| {
-                Ok(Some(MacosPickedFile {
-                    path: path.clone(),
-                    name: "workspace.sqlite".into(),
-                    scope: Some(Arc::new(MacosSecurityScope { url: 0 })),
-                }))
-            },
+            |_| Ok(Some(scoped_test_file(&path))),
         )
         .unwrap();
         let Some(SaveFileDestination::WritableFile(handle)) = result.destination else {
