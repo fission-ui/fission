@@ -21,8 +21,8 @@ fission_component! {
                     torch, ButtonVariant::SecondaryGray,
                 ),
                 ActionButton("field-inspector.evidence.voice-note".to_string(), "Record voice note".to_string(), record, ButtonVariant::SecondaryColor),
-                Metric("Camera".to_string(), state.camera_availability.as_ref().map(|value| format!("{} device(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string())),
-                Metric("Microphone".to_string(), state.microphone_availability.as_ref().map(|value| format!("{} input(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string())),
+                Metric("Camera".to_string(), state.camera_availability.as_ref().map(|value| format!("{} device(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string()), key: "evidence_controls.camera"),
+                Metric("Microphone".to_string(), state.microphone_availability.as_ref().map(|value| format!("{} input(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string()), key: "evidence_controls.microphone"),
             ],
         )
 }

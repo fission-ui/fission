@@ -28,9 +28,9 @@ fission_component! {
                 ]),
                 ResponsiveGrid(
                     [
-                        Metric("Bluetooth devices".to_string(), state.bluetooth_devices.len().to_string()),
-                        Metric("Wi-Fi networks".to_string(), state.wifi_networks.len().to_string()),
-                        Metric("Sensor reading".to_string(), state.sensor_reading.clone().unwrap_or_else(|| "Pending".to_string())),
+                        Metric("Bluetooth devices".to_string(), state.bluetooth_devices.len().to_string(), key: "sensors_panel.bluetooth"),
+                        Metric("Wi-Fi networks".to_string(), state.wifi_networks.len().to_string(), key: "sensors_panel.wifi"),
+                        Metric("Sensor reading".to_string(), state.sensor_reading.clone().unwrap_or_else(|| "Pending".to_string()), key: "sensors_panel.reading"),
                     ],
                     DEFAULT_ITEM_MIN_WIDTH,
                 ),
