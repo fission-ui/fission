@@ -1,6 +1,9 @@
 use super::capture::{clamp_copy_extent_to_texture, rgba_screenshot_response};
 use super::record_web_test_diagnostic;
+use std::cell::Cell;
 use std::sync::mpsc;
+
+const READBACK_TIMEOUT_MS: i32 = 5_000;
 
 pub(super) fn gpu_screenshot_async(
     instance: &wgpu::Instance,
@@ -63,16 +66,29 @@ pub(super) fn gpu_screenshot_async(
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(Some(encoder.finish()));
-
-    // Some browser WebGPU implementations reject mapAsync on a buffer referenced by the
-    // currently pending submission. Wait for the copy to complete before requesting the map.
-    let work_done = js_sys::Promise::new(&mut |resolve, _reject| {
-        let resolve = resolve.clone();
-        queue.on_submitted_work_done(move || {
-            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+    // Request this staging buffer's map after submitting its copy. Mapping
+    // already waits for GPU work that uses the buffer, not the whole queue.
+    let mapped =
+        js_sys::Promise::new(&mut |resolve, reject| {
+            let resolve = resolve.clone();
+            let reject = reject.clone();
+            encoder.map_buffer_on_submit(&staging, wgpu::MapMode::Read, .., move |result| {
+                match result {
+                    Ok(()) => {
+                        let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
+                    }
+                    Err(error) => {
+                        let _ = reject.call1(
+                            &wasm_bindgen::JsValue::UNDEFINED,
+                            &wasm_bindgen::JsValue::from_str(&error.to_string()),
+                        );
+                    }
+                }
+            });
         });
-    });
+    // Attach both Promise handlers before submission can report a map error.
+    let mapped = wasm_bindgen_futures::JsFuture::from(mapped);
+    queue.submit(Some(encoder.finish()));
     let out_of_memory_error = out_of_memory_scope.pop();
     let validation_error = validation_scope.pop();
     let instance_keepalive = instance.clone();
@@ -82,8 +98,13 @@ pub(super) fn gpu_screenshot_async(
     wasm_bindgen_futures::spawn_local(async move {
         let _keepalive = (instance_keepalive, device_keepalive, queue_keepalive);
         record_web_test_diagnostic(486, texture_height);
+        let phase = Cell::new("GPU error scopes");
+        let readback_phase = &phase;
         let readback = async move {
-            let gpu_error = out_of_memory_error.await.or(validation_error.await);
+            // The map is already in flight while these two scopes resolve.
+            let (memory_error, validation_error) =
+                futures_util::future::join(out_of_memory_error, validation_error).await;
+            let gpu_error = memory_error.or(validation_error);
             if let Some(error) = gpu_error {
                 return fission_test_driver::TestResponse::Error {
                     message: format!(
@@ -92,35 +113,9 @@ pub(super) fn gpu_screenshot_async(
                 };
             }
 
-            if let Err(error) = wasm_bindgen_futures::JsFuture::from(work_done).await {
-                return fission_test_driver::TestResponse::Error {
-                    message: format!(
-                        "renderer_screenshot_unavailable: WebGPU screenshot queue completion failed: {error:?}"
-                    ),
-                };
-            }
+            readback_phase.set("staging buffer map");
             record_web_test_diagnostic(487, texture_height);
-
-            // WebGPU mapping completes through the browser event loop. Keep the frame callback
-            // free to process input and subsequent frames while the staging buffer is readable.
-            let promise = js_sys::Promise::new(&mut |resolve, reject| {
-                let resolve = resolve.clone();
-                let reject = reject.clone();
-                staging
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |result| match result {
-                        Ok(()) => {
-                            let _ = resolve.call0(&wasm_bindgen::JsValue::UNDEFINED);
-                        }
-                        Err(error) => {
-                            let _ = reject.call1(
-                                &wasm_bindgen::JsValue::UNDEFINED,
-                                &wasm_bindgen::JsValue::from_str(&error.to_string()),
-                            );
-                        }
-                    });
-            });
-            match wasm_bindgen_futures::JsFuture::from(promise).await {
+            match mapped.await {
                 Ok(_) => {
                     record_web_test_diagnostic(488, texture_height);
                     let data = staging.slice(..).get_mapped_range();
@@ -150,7 +145,9 @@ pub(super) fn gpu_screenshot_async(
             }
         };
         let timeout = async {
-            let _ = wasm_bindgen_futures::JsFuture::from(browser_timeout_promise(5_000)).await;
+            let _ =
+                wasm_bindgen_futures::JsFuture::from(browser_timeout_promise(READBACK_TIMEOUT_MS))
+                    .await;
         };
         let response = match futures_util::future::select(Box::pin(readback), Box::pin(timeout))
             .await
@@ -159,8 +156,11 @@ pub(super) fn gpu_screenshot_async(
             futures_util::future::Either::Right(((), _readback)) => {
                 record_web_test_diagnostic(489, texture_height);
                 fission_test_driver::TestResponse::Error {
-                        message: "renderer_screenshot_unavailable: WebGPU readback timed out after 5000ms; no replacement image was generated".into(),
-                    }
+                    message: format!(
+                        "renderer_screenshot_unavailable: WebGPU readback for {texture_width}x{texture_height} timed out after {READBACK_TIMEOUT_MS}ms awaiting {}; no replacement image was generated",
+                        phase.get()
+                    ),
+                }
             }
         };
         record_web_test_diagnostic(490, texture_height);
