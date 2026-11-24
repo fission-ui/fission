@@ -141,11 +141,12 @@ The WebGPU resize regression uses the same opt-in fixture, served with
 adapter. It grows and shrinks the renderer in one Chromium session, exercising
 the intermediate-texture config upload that previously recreated a mapped
 buffer on every size change. The resize sequence includes 390px mobile and
-800px tablet widths. Its screenshots use Fission's retained scene and
-software rasterizer, then assert that the captured pixels contain the rendered
-frame. This avoids relying on Chromium's headless WebGPU swapchain capture,
-which can be black. If `FISSION_RESIZE_OUTPUT` is set, each capture is retained
-for visual inspection:
+800px tablet widths. Its screenshots read back the actual WebGPU intermediate
+frame texture, rather than Chromium's headless swapchain capture, which can be
+black. Readback failures and timeouts are reported explicitly; no replacement
+CPU-rendered image is generated. The tests check dimensions and nonuniform
+pixels, but those checks do not replace visual inspection. If
+`FISSION_RESIZE_OUTPUT` is set, each capture is retained for that inspection:
 
 ```sh
 FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
@@ -164,3 +165,11 @@ FISSION_RESIZE_WEBGPU_URL=http://127.0.0.1:8123/?fission_renderer=webgpu-vello \
   webgpu_renderer_reloads_and_recreates_live_test_bridge \
   -- --ignored --nocapture
 ```
+
+The device-scale regression uses the same WebGPU URL and runs as
+`webgpu_screenshots_preserve_device_scale_two_across_host_resize`. At scale 2,
+an 800 × 900 CSS viewport must produce a 1600 × 1800 PNG; resizing it to
+390 × 900 must produce 780 × 1800 without replacing the document. The driver
+checks both the response dimensions and the decoded PNG. Only the explicit
+Canvas2D unsupported-capture response permits a browser-host screenshot.
+WebGPU map errors, queue failures and readback timeouts remain errors.

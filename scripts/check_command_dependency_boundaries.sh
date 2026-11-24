@@ -6,15 +6,14 @@ check_absent() {
   local reason="$2"
   local pattern="$3"
   local tree
+  local matches
 
   tree="$(cargo tree -p "$crate" --edges normal --prefix none)"
-  if grep -E "$pattern" <<<"$tree" >/tmp/fission-boundary-matches.txt; then
+  if matches="$(rg "$pattern" <<<"$tree")"; then
     echo "dependency boundary violation in $crate: $reason" >&2
-    cat /tmp/fission-boundary-matches.txt >&2
-    rm -f /tmp/fission-boundary-matches.txt
+    printf '%s\n' "$matches" >&2
     exit 1
   fi
-  rm -f /tmp/fission-boundary-matches.txt
 }
 
 check_absent \

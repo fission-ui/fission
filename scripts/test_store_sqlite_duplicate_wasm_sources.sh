@@ -4,10 +4,17 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fission_root="$(cd "$script_dir/.." && pwd)"
 fixture="$fission_root/crates/core/fission-store-sqlite/tests/fixtures/duplicate-source-link"
-target_dir="${CARGO_TARGET_DIR:-$fission_root/target/store-sqlite-duplicate-source-link}"
+target_dir="${CARGO_TARGET_DIR:-$fission_root/target}"
 
 CARGO_TARGET_DIR="$target_dir" cargo build \
   --manifest-path "$fixture/Cargo.toml" \
   --locked \
   --target wasm32-unknown-unknown \
   --release
+
+# Duplicate descriptor exports are diagnosed by wasm-bindgen, not by Cargo's
+# linker. Package the exact artifact so this regression exercises that boundary.
+wasm-bindgen \
+  "$target_dir/wasm32-unknown-unknown/release/fission_store_sqlite_duplicate_source_link.wasm" \
+  --target web \
+  --out-dir "$target_dir/duplicate-sqlite-source-package"
