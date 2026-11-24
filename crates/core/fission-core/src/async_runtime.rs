@@ -407,11 +407,6 @@ impl JobCtx {
         self.cancellation.cancelled().await;
     }
 
-    /// Returns a clone of this job's cancellation signal.
-    pub fn cancellation_token(&self) -> JobCancellationToken {
-        self.cancellation.clone()
-    }
-
     /// Registers a one-shot stream produced by this job.
     ///
     /// Return the resulting [`DataStreamId`] from the job, then pass it to a
