@@ -161,6 +161,7 @@ fn rich_text_hyperlink_is_exposed_as_a_bounded_accesskit_link() {
                 line_index: 0,
                 rect: LayoutRect::new(50.0, 0.0, 40.0, 16.0),
             }],
+            display_breaks: Vec::new(),
         },
     );
 

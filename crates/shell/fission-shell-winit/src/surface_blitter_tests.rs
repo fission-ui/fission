@@ -96,7 +96,7 @@ fn copy(device: &Device, queue: &Queue, blitter: &SurfaceBlitter, target: &Textu
 
 #[test]
 fn surface_copy_preserves_orientation_alpha_and_reconfigured_sources() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("headless graphics adapter (Mesa software Vulkan is sufficient)");
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))

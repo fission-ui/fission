@@ -26,7 +26,6 @@ const OVERSIZED: &[(&str, usize)] = &[
     ("crates/core/fission-theme/src/lib.rs", 3934),
     ("crates/rendering/fission-render-vello/src/lib.rs", 4044),
     ("crates/shell/fission-shell-server/src/render.rs", 4149),
-    ("crates/shell/fission-shell-site/src/build.rs", 2098),
     ("crates/shell/fission-shell-site/src/html.rs", 6930),
     (
         "crates/shell/fission-shell-winit/src/android_capabilities.rs",
@@ -39,10 +38,6 @@ const OVERSIZED: &[(&str, usize)] = &[
         2915,
     ),
     ("crates/tools/fission-command-core/src/lib.rs", 6415),
-    (
-        "crates/tools/fission-command-package/src/lib_tests.rs",
-        2038,
-    ),
     ("crates/tools/fission-command-package/src/package.rs", 2378),
     ("crates/tools/fission-command-release/src/lib.rs", 2234),
     (

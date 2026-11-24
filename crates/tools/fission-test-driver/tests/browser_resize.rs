@@ -24,10 +24,15 @@ fn capture(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn capture_webgpu_frame(c: &LiveTestClient, name: &str, width: u32) -> anyhow::Result<()> {
+fn capture_webgpu_frame(
+    c: &LiveTestClient,
+    name: &str,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<()> {
     let png = c.capture_screenshot_png()?;
     let image = image::load_from_memory(&png)?.to_rgba8();
-    assert_eq!((image.width(), image.height()), (width, 900));
+    assert_eq!((image.width(), image.height()), (width, height));
     let first = image.get_pixel(0, 0);
     assert!(
         image.pixels().any(|pixel| pixel != first),
@@ -319,7 +324,7 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         "the fixture must exercise the WebGPU renderer: {report:?}"
     );
 
-    capture_webgpu_frame(&client, "webgpu-initial", 1280)?;
+    capture_webgpu_frame(&client, "webgpu-initial", 1280, 900)?;
     let initial = observe(&client)?;
     assert_eq!(initial["frame"]["phase"], "submitted");
     for (step, width) in [390, 800, 1280, 800, 390].into_iter().enumerate() {
@@ -330,8 +335,49 @@ fn webgpu_renderer_resizes_without_recreating_mapped_config_buffer() -> anyhow::
         assert_eq!(resized["canvas"]["pixel_width"], width);
         assert_eq!(resized["canvas"]["pixel_height"], 900);
         assert_eq!(resized["frame"]["phase"], "submitted");
-        capture_webgpu_frame(&client, &format!("webgpu-step-{step}"), width)?;
+        capture_webgpu_frame(&client, &format!("webgpu-step-{step}"), width, 900)?;
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires FISSION_RESIZE_WEBGPU_URL, WebGPU-enabled Chromium, and loopback sockets"]
+fn webgpu_screenshots_preserve_device_scale_two_across_host_resize() -> anyhow::Result<()> {
+    let url = std::env::var("FISSION_RESIZE_WEBGPU_URL")?;
+    let mut options = BrowserTestOptions::new(&url).fission_canvas();
+    options.viewport_width = 800;
+    options.viewport_height = 900;
+    options.device_scale_factor = 2.0;
+    let client = LiveTestClient::launch_browser(options)?;
+    let report = client
+        .browser_report()
+        .ok_or_else(|| anyhow::anyhow!("browser report is unavailable"))?;
+    assert_eq!(
+        report.renderer.as_deref(),
+        Some("webgpu-vello"),
+        "requires actual WebGPU: {report:?}"
+    );
+    let initial = observe(&client)?;
+    assert_eq!(initial["scale"], 2);
+    assert_eq!(initial["width"], 800);
+    assert_eq!(initial["height"], 900);
+    assert_eq!(initial["canvas"]["pixel_width"], 1600);
+    assert_eq!(initial["canvas"]["pixel_height"], 1800);
+    capture_webgpu_frame(&client, "webgpu-dpr2-initial", 1600, 1800)?;
+
+    client.simulate_resize(390, 900)?;
+    let resized = observe(&client)?;
+    assert_eq!(resized["timeOrigin"], initial["timeOrigin"]);
+    assert_eq!(resized["url"], initial["url"]);
+    assert_eq!(resized["scale"], 2);
+    assert_eq!(resized["width"], 390);
+    assert_eq!(resized["height"], 900);
+    assert_eq!(resized["canvas"]["pixel_width"], 780);
+    assert_eq!(resized["canvas"]["pixel_height"], 1800);
+    assert_eq!(resized["frame"]["width"], 390);
+    assert_eq!(resized["frame"]["height"], 900);
+    assert_eq!(resized["frame"]["phase"], "submitted");
+    capture_webgpu_frame(&client, "webgpu-dpr2-narrow", 780, 1800)?;
     Ok(())
 }
 
@@ -354,7 +400,7 @@ fn webgpu_renderer_reloads_and_recreates_live_test_bridge() -> anyhow::Result<()
     )?;
     assert_eq!(before["renderer"], "webgpu-vello");
     assert!(before["frames"].as_u64().unwrap_or_default() > 0);
-    capture_webgpu_frame(&client, "webgpu-before-reload", 1280)?;
+    capture_webgpu_frame(&client, "webgpu-before-reload", 1280, 900)?;
 
     client.browser_evaluate_json(
         "globalThis.__FISSION_RELOAD_SENTINEL__='old document';window.location.reload();true",
@@ -376,7 +422,7 @@ fn webgpu_renderer_reloads_and_recreates_live_test_bridge() -> anyhow::Result<()
         .get_text()?
         .iter()
         .any(|item| item.text == "Fission web smoke"));
-    capture_webgpu_frame(&client, "webgpu-after-reload", 1280)?;
+    capture_webgpu_frame(&client, "webgpu-after-reload", 1280, 900)?;
     Ok(())
 }
 

@@ -1,4 +1,5 @@
-use super::{clamp_copy_extent_to_texture, record_web_test_diagnostic, rgba_screenshot_response};
+use super::capture::{clamp_copy_extent_to_texture, rgba_screenshot_response};
+use super::record_web_test_diagnostic;
 use std::sync::mpsc;
 
 pub(super) fn gpu_screenshot_async(
