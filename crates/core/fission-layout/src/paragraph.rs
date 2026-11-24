@@ -387,7 +387,6 @@ pub(super) fn align_resolved_paragraph(
 
     let available = width.unwrap_or(paragraph.size.width).max(0.0);
     let mut line_offsets = Vec::with_capacity(paragraph.lines.len());
-    let mut justified_spaces: Vec<(usize, LayoutRect, LayoutUnit)> = Vec::new();
 
     for (line_index, line) in paragraph.lines.iter().enumerate() {
         let rtl = match direction {

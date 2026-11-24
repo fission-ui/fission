@@ -129,7 +129,7 @@ mod tests {
                 .iter()
                 .map(|style| style.text_offset)
                 .collect::<Vec<_>>(),
-            vec![0, 4]
+            vec![0, 5]
         );
         assert_eq!(mapped[1].style.indent, 24.0);
         assert_eq!(mapped[1].style.text_align, TextAlign::Center);

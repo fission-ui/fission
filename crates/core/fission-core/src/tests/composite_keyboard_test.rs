@@ -1015,12 +1015,14 @@ fn focused_text_input_can_handle_tab_and_shift_tab_explicitly() {
             focusable: true,
             text_editable: true,
             key_actions: vec![
-                KeyAction::new(KeyCode::Tab, StartInlineEdit::static_id().as_u128()),
+                KeyAction::new(KeyCode::Tab, StartInlineEdit::static_id().as_u128())
+                    .payload(StartInlineEdit.encode()),
                 KeyAction::with_modifiers(
                     KeyCode::Tab,
                     crate::event::MOD_SHIFT,
                     StartInlineEdit::static_id().as_u128(),
-                ),
+                )
+                .payload(StartInlineEdit.encode()),
             ],
             ..Default::default()
         },
