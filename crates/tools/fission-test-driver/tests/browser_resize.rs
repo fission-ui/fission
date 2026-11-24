@@ -31,6 +31,7 @@ fn capture_webgpu_frame(
     width: u32,
     height: u32,
 ) -> anyhow::Result<()> {
+    let started = Instant::now();
     let png = c
         .capture_screenshot_png()
         .with_context(|| format!("capture {name} at {width}x{height}"))?;
@@ -40,6 +41,10 @@ fn capture_webgpu_frame(
     assert!(
         image.pixels().any(|pixel| pixel != first),
         "WebGPU screenshot should contain Fission's rendered frame, not a blank browser capture"
+    );
+    eprintln!(
+        "{name}: validated {width}x{height} WebGPU capture in {}ms",
+        started.elapsed().as_millis()
     );
     if let Some(dir) = std::env::var_os("FISSION_RESIZE_OUTPUT") {
         let dir = PathBuf::from(dir);

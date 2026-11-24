@@ -3,7 +3,10 @@ use super::record_web_test_diagnostic;
 use std::cell::Cell;
 use std::sync::mpsc;
 
-const READBACK_TIMEOUT_MS: i32 = 5_000;
+// Software WebGPU can take more than five seconds to map a full high-DPI
+// frame. Leave time for the bridge and PNG transfer within the driver's
+// default 60-second operation deadline.
+const READBACK_TIMEOUT_MS: i32 = 20_000;
 
 pub(super) fn gpu_screenshot_async(
     instance: &wgpu::Instance,
