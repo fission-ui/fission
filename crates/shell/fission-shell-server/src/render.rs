@@ -222,6 +222,7 @@ pub struct ServerRenderer {
     http_config: ServerHttpConfig,
     session_config: ServerSessionConfig,
     session_signing_key: Option<[u8; 32]>,
+    scoped_thread_stack_size_bytes: Option<usize>,
     workers_config: ServerBrowserArtifactConfig,
     islands_config: ServerIslandConfig,
 }
@@ -246,6 +247,7 @@ impl ServerRenderer {
             http_config: ServerHttpConfig::default(),
             session_config: ServerSessionConfig::default(),
             session_signing_key: None,
+            scoped_thread_stack_size_bytes: None,
             workers_config: ServerBrowserArtifactConfig::default(),
             islands_config: ServerIslandConfig::default(),
         }
@@ -371,6 +373,22 @@ impl ServerRenderer {
         self
     }
 
+    /// Sets the stack size, in bytes, for synchronous SSR callbacks that need
+    /// an isolated scoped thread while a Tokio runtime is active.
+    ///
+    /// This applies to route renderers, footer renderers, and HTTP handlers.
+    /// If unset, Rust's platform default and `RUST_MIN_STACK` behavior are
+    /// preserved. A configured size overrides the process default for these
+    /// scoped workers; it does not change Tokio worker stacks. The operating
+    /// system may enforce a larger minimum stack size.
+    pub fn with_scoped_thread_stack_size(mut self, stack_size_bytes: usize) -> Result<Self> {
+        if stack_size_bytes == 0 {
+            anyhow::bail!("scoped thread stack size must be greater than zero bytes");
+        }
+        self.scoped_thread_stack_size_bytes = Some(stack_size_bytes);
+        Ok(self)
+    }
+
     /// Signs an application action for one route and widget node.
     pub fn sign_action<A: fission_core::Action>(
         &self,
@@ -449,12 +467,11 @@ impl ServerRenderer {
                 route_params,
             };
             let response = if tokio::runtime::Handle::try_current().is_ok() {
-                std::thread::scope(|scope| {
-                    scope
-                        .spawn(|| (handler.handler)(&ctx))
-                        .join()
-                        .map_err(|_| anyhow!("server HTTP handler panicked"))?
-                })
+                run_scoped_server_callback(
+                    self.scoped_thread_stack_size_bytes,
+                    "server HTTP handler",
+                    || (handler.handler)(&ctx),
+                )
             } else {
                 (handler.handler)(&ctx)
             };
@@ -667,23 +684,21 @@ impl ServerRenderer {
             response_status: &response_status,
         };
         let mut rendered = if tokio::runtime::Handle::try_current().is_ok() {
-            std::thread::scope(|scope| {
-                scope
-                    .spawn(|| (route.render)(&ctx))
-                    .join()
-                    .map_err(|_| anyhow!("server route renderer panicked"))?
-            })
+            run_scoped_server_callback(
+                self.scoped_thread_stack_size_bytes,
+                "server route renderer",
+                || (route.render)(&ctx),
+            )
         } else {
             (route.render)(&ctx)
         }?;
         if let Some(render_footer) = &self.app.footer {
             let footer = if tokio::runtime::Handle::try_current().is_ok() {
-                std::thread::scope(|scope| {
-                    scope
-                        .spawn(|| render_footer(&ctx))
-                        .join()
-                        .map_err(|_| anyhow!("server footer renderer panicked"))?
-                })
+                run_scoped_server_callback(
+                    self.scoped_thread_stack_size_bytes,
+                    "server footer renderer",
+                    || render_footer(&ctx),
+                )
             } else {
                 render_footer(&ctx)
             }?;
@@ -1822,6 +1837,30 @@ fn request_contains_action_token(request: &ServerRequest) -> bool {
         .any(|field| field.starts_with(b"token="))
 }
 
+fn run_scoped_server_callback<T, F>(
+    stack_size_bytes: Option<usize>,
+    callback_name: &'static str,
+    callback: F,
+) -> Result<T>
+where
+    F: FnOnce() -> Result<T> + Send,
+    T: Send,
+{
+    std::thread::scope(|scope| {
+        let handle = if let Some(stack_size_bytes) = stack_size_bytes {
+            std::thread::Builder::new()
+                .stack_size(stack_size_bytes)
+                .spawn_scoped(scope, callback)
+                .with_context(|| format!("failed to spawn {callback_name} thread"))?
+        } else {
+            scope.spawn(callback)
+        };
+        handle
+            .join()
+            .map_err(|_| anyhow!("{callback_name} panicked"))?
+    })
+}
+
 fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
     ServerResponse {
         status: page.status,
@@ -2035,6 +2074,33 @@ mod tests {
     #[derive(Debug, Default)]
     struct TestState;
     impl GlobalState for TestState {}
+
+    #[test]
+    fn scoped_thread_stack_size_is_optional_and_rejects_zero() {
+        let default_renderer = ServerRenderer::new(FissionServerApp::new("Test"));
+        assert_eq!(default_renderer.scoped_thread_stack_size_bytes, None);
+
+        let configured_renderer = ServerRenderer::new(FissionServerApp::new("Test"))
+            .with_scoped_thread_stack_size(8 * 1024 * 1024)
+            .unwrap();
+        assert_eq!(
+            configured_renderer.scoped_thread_stack_size_bytes,
+            Some(8 * 1024 * 1024)
+        );
+
+        assert!(ServerRenderer::new(FissionServerApp::new("Test"))
+            .with_scoped_thread_stack_size(0)
+            .is_err());
+
+        let caller_thread = std::thread::current().id();
+        let callback_thread = run_scoped_server_callback(
+            configured_renderer.scoped_thread_stack_size_bytes,
+            "test callback",
+            || Ok(std::thread::current().id()),
+        )
+        .unwrap();
+        assert_ne!(callback_thread, caller_thread);
+    }
 
     #[test]
     fn server_navigation_maps_only_location_bearing_commands_to_redirects() {
