@@ -16,7 +16,7 @@ use fission_core::{
     ActionEnvelope, ActionId, Env, LinkTarget, NavigationCommand, RuntimeResourceDeclaration,
     RuntimeState, Widget,
 };
-use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
+use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
     generated_stylesheet_href, packaged_font_asset_path, packaged_font_content_type,
@@ -1862,14 +1862,24 @@ fn collect_server_action_tokens(
             let Some(payload) = entry.payload_data.clone() else {
                 continue;
             };
+            // A form-associated control's `text_form_id` identifies the form
+            // it belongs to; it does not make that control's default action
+            // the form submit action. In SSR, native controls (such as
+            // Select and Checkbox) submit their current values with the Button
+            // that owns the signed form action.
+            if let Some(form_id) = semantics.text_form_id.as_deref() {
+                if form_id.is_empty() {
+                    anyhow::bail!("server action form ids cannot be empty");
+                }
+                if semantics.role != Role::Button {
+                    continue;
+                }
+            }
             let envelope = ActionEnvelope {
                 id: ActionId::from_u128(entry.action_id),
                 payload,
             };
             let token = if let Some(form_id) = semantics.text_form_id.as_deref() {
-                if form_id.is_empty() {
-                    anyhow::bail!("server action form ids cannot be empty");
-                }
                 if !form_ids.insert(form_id) {
                     anyhow::bail!(
                         "server action form id `{form_id}` belongs to more than one submit action"
@@ -2161,6 +2171,89 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn select_and_checkbox_toggles_do_not_claim_submit_identity() {
+        let select_id = WidgetId::explicit("account-language-select");
+        let checkbox_id = WidgetId::explicit("account-email-updates");
+        let submit_id = WidgetId::explicit("save-account-profile");
+        let select_action = ActionEnvelope::from(TestAction);
+        let checkbox_action = ActionEnvelope::from(TestAction);
+        let submit_action = ActionEnvelope::from(TestAction);
+
+        let mut select_semantics = fission_ir::Semantics {
+            role: Role::ComboBox,
+            text_field_name: Some("language".into()),
+            text_form_id: Some("account-profile".into()),
+            form_value: Some("en".into()),
+            form_select_options: vec![fission_ir::FormSelectOption {
+                label: "English".into(),
+                value: "en".into(),
+                disabled: false,
+            }],
+            ..Default::default()
+        };
+        select_semantics
+            .actions
+            .entries
+            .push(fission_ir::ActionEntry {
+                trigger: ActionTrigger::Default,
+                action_id: select_action.id.as_u128(),
+                payload_data: Some(select_action.payload),
+            });
+
+        let mut checkbox_semantics = fission_ir::Semantics {
+            role: Role::Checkbox,
+            text_field_name: Some("email_updates".into()),
+            text_form_id: Some("account-profile".into()),
+            form_value: Some("yes".into()),
+            checked: Some(true),
+            ..Default::default()
+        };
+        checkbox_semantics
+            .actions
+            .entries
+            .push(fission_ir::ActionEntry {
+                trigger: ActionTrigger::Default,
+                action_id: checkbox_action.id.as_u128(),
+                payload_data: Some(checkbox_action.payload),
+            });
+
+        let mut submit_semantics = fission_ir::Semantics {
+            role: Role::Button,
+            text_form_id: Some("account-profile".into()),
+            ..Default::default()
+        };
+        submit_semantics
+            .actions
+            .entries
+            .push(fission_ir::ActionEntry {
+                trigger: ActionTrigger::Default,
+                action_id: submit_action.id.as_u128(),
+                payload_data: Some(submit_action.payload),
+            });
+
+        let mut ir = CoreIR::new();
+        ir.add_node(select_id, Op::Semantics(select_semantics), Vec::new());
+        ir.add_node(checkbox_id, Op::Semantics(checkbox_semantics), Vec::new());
+        ir.add_node(submit_id, Op::Semantics(submit_semantics), Vec::new());
+        ir.set_root(select_id);
+
+        let signer = ServerActionSigner::development();
+        let tokens = collect_server_action_tokens(
+            &ir,
+            "/account/profile",
+            &BTreeMap::new(),
+            &signer,
+            Duration::from_secs(60),
+        )
+        .unwrap();
+
+        assert_eq!(tokens.len(), 1);
+        assert!(tokens.contains_key(&(submit_id, submit_action.id.as_u128())));
+        assert!(!tokens.contains_key(&(select_id, select_action.id.as_u128())));
+        assert!(!tokens.contains_key(&(checkbox_id, checkbox_action.id.as_u128())));
     }
 
     #[derive(Debug, Default)]
