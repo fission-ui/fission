@@ -134,6 +134,9 @@ pub struct TextInputRuntimeConfig {
     pub drag_start_behavior: DragStartBehavior,
     pub undo_controller: Option<TextUndoController>,
     pub restoration_id: Option<String>,
+    /// Resolved hint retained for HTML renderers, which replace the painted
+    /// editor subtree with a native input element.
+    pub placeholder: Option<String>,
     pub spell_check_configuration: Option<SpellCheckConfiguration>,
     pub custom_input_formatters: Vec<crate::SharedTextInputFormatter>,
     pub select_all_on_focus: bool,

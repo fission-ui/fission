@@ -735,6 +735,42 @@ fn native_text_controls_replace_their_painted_editor_but_keep_form_messages() {
 }
 
 #[test]
+fn native_text_controls_preserve_the_resolved_placeholder_attribute() {
+    let rendered = render_test_component(|| {
+        FormControlLayout::new(
+            WidgetId::explicit("account-email-field"),
+            TextInput {
+                placeholder: Some("you@example.com & more".into()),
+                ..Default::default()
+            },
+        )
+        .label(FormLabel::new("Email address"))
+        .into()
+    });
+
+    assert!(rendered
+        .html
+        .contains("placeholder=\"you@example.com &amp; more\""));
+    assert!(rendered.html.contains("Email address"));
+
+    let filled = render_test_component(|| {
+        FormControlLayout::new(
+            WidgetId::explicit("filled-email-field"),
+            TextInput {
+                value: "person@example.com".into(),
+                placeholder: Some("you@example.com".into()),
+                ..Default::default()
+            },
+        )
+        .label(FormLabel::new("Email address"))
+        .into()
+    });
+
+    assert!(filled.html.contains("placeholder=\"you@example.com\""));
+    assert!(filled.html.contains("value=\"person@example.com\""));
+}
+
+#[test]
 fn native_text_controls_do_not_render_the_retained_editor_subtree() {
     let input = WidgetId::explicit("native-input");
     let painted_editor = WidgetId::explicit("painted-editor");
