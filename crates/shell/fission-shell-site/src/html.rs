@@ -2626,6 +2626,15 @@ impl HtmlRenderer<'_> {
             attrs.push_str(&format!(" maxlength=\"{max_length}\""));
         }
         if semantics.supports_text_editing() {
+            if let Some(placeholder) = self
+                .ir
+                .custom_render_objects
+                .get(&node.id)
+                .and_then(fission_core::ui::widgets::text_input::downcast_text_input_runtime_config)
+                .and_then(|config| config.placeholder.as_deref())
+            {
+                attrs.push_str(&format!(" placeholder=\"{}\"", escape_attr(placeholder)));
+            }
             if semantics.required {
                 attrs.push_str(" required");
             }

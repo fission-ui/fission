@@ -1232,6 +1232,7 @@ impl Lower for TextInput {
                 drag_start_behavior: self.drag_start_behavior,
                 undo_controller: self.undo_controller.clone(),
                 restoration_id: self.restoration_id.clone(),
+                placeholder: resolved_placeholder.clone(),
                 spell_check_configuration: self.spell_check_configuration.clone(),
                 custom_input_formatters: self.custom_input_formatters.clone(),
                 select_all_on_focus: self.select_all_on_focus,
